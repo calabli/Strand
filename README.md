@@ -26,6 +26,18 @@ pnpm test
 
 运行核心层测试。`pnpm build` 做前端类型检查和构建，`pnpm tauri build` 打安装包。
 
+### 打 macOS 安装包
+
+```bash
+pnpm tauri build --bundles app,dmg
+```
+
+产物在 `target/release/bundle/`：`macos/Strand.app`（约 10 MB）和 `dmg/Strand_<版本>_aarch64.dmg`（约 4.5 MB）。在 Apple 芯片的 Mac 上约 3 分钟。
+
+- 只打本机架构（arm64）。Intel Mac 用的版本要先 `rustup target add x86_64-apple-darwin`，再加 `--target universal-apple-darwin` 打通用包。
+- 最低系统版本是 macOS 12（`tauri.conf.json` 的 `bundle.macOS.minimumSystemVersion`）。
+- 现在是临时签名（`signingIdentity: "-"`）：本机能直接运行，`codesign --verify --deep --strict` 能通过。发给别人时，对方第一次打开会被系统拦下，要在 Finder 里右键选“打开”。正式分发需要 Developer ID 证书签名再公证，本机目前只有开发证书。
+
 在真实仓库上测打开速度：
 
 ```bash
