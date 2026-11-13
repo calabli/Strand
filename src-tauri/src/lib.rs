@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use strand_core::model::{
-    ChangeScope, CommitDetail, FileDiff, GitInfo, LogPage, MergeMode, MergeResult, RefsList, RepoState, Selection, WorktreeStatus,
+    ChangeScope, CommitDetail, FileDiff, GitInfo, LogPage, MergeMode, MergeResult, RefsList, RepoMode, RepoState, Selection, WorktreeStatus,
 };
 use strand_core::log_filter::{LogAuthor, LogFilter, LogSort};
 use strand_core::commits::{CommitCaps, ResetMode};
@@ -363,14 +363,19 @@ async fn branch_rebase(state: State<'_, AppState>, onto: String) -> CmdResult<Wr
 }
 
 #[tauri::command]
-async fn merge_abort(state: State<'_, AppState>) -> CmdResult<Written<()>> {
-    with_repo(&state, |s| {
-        s.merge_abort()?;
-        // 中止拉取：放回拉取前自动搁置的改动
-        let note = s.pull_unshelve()?;
-        s.op_drop_pending()?;
+async fn merge_abort(state: State<'_, AppState>, marks: Option<serde_json::Value>) -> CmdResult<Written<()>> {
+    with_repo(&state, move |s| {
+        // 中止写成一条日志，撤销它回到中止前的冲突和标记（说明书 8.9）；中止拉取时放回拉取前自动搁置的改动
+        let label = match s.state()?.state {
+            RepoMode::Rebasing => "中止变基",
+            RepoMode::CherryPicking => "中止拣选",
+            RepoMode::Reverting => "中止还原",
+            RepoMode::Unstashing => "中止取回",
+            _ => "中止合并",
+        };
+        let (note, op) = s.merge_abort_logged(label, marks)?;
         s.reload()?;
-        Ok(Written { result: (), state: s.state()?, op: None, note })
+        Ok(Written { result: (), state: s.state()?, op, note })
     })
     .await
 }

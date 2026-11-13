@@ -154,6 +154,9 @@ pub struct MergeSession {
     pub theirs: SideInfo,
     /// 这次操作里有冲突的文件：还没解决的在前（按路径），已经解决的在后（resolved 为真）
     pub files: Vec<ConflictFile>,
+    /// 撤销“中止合并”后放回来的前端标记（中止时前端交给核心层的原样内容）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved_marks: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -276,7 +279,8 @@ impl Session {
         );
         let resolved = self.record_conflicts(&key, &files);
         files.extend(resolved);
-        Ok(Some(MergeSession { kind, step, mine, theirs, files }))
+        let saved_marks = self.strand_dir().ok().and_then(|d| std::fs::read(d.join("marks.json")).ok()).and_then(|b| serde_json::from_slice(&b).ok());
+        Ok(Some(MergeSession { kind, step, mine, theirs, files, saved_marks }))
     }
 
     fn conflict_record_file(&self) -> Result<std::path::PathBuf> {
@@ -347,6 +351,9 @@ impl Session {
     pub(crate) fn clear_conflict_record(&self) {
         if let Ok(p) = self.conflict_record_file() {
             let _ = std::fs::remove_file(p);
+        }
+        if let Ok(d) = self.strand_dir() {
+            let _ = std::fs::remove_file(d.join("marks.json"));
         }
     }
 

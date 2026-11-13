@@ -58,17 +58,18 @@ interface Props {
 export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbort, onError, onProgress, command }: Props) {
   // 标记按“这次操作”保存：两边的提交变了（比如变基到了下一个提交）就是新的一轮
   const key = `strand.marks:${repo.path}:${session.kind}:${session.mine.commit ?? ""}:${session.theirs.commit ?? ""}`;
-  const [marks, setMarks] = useState<Marks>(() => load(key));
+  const saved = session.saved_marks?.[key];
+  const [marks, setMarks] = useState<Marks>(() => load(key, saved));
   const [undo, setUndo] = useState<Marks[]>([]);
   const [redo, setRedo] = useState<Marks[]>([]);
-  const [resolved, setResolved] = useState<string[]>(() => loadResolved(key));
+  const [resolved, setResolved] = useState<string[]>(() => loadResolved(key, saved));
   const [open, setOpen] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setMarks(load(key));
-    setResolved(loadResolved(key));
+    setMarks(load(key, saved));
+    setResolved(loadResolved(key, saved));
     setUndo([]);
     setRedo([]);
     setChecked(false);
@@ -98,9 +99,10 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
   const setMark = (path: string, id: string, patch: Partial<ChangeMark>) =>
     change((m) => ({ ...m, [path]: { ...m[path], [id]: { ...markOf(m[path], id), ...patch } } }));
 
+  // 标记撤完再撤销等同于中止（说明书 8.7）；中止后可以撤销那一步回来（8.9）
   const doUndo = () => {
     const prev = undo[undo.length - 1];
-    if (!prev) return;
+    if (!prev) return onAbort();
     setRedo((r) => [...r, marks]);
     setUndo((u) => u.slice(0, -1));
     setMarks(prev);
@@ -270,7 +272,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
         marks={marks[file.path] ?? {}}
         checked={checked}
         busy={busy}
-        canUndo={undo.length > 0}
+        undoTip={undo.length > 0 ? t("撤销上一次标记（⌘Z）") : t("没有可以撤销的标记，再撤销就中止{0}（⌘Z）", KIND_TEXT[session.kind])}
         canRedo={redo.length > 0}
         onMark={(id, patch) => setMark(file.path, id, patch)}
         onWhole={(side) => wholeFile(file, side)}
@@ -405,7 +407,7 @@ interface WinProps {
   marks: Record<string, ChangeMark>;
   checked: boolean;
   busy: boolean;
-  canUndo: boolean;
+  undoTip: string;
   canRedo: boolean;
   onMark: (id: string, patch: Partial<ChangeMark>) => void;
   onWhole: (side: Side) => void;
@@ -701,7 +703,7 @@ function MergeWindow(p: WinProps) {
           ))}
         </span>
         <span className="grow" />
-        <button type="button" className="ib" title={t("撤销上一次标记（⌘Z）")} aria-label={t("撤销")} disabled={!p.canUndo} onClick={p.onUndo}>
+        <button type="button" className="ib" title={p.undoTip} aria-label={t("撤销")} disabled={p.busy} onClick={p.onUndo}>
           ↶
         </button>
         <button type="button" className="ib" title={t("重做（⇧⌘Z）")} aria-label={t("重做")} disabled={!p.canRedo} onClick={p.onRedo}>
@@ -803,20 +805,44 @@ function MergeWindow(p: WinProps) {
 
 // ---------- 本地保存（稍后继续） ----------
 
-function load(key: string): Marks {
+/** 本地保存的一项；本地没有时用撤销“中止合并”后核心层还回来的 */
+function stored(key: string, saved: unknown): { marks?: Marks; resolved?: string[] } {
   try {
-    return JSON.parse(localStorage.getItem(key) ?? "{}").marks ?? {};
+    const local = localStorage.getItem(key);
+    if (local) return JSON.parse(local) ?? {};
   } catch {
-    return {};
+    /* 读不了就看核心层的 */
   }
+  return saved && typeof saved === "object" ? (saved as { marks?: Marks; resolved?: string[] }) : {};
 }
-function loadResolved(key: string): string[] {
+function load(key: string, saved?: unknown): Marks {
+  return stored(key, saved).marks ?? {};
+}
+function loadResolved(key: string, saved?: unknown): string[] {
+  return stored(key, saved).resolved ?? [];
+}
+
+const prefixOf = (repoPath: string) => `strand.marks:${repoPath}:`;
+
+/** 这个仓库本地保存的冲突标记（中止时交给核心层，说明书 8.9） */
+export function marksOf(repoPath: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   try {
-    return JSON.parse(localStorage.getItem(key) ?? "{}").resolved ?? [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(prefixOf(repoPath))) out[k] = JSON.parse(localStorage.getItem(k) ?? "null");
+    }
   } catch {
-    return [];
+    /* 读不了就不带标记 */
   }
+  return out;
 }
+
+/** 中止后清掉本地的标记 */
+export function dropMarks(repoPath: string) {
+  for (const k of Object.keys(marksOf(repoPath))) clear(k);
+}
+
 function save(key: string, marks: Marks, resolved: string[]) {
   try {
     localStorage.setItem(key, JSON.stringify({ marks, resolved }));

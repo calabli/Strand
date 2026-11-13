@@ -6,6 +6,7 @@ import type { Branch, MergeMode, OpInfo, RefsList, RepoState, Worktree, Written 
 import type { DialogSpec } from "./Dialog";
 import { shortId } from "./format";
 import { t, withNote } from "../i18n";
+import { dropMarks, marksOf } from "./ConflictView";
 
 interface Deps {
   repo: RepoState | null;
@@ -245,12 +246,19 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
     () =>
       ask({
         title: t("中止{0}", repo?.state === "rebasing" ? t("变基") : repo?.state === "cherry_picking" ? t("拣选") : repo?.state === "reverting" ? t("还原") : repo?.state === "unstashing" ? t("取回") : t("合并")),
-        message: t("放弃这次操作，仓库回到开始之前的状态。冲突解决里已经做的标记和修改都会丢失。"),
+        message: t("放弃这次操作，仓库回到开始之前的状态。之后可以撤销这一步，回到现在的冲突和标记。"),
         confirm: t("中止"),
         danger: true,
-        onSubmit: () => run(api.mergeAbort(), () => t("已中止，回到开始之前")),
+        onSubmit: () => {
+          // 标记交给核心层存进这一步，本地的清掉：同一次合并以后重新开始时不再带着旧标记
+          const path = repo?.path ?? "";
+          return run(api.mergeAbort(marksOf(path)), () => {
+            dropMarks(path);
+            return t("已中止，回到开始之前");
+          });
+        },
       }),
-    [ask, run, repo?.state],
+    [ask, run, repo?.state, repo?.path],
   );
 
   const checkoutRemote = useCallback(

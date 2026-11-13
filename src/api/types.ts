@@ -516,6 +516,8 @@ export interface MergeSession {
   theirs: SideInfo;
   /** 这次操作里有冲突的文件；resolved 为真的是已经解决的 */
   files: ConflictFile[];
+  /** 撤销“中止合并”后放回来的标记：中止时交给核心层的 localStorage 条目（键 → 内容） */
+  saved_marks?: Record<string, unknown>;
 }
 
 export interface ChangeMark {

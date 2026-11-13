@@ -153,7 +153,8 @@ export const api = {
   /** 把当前分支变基到 onto 之上；有冲突时返回 CONFLICTS，停在变基状态 */
   branchRebase: (onto: string): Promise<Written<RebaseOutcome>> =>
     inTauri ? call("branch_rebase", { onto }) : mock.ok<RebaseOutcome>("rebased", `变基到 ${onto} 之上`, "merge"),
-  mergeAbort: (): Promise<Written<null>> => (inTauri ? call("merge_abort") : mock.ok(null)),
+  /** marks：这个仓库的冲突标记（localStorage 条目），核心层存进中止这一步，撤销中止时还回来（说明书 8.9） */
+  mergeAbort: (marks?: Record<string, unknown>): Promise<Written<null>> => (inTauri ? call("merge_abort", { marks }) : mock.ok(null)),
   branchCheckoutRemote: (remoteBranch: string): Promise<Written<string>> =>
     inTauri ? call("branch_checkout_remote", { remoteBranch }) : mock.branchCheckoutRemote(remoteBranch),
   checkoutDetached: (rev: string): Promise<Written<null>> =>

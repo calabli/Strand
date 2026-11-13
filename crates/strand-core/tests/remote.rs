@@ -513,3 +513,37 @@ fn fetch_reports_refs_changed() {
     assert!(r.refs_changed && r.incoming == 1);
     assert!(!remote::fetch(&w.me, &Cancel::default(), &none).unwrap().refs_changed);
 }
+
+/// 中止有冲突的拉取后撤销（说明书 8.9）：回到冲突中，自动搁置的改动回到暂存架；再中止时改动照常放回
+#[test]
+fn undo_abort_of_pull_reshelves_changes() {
+    use strand_core::model::RepoMode;
+    let w = world();
+    let mut s = strand_core::Session::open(&w.me).unwrap();
+    commit(&w.other, "a.txt", "别人改的\n", "别人改 a");
+    git(&w.other, &["push", "-q"]);
+    commit(&w.me, "a.txt", "我改的\n", "我改 a");
+    write(&w.me, "b.txt", "没提交的改动\n");
+    git(&w.me, &["add", "b.txt"]);
+    git(&w.me, &["commit", "-q", "-m", "加 b"]);
+    write(&w.me, "b.txt", "没提交的改动（又改了）\n");
+    s.pull_shelve().unwrap().unwrap();
+    let r = s.run_op("拉取 main", strand_core::oplog::OpKind::Pull, |_| remote::pull(&w.me, PullMode::Merge, &Cancel::default(), &none));
+    assert_eq!(r.unwrap_err().code, ErrorCode::Conflicts);
+
+    s.merge_abort_logged("中止拉取", None).unwrap();
+    assert_eq!(s.state().unwrap().state, RepoMode::Normal);
+    assert_eq!(std::fs::read_to_string(w.me.join("b.txt")).unwrap(), "没提交的改动（又改了）\n");
+    assert!(s.shelf_list().unwrap().is_empty());
+
+    s.oplog_undo(None, false).unwrap();
+    assert_eq!(s.state().unwrap().state, RepoMode::Merging);
+    assert_eq!(std::fs::read_to_string(w.me.join("b.txt")).unwrap(), "没提交的改动\n", "改动回到暂存架");
+    assert_eq!(s.shelf_list().unwrap().len(), 1);
+    assert!(std::fs::read_to_string(w.me.join("a.txt")).unwrap().contains("<<<<<<<"));
+
+    s.merge_abort_logged("中止拉取", None).unwrap();
+    assert_eq!(std::fs::read_to_string(w.me.join("b.txt")).unwrap(), "没提交的改动（又改了）\n");
+    assert!(s.shelf_list().unwrap().is_empty());
+    assert_eq!(git(&w.me, &["log", "-1", "--format=%s"]), "加 b");
+}

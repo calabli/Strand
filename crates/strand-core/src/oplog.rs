@@ -70,6 +70,10 @@ pub struct Snapshot {
     /// 链接的工作目录，只有 [`Session::run_op_scoped`] 才拍
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktrees: Option<Vec<WorktreeSnap>>,
+    /// 停在冲突中的现场（见 [`Session::merge_abort_logged`]）：一棵树，放着 `.git` 下的索引文件、
+    /// 合并和变基的状态文件、Strand 自己的冲突记录、前端的标记，以及当时还没写成日志的那一步（`pending.json`）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<String>,
 }
 
 /// 快照里额外记下的文件：`paths` 是记下的路径，`tree` 里只有当时存在的那些
@@ -122,6 +126,8 @@ struct Side {
     files: Option<FilesSnap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     worktrees: Option<Vec<WorktreeSnap>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    conflict: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,7 +252,7 @@ impl Session {
             }
         }
         let stash = self.stash_list()?.into_iter().map(|e| StashRef { id: e.id, message: e.message }).collect();
-        Ok(Snapshot { head, refs, index, worktree, stash, shelf: self.shelf_visible(), files: None, worktrees: None })
+        Ok(Snapshot { head, refs, index, worktree, stash, shelf: self.shelf_visible(), files: None, worktrees: None, conflict: None })
     }
 
     /// 普通快照，加上 `scope` 要求额外记下的文件和工作目录
@@ -418,6 +424,55 @@ impl Session {
         Ok(())
     }
 
+    /// 中止合并、变基、拣选、还原、取回或拉取，并写成一条可以撤销的日志（说明书 8.9）：
+    /// 中止前把冲突现场存下来（见 [`Snapshot::conflict`]），撤销这一步就回到中止前的冲突和标记。
+    /// `marks` 是前端的标记（原样存、原样还给 [`crate::conflict::MergeSession::saved_marks`]）。
+    /// 拉取前自动搁置的改动照常放回；返回放回时的提示和这条日志。
+    pub fn merge_abort_logged(&mut self, label: &str, marks: Option<serde_json::Value>) -> Result<(Option<String>, Option<OpInfo>)> {
+        if self.state()?.state == RepoMode::Normal {
+            self.merge_abort()?;
+            return Ok((None, None));
+        }
+        let mut before = self.snapshot()?;
+        let pending = self.oplog_file()?.pending.clone();
+        before.conflict = Some(self.capture_conflict(pending.as_ref(), marks.as_ref())?.to_string());
+        crate::console::note(label);
+        self.merge_abort()?;
+        let note = self.pull_unshelve()?;
+        if self.oplog_file()?.pending.take().is_some() {
+            self.oplog_save()?;
+        }
+        let after = self.snapshot()?;
+        Ok((note, Some(self.op_push(label, OpKind::Merge, before, after, true)?)))
+    }
+
+    /// 把冲突现场写成一棵树：`.git` 下的状态文件按原路径放（`git/…`），另有 `marks.json`、`pending.json`
+    fn capture_conflict(&self, pending: Option<&Pending>, marks: Option<&serde_json::Value>) -> Result<git2::Oid> {
+        let repo = self.git2()?;
+        let git_dir = repo.path().to_path_buf();
+        let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+        for name in CONFLICT_FILES {
+            let full = git_dir.join(name);
+            if full.is_dir() {
+                for f in walk(&full) {
+                    let rel = f.strip_prefix(&git_dir).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                    if let Ok(b) = std::fs::read(&f) {
+                        files.push((format!("git/{rel}"), b));
+                    }
+                }
+            } else if let Ok(b) = std::fs::read(&full) {
+                files.push((format!("git/{name}"), b));
+            }
+        }
+        if let Some(m) = marks {
+            files.push(("marks.json".into(), serde_json::to_vec(m).unwrap_or_default()));
+        }
+        if let Some(p) = pending {
+            files.push(("pending.json".into(), serde_json::to_vec(p).unwrap_or_default()));
+        }
+        write_tree(&repo, &files)
+    }
+
     fn op_push(&mut self, label: &str, kind: OpKind, before: Snapshot, after: Snapshot, undoable: bool) -> Result<OpInfo> {
         let keys: BTreeSet<&String> = before.refs.keys().chain(after.refs.keys()).collect();
         let changed: Vec<String> = keys.into_iter().filter(|k| before.refs.get(*k) != after.refs.get(*k)).cloned().collect();
@@ -432,6 +487,7 @@ impl Session {
             shelf: shelf_changed.then(|| s.shelf.clone()),
             files: s.files.clone(),
             worktrees: s.worktrees.clone(),
+            conflict: s.conflict.clone(),
         };
         let (b, a) = (side(&before), side(&after));
         // 新的写操作清空重做列表
@@ -476,6 +532,8 @@ impl Session {
             ("after-worktree", &e.after.worktree),
             ("before-files", &bf),
             ("after-files", &af),
+            ("before-conflict", &e.before.conflict),
+            ("after-conflict", &e.after.conflict),
         ] {
             if let Some(t) = t.as_deref().and_then(|t| git2::Oid::from_str(t).ok()) {
                 tb.insert(name, t, 0o040000).map_err(git_err("保存快照失败"))?;
@@ -490,7 +548,9 @@ impl Session {
                 HeadRef::Branch(_) => None,
             };
             let stashes: Vec<String> = s.stash.iter().flatten().map(|x| x.id.clone()).collect();
-            s.refs.values().flatten().cloned().chain(head).chain(stashes)
+            // 冲突现场里的状态文件提到的提交（MERGE_HEAD、变基的 onto 等）也要留住
+            let mentioned = s.conflict.as_deref().map(|t| conflict_commits(&repo, t)).unwrap_or_default();
+            s.refs.values().flatten().cloned().chain(head).chain(stashes).chain(mentioned)
         });
         for id in ids {
             let Ok(oid) = git2::Oid::from_str(&id) else { continue };
@@ -570,7 +630,8 @@ impl Session {
         if repo.is_bare() {
             return None;
         }
-        let index = changes(&repo, &e.before.index, &a.index);
+        // 中止合并之前的索引有冲突，没有对应的树，这里不逐条核对（撤销时的完整核对会比较整个索引）
+        let index = if e.before.conflict.is_some() { FileSet::new() } else { changes(&repo, &e.before.index, &a.index) };
         if !index.is_empty() {
             let mut idx = repo.index().ok()?;
             idx.read(false).ok()?;
@@ -615,6 +676,11 @@ impl Session {
                 live.iter().take_while(|e| e.id >= to).filter(|e| e.kind != OpKind::Push).map(|e| e.id).collect()
             }
         };
+        // 撤销“中止合并”后仓库回到冲突中，更早的步骤要等这次合并完成或再次中止后才能撤销：到这一条为止
+        let steps: Vec<u64> = match steps.iter().position(|id| live.iter().any(|e| e.id == *id && e.before.conflict.is_some())) {
+            Some(i) => steps[..=i].to_vec(),
+            None => steps,
+        };
         let Some(&last) = steps.last() else {
             return Err(CoreError::new(ErrorCode::NotFound, "没有可以撤销的操作"));
         };
@@ -641,7 +707,9 @@ impl Session {
     }
 
     fn finish_undo(&mut self, done: &[OpInfo]) -> Result<()> {
-        if !done.is_empty() {
+        // 撤销了“中止合并”时仓库回到冲突中，不能重做；要再中止，在冲突解决里再点一次中止
+        let back_in_conflict = self.oplog.file.as_ref().is_some_and(|f| f.entries.iter().any(|e| done.iter().any(|o| o.id == e.id) && e.before.conflict.is_some()));
+        if !done.is_empty() && !back_in_conflict {
             self.oplog.redo.push(done.iter().map(|o| o.id).collect());
         }
         self.oplog_save()
@@ -677,10 +745,21 @@ impl Session {
         let e = self.oplog_file()?.entries.iter().find(|e| e.id == id).cloned().ok_or_else(|| CoreError::new(ErrorCode::NotFound, "这一步已经不在时间线里"))?;
         crate::console::note(&format!("{}：{}", if undo { "撤销" } else { "重做" }, e.label));
         let (from, to) = if undo { (&e.after, &e.before) } else { (&e.before, &e.after) };
+        if from.conflict.is_some() {
+            return Err(CoreError::new(ErrorCode::NotFound, "回到冲突中的那一步不能重做，可以在冲突解决里再中止一次"));
+        }
         let scope = OpScope { files: to.files.as_ref().map(|f| f.paths.clone()).unwrap_or_default(), worktrees: to.worktrees.is_some() };
         let cur = self.snapshot_scoped(&scope)?;
         let repo = self.git2()?;
-        let checked = check(&repo, from, to, &cur).and_then(|plan| {
+        let checked = check(&repo, from, to, &cur).and_then(|mut plan| {
+            // 回到冲突现场：索引整个换成当时的索引文件（含冲突的各个版本），不逐条恢复；
+            // 但索引现在必须还是中止后的样子
+            if to.conflict.is_some() {
+                plan.index.clear();
+                if cur.index != from.index {
+                    return Err(vec!["索引".to_string()]);
+                }
+            }
             // 要移除的工作目录里不能有没提交的改动
             let dirty: Vec<String> = plan
                 .remove_worktrees
@@ -724,11 +803,138 @@ impl Session {
         if let Some(ids) = &to.shelf {
             self.shelf_set_visible(ids)?;
         }
+        if let Some(t) = &to.conflict {
+            let pending = restore_conflict(&repo, t)?;
+            self.oplog_file()?.pending = pending;
+        }
         let f = self.oplog_file()?;
         let x = f.entries.iter_mut().find(|x| x.id == id).expect("刚找到");
         x.undone = undo;
         Ok(info(x))
     }
+}
+
+/// 冲突现场要存下的东西（`.git` 下的相对路径，目录整个存）
+const CONFLICT_FILES: &[&str] = &[
+    "index",
+    "MERGE_HEAD",
+    "MERGE_MSG",
+    "MERGE_MODE",
+    "AUTO_MERGE",
+    "ORIG_HEAD",
+    "CHERRY_PICK_HEAD",
+    "REVERT_HEAD",
+    "REBASE_HEAD",
+    "SQUASH_MSG",
+    "rebase-merge",
+    "rebase-apply",
+    "sequencer",
+    "strand/conflicts.json",
+    "strand/squash",
+    "strand/pull-shelf",
+    "strand/unstash.json",
+];
+
+/// 目录下所有文件
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else { return out };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else {
+            out.push(p);
+        }
+    }
+    out.sort();
+    out
+}
+
+/// 把 (路径, 内容) 写成一棵树
+fn write_tree(repo: &git2::Repository, files: &[(String, Vec<u8>)]) -> Result<git2::Oid> {
+    let mut dirs: BTreeMap<&str, Vec<(String, Vec<u8>)>> = BTreeMap::new();
+    let mut tb = repo.treebuilder(None).map_err(git_err("保存冲突现场失败"))?;
+    for (path, data) in files {
+        match path.split_once('/') {
+            Some((d, rest)) => dirs.entry(d).or_default().push((rest.to_string(), data.clone())),
+            None => {
+                let id = repo.blob(data).map_err(git_err("保存冲突现场失败"))?;
+                tb.insert(path, id, 0o100644).map_err(git_err("保存冲突现场失败"))?;
+            }
+        }
+    }
+    for (d, list) in dirs {
+        let id = write_tree(repo, &list)?;
+        tb.insert(d, id, 0o040000).map_err(git_err("保存冲突现场失败"))?;
+    }
+    tb.write().map_err(git_err("保存冲突现场失败"))
+}
+
+/// 树里的所有文件：(路径, 内容)
+fn read_tree(repo: &git2::Repository, tree: &git2::Tree, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
+    for e in tree.iter() {
+        let name = format!("{prefix}{}", e.name().unwrap_or_default());
+        match e.kind() {
+            Some(git2::ObjectType::Tree) => {
+                if let Ok(t) = repo.find_tree(e.id()) {
+                    read_tree(repo, &t, &format!("{name}/"), out);
+                }
+            }
+            _ => {
+                if let Ok(b) = repo.find_blob(e.id()) {
+                    out.push((name, b.content().to_vec()));
+                }
+            }
+        }
+    }
+}
+
+/// 写回冲突现场：状态文件放回 `.git`，标记写成 `.git/strand/marks.json`；返回当时没写成日志的那一步
+fn restore_conflict(repo: &git2::Repository, tree: &str) -> Result<Option<Pending>> {
+    let t = git2::Oid::from_str(tree).and_then(|o| repo.find_tree(o)).map_err(git_err("读取冲突现场失败"))?;
+    let mut files = Vec::new();
+    read_tree(repo, &t, "", &mut files);
+    let git_dir = repo.path();
+    let mut pending = None;
+    for (path, data) in files {
+        let target = match path.as_str() {
+            "pending.json" => {
+                pending = serde_json::from_slice(&data).ok();
+                continue;
+            }
+            "marks.json" => git_dir.join("strand/marks.json"),
+            p => match p.strip_prefix("git/") {
+                Some(rel) => git_dir.join(rel),
+                None => continue,
+            },
+        };
+        if let Some(d) = target.parent() {
+            std::fs::create_dir_all(d).map_err(|e| CoreError::git("恢复冲突现场失败", e))?;
+        }
+        std::fs::write(&target, data).map_err(|e| CoreError::git("恢复冲突现场失败", e))?;
+    }
+    Ok(pending)
+}
+
+/// 冲突现场的状态文件里提到的提交（40 位哈希）
+fn conflict_commits(repo: &git2::Repository, tree: &str) -> Vec<String> {
+    let Ok(t) = git2::Oid::from_str(tree).and_then(|o| repo.find_tree(o)) else { return Vec::new() };
+    let mut files = Vec::new();
+    read_tree(repo, &t, "", &mut files);
+    let mut out = Vec::new();
+    for (path, data) in files {
+        if !path.starts_with("git/") || path == "git/index" || data.len() > 64 * 1024 {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&data);
+        for w in text.split(|c: char| !c.is_ascii_hexdigit()) {
+            if w.len() == 40 {
+                out.push(w.to_string());
+            }
+        }
+    }
+    out
 }
 
 /// 工作区已跟踪文件的树：复制一份索引，按工作区的内容刷新后写成树（不改动真正的索引）
