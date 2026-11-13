@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>冲突解决：多个文件</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit}
+a{color:#1D1D1F}a:hover{color:#000000}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-direction: column; background: #FFFFFF; color: #1D1D1F; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; font-size: 13px; line-height: 1.4">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; background: #F5F5F7; border-bottom: 1px solid #DCDCE0">
+<div aria-hidden="true" style="display: flex; gap: 8px; margin-right: 8px">
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span>
+</div>
+<span style="font-weight: 600; font-size: 14px">拉取时遇到冲突</span>
+<span style="display: flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 15px; background: #FFE9A8; color: #5C4300; font-weight: 600">合并进行中 · {{progressShort}}</span>
+<a href="Main.dc.html" style="margin-left: auto; display: flex; align-items: center; height: 30px; padding: 0 12px; border: 1px solid #C9C9CF; border-radius: 8px; background: #FFFFFF; text-decoration: none">稍后继续</a>
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 30px; padding: 0 12px; border: 1px solid #C9C9CF; border-radius: 8px; background: #FFFFFF; color: #B3261E; font-weight: 600; text-decoration: none">中止，回到拉取之前</a>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex-grow: 1">
+
+<aside style="flex: 0 0 252px; box-sizing: border-box; padding: 12px 10px; background: #F5F5F7; border-right: 1px solid #DCDCE0; display: flex; flex-direction: column; gap: 3px">
+<sc-if value="{{hasPending}}" hint-placeholder-val="{{true}}">
+<div style="padding: 2px 8px 4px; font-size: 11px; font-weight: 600; color: #6E6E73">待解决</div>
+</sc-if>
+<sc-for list="{{pending}}" as="f" hint-placeholder-count="4">
+<button type="button" onClick="{{f.open}}" style="display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 44px; padding: 4px 8px; border: 0; border-radius: 7px; text-align: left; cursor: pointer; background: {{f.bg}}">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span aria-hidden="true" style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: #C2540A"></span><span style="flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 600">{{f.name}}</span><span style="white-space: nowrap; font-variant-numeric: tabular-nums">{{f.count}}</span></span>
+<span style="padding-left: 16px; font-size: 11px; color: #5A5A60">{{f.note}}</span>
+</button>
+</sc-for>
+<sc-if value="{{hasResolved}}" hint-placeholder-val="{{false}}">
+<div style="padding: 12px 8px 4px; font-size: 11px; font-weight: 600; color: #6E6E73">已解决</div>
+</sc-if>
+<sc-for list="{{resolved}}" as="f" hint-placeholder-count="0">
+<button type="button" onClick="{{f.open}}" style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px; border: 0; border-radius: 7px; text-align: left; cursor: pointer; background: {{f.bg}}">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#1A6B34" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M2.5 6.5l2.5 2.5 4.5-6"></path></svg>
+<span style="flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">{{f.name}}</span><span style="white-space: nowrap">{{f.count}}</span>
+</button>
+</sc-for>
+<div style="padding: 12px 8px 4px; font-size: 11px; font-weight: 600; color: #6E6E73">已自动合并 · 9 个</div>
+<div style="display: flex; align-items: center; min-height: 28px; padding: 0 8px; color: #4A4A4F; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">virtual_list.rs</div>
+<div style="display: flex; align-items: center; min-height: 28px; padding: 0 8px; color: #4A4A4F; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">graph/mod.rs</div>
+<button type="button" style="display: flex; align-items: center; min-height: 28px; padding: 0 8px; border: 0; background: transparent; text-align: left; text-decoration: underline; cursor: pointer; color: #4A4A4F">查看全部 9 个</button>
+
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 12px">
+<div style="padding: 8px 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #DCDCE0; border-top: 3px solid #C2540A; display: flex; flex-direction: column; gap: 2px; font-size: 12px">
+<span style="font-size: 11px; font-weight: 600; color: #7A3300">你的 · 本地</span>
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-weight: 600">feature/commit-graph</span>
+<span style="color: #5A5A60"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">a41f9c2</span> · 林夏 · 2 分钟前</span>
+</div>
+<div style="padding: 8px 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #DCDCE0; border-top: 3px solid #0064E0; display: flex; flex-direction: column; gap: 2px; font-size: 12px">
+<span style="font-size: 11px; font-weight: 600; color: #0B4FB3">对方的 · 远程</span>
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-weight: 600">origin/feature/commit-graph</span>
+<span style="color: #5A5A60"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">9d3e5b2</span> · 周屿 · 20 分钟前</span>
+</div>
+</div>
+</aside>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid #E6E6EA">
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 600">{{curPath}}</span>
+<sc-if value="{{isText}}" hint-placeholder-val="{{true}}">
+<span style="display: flex; align-items: center; gap: 6px">
+<span style="font-size: 12px; color: #4A4A4F">整个文件</span>
+<button type="button" onClick="{{fileMine}}" style="height: 26px; padding: 0 10px; border: 1px solid #C9C9CF; border-radius: 7px; background: #FFFFFF; cursor: pointer">都用你的</button>
+<button type="button" onClick="{{fileTheirs}}" style="height: 26px; padding: 0 10px; border: 1px solid #C9C9CF; border-radius: 7px; background: #FFFFFF; cursor: pointer">都用对方的</button>
+</span>
+</sc-if>
+<div style="display: flex; align-items: center; gap: 6px; margin-left: auto">
+<button type="button" onClick="{{prev}}" aria-label="上一处冲突" style="display: flex; align-items: center; justify-content: center; width: 34px; height: 30px; padding: 0; border: 1px solid #C9C9CF; border-radius: 8px; background: #FFFFFF; cursor: pointer"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#1D1D1F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10V2M2.5 5.5L6 2l3.5 3.5"></path></svg></button>
+<span style="min-width: 150px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums">冲突 {{gNo}} / {{gTotal}} · 文件 {{fNo}} / {{fTotal}}</span>
+<button type="button" onClick="{{next}}" aria-label="下一处冲突" style="display: flex; align-items: center; justify-content: center; width: 34px; height: 30px; padding: 0; border: 1px solid #C9C9CF; border-radius: 8px; background: #FFFFFF; cursor: pointer"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#1D1D1F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v8M2.5 6.5L6 10l3.5-3.5"></path></svg></button>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; color: #4A4A4F">
+<span style="display: flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 3px; background: #FFC48A"></span>你改的</span>
+<span style="display: flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 3px; background: #A9C8FF"></span>对方改的</span>
+<span style="display: flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 3px; background: #FFE9A8; border: 1px dashed #8A6A00; box-sizing: border-box"></span>待选择</span>
+</div>
+</div>
+
+<sc-if value="{{isText}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-grow: 1; min-height: 0">
+<div ref="{{setScroll}}" id="cf-scroll" style="flex: 1 1 0; min-width: 0; height: 640px; overflow: auto">
+<div style="min-width: 940px">
+
+<div style="position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); background: #F5F5F7; border-bottom: 1px solid #DCDCE0">
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 3px solid #C2540A"><span style="font-weight: 600; color: #7A3300">你的</span><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">feature/commit-graph</span></div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 3px solid #1D1D1F; border-left: 1px solid #DCDCE0"><span style="font-weight: 600">结果预览</span><span style="font-size: 12px; color: #4A4A4F">解决后写入这个文件</span></div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 3px solid #0064E0; border-left: 1px solid #DCDCE0"><span style="font-weight: 600; color: #0B4FB3">对方的</span><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">origin/feature/commit-graph</span></div>
+</div>
+
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="30">
+<sc-if value="{{r.head}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); min-height: 38px; border-top: 1px solid #C9C9CF; box-shadow: inset 0 0 0 2px {{r.ring}}">
+<div style="display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 12px; background: #FFDDB8; min-width: 0">
+<span style="flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-weight: 600">{{r.mineHash}}</span> · {{r.mineWho}} · {{r.mineMsg}}</span>
+<button type="button" onClick="{{r.pickMine}}" style="flex-shrink: 0; display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 1px solid #8A6A55; border-radius: 7px; font-weight: 600; cursor: pointer; background: {{r.mineBg}}; color: {{r.mineFg}}">用你的<svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 5h7M5.5 2l3 3-3 3"></path></svg></button>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: #F0F0F3; border-left: 1px solid #DCDCE0; min-width: 0">
+<span style="font-weight: 600; white-space: nowrap">{{r.title}}</span>
+<span style="padding: 1px 8px; border-radius: 9px; font-size: 12px; font-weight: 600; white-space: nowrap; background: {{r.stBg}}; color: {{r.stFg}}">{{r.status}}</span>
+<button type="button" onClick="{{r.pickBoth}}" style="margin-left: auto; height: 26px; padding: 0 10px; border: 1px solid #8A8A90; border-radius: 7px; cursor: pointer; white-space: nowrap; background: {{r.bothBg}}; color: {{r.bothFg}}">两边都要</button>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #8A8A90; border-radius: 7px; background: #FFFFFF; cursor: pointer; white-space: nowrap">手动编辑</button>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 8px; background: #C9DEFF; border-left: 1px solid #DCDCE0; min-width: 0">
+<button type="button" onClick="{{r.pickTheirs}}" style="flex-shrink: 0; display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 1px solid #5A6E8A; border-radius: 7px; font-weight: 600; cursor: pointer; background: {{r.theirsBg}}; color: {{r.theirsFg}}"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5h-7M4.5 2l-3 3 3 3"></path></svg>用对方的</button>
+<span style="flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-weight: 600">{{r.theirsHash}}</span> · {{r.theirsWho}} · {{r.theirsMsg}}</span>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{r.line}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px minmax(0, 1.1fr) 44px minmax(0, 1fr); height: 24px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 24px">
+<span style="text-align: right; padding-right: 10px; color: #6E6E73; background: {{r.aBg}}">{{r.aN}}</span>
+<span style="white-space: pre; overflow: hidden; background: {{r.aBg}}">{{r.aPre}}<span style="background: #FFC48A; font-weight: 700; border-radius: 3px">{{r.aMid}}</span>{{r.aPost}}</span>
+<span style="text-align: right; padding-right: 10px; color: #6E6E73; border-left: 1px solid #DCDCE0; background: {{r.cBg}}">{{r.cN}}</span>
+<span style="white-space: pre; overflow: hidden; background: {{r.cBg}}; color: {{r.cFg}}; font-family: {{r.cFont}}">{{r.cText}}</span>
+<span style="text-align: right; padding-right: 10px; color: #6E6E73; border-left: 1px solid #DCDCE0; background: {{r.bBg}}">{{r.bN}}</span>
+<span style="white-space: pre; overflow: hidden; background: {{r.bBg}}">{{r.bPre}}<span style="background: #A9C8FF; font-weight: 700; border-radius: 3px">{{r.bMid}}</span>{{r.bPost}}</span>
+</div>
+</sc-if>
+</sc-for>
+</div>
+</div>
+
+<div aria-label="冲突位置" style="position: relative; flex: 0 0 18px; height: 640px; background: #F5F5F7; border-left: 1px solid #DCDCE0">
+<sc-for list="{{marks}}" as="m" hint-placeholder-count="2">
+<button type="button" onClick="{{m.go}}" aria-label="{{m.label}}" style="position: absolute; left: 2px; width: 13px; height: 16px; padding: 0; border: 2px solid {{m.ring}}; border-radius: 4px; cursor: pointer; top: {{m.top}}; background: {{m.bg}}"></button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isCard}}" hint-placeholder-val="{{false}}">
+<div style="flex-grow: 1; min-height: 640px; box-sizing: border-box; padding: 40px 20px; background: #FAFAFB; display: flex; justify-content: center; align-items: flex-start">
+<div style="width: 100%; max-width: 720px; border-radius: 14px; background: #FFFFFF; border: 1px solid #DCDCE0; box-shadow: inset 0 0 0 2px {{accent}}; overflow: hidden">
+<div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 10px"><span style="font-size: 17px; font-weight: 600">{{card.title}}</span><span style="padding: 1px 8px; border-radius: 9px; font-size: 12px; font-weight: 600; background: {{card.stBg}}; color: {{card.stFg}}">{{card.status}}</span></div>
+<span style="color: #4A4A4F">{{card.desc}}</span>
+<sc-if value="{{card.hasTip}}" hint-placeholder-val="{{false}}"><span style="align-self: flex-start; padding: 6px 10px; border-radius: 8px; background: #E8F0FE; color: #0B4FB3; font-weight: 600">{{card.tip}}</span></sc-if>
+</div>
+<div style="display: flex; flex-wrap: wrap; border-top: 1px solid #DCDCE0">
+<div style="flex: 1 1 280px; box-sizing: border-box; padding: 16px 20px; background: #FFF4E8; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 600; color: #7A3300">你的 · feature/commit-graph</span>
+<span>{{card.mineDesc}}</span>
+<span style="font-size: 12px; color: #5A4A3C"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">{{card.mineHash}}</span> · {{card.mineWho}}</span>
+<button type="button" onClick="{{card.pickMine}}" style="height: 44px; border: 1px solid #8A6A55; border-radius: 9px; font-weight: 600; cursor: pointer; background: {{card.mineBg}}; color: {{card.mineFg}}">{{card.mineLabel}}</button>
+</div>
+<div style="flex: 1 1 280px; box-sizing: border-box; padding: 16px 20px; background: #E8F0FE; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 600; color: #0B4FB3">对方的 · origin/feature/commit-graph</span>
+<span>{{card.theirsDesc}}</span>
+<span style="font-size: 12px; color: #3C4A5E"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">{{card.theirsHash}}</span> · {{card.theirsWho}}</span>
+<button type="button" onClick="{{card.pickTheirs}}" style="height: 44px; border: 1px solid #5A6E8A; border-radius: 9px; font-weight: 600; cursor: pointer; background: {{card.theirsBg}}; color: {{card.theirsFg}}">{{card.theirsLabel}}</button>
+</div>
+</div>
+<div style="padding: 12px 20px; border-top: 1px solid #DCDCE0; color: #4A4A4F">{{card.result}}</div>
+</div>
+</div>
+</sc-if>
+
+<div style="margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid #E6E6EA; background: #FAFAFB">
+<span style="color: #4A4A4F">{{progress}}</span>
+<sc-if value="{{notDone}}" hint-placeholder-val="{{true}}">
+<button type="button" disabled="{{true}}" style="margin-left: auto; height: 34px; padding: 0 18px; border: 1px solid #C9C9CF; border-radius: 8px; background: #F5F5F7; color: #6E6E73; font-weight: 600">完成合并</button>
+</sc-if>
+<sc-if value="{{allDone}}" hint-placeholder-val="{{false}}">
+<a href="Main.dc.html" style="margin-left: auto; display: flex; align-items: center; height: 34px; padding: 0 18px; border-radius: 8px; color: #FFFFFF; font-weight: 600; text-decoration: none; background: {{accent}}">完成合并</a>
+</sc-if>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0064E0","options":["#0064E0","#7A3FD0","#B3401A","#0A6B74"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+const s = this.state || {};
+const accent = this.props.accent ?? '#0064E0';
+const choice = s.choice || {};
+const fi = s.file || 0;
+const cur = s.cur || 0;
+const mineA = { mineHash: '7be0d15', mineWho: '林夏 · 40 分钟前', mineMsg: '图谱：虚拟滚动支持 10 万条提交' };
+const mineB = { mineHash: 'a41f9c2', mineWho: '林夏 · 2 分钟前', mineMsg: '图谱：泳道计算移到后台线程' };
+const thA = { theirsHash: '6ab41c7', theirsWho: '周屿 · 1 小时前', theirsMsg: '图谱：按范围取行' };
+const thB = { theirsHash: '9d3e5b2', theirsWho: '周屿 · 20 分钟前', theirsMsg: '图谱：调整行高和预加载行数' };
+const files = [
+{ path: 'src/ui/graph_view.rs', name: 'graph_view.rs', note: '2 处内容冲突', segs: [
+{ ctx: [
+'use crate::graph::LaneLayout;',
+'use crate::ui::virtual_list::VirtualList;',
+'',
+'pub struct GraphView {',
+'    layout: LaneLayout,',
+'    list: VirtualList,',
+'    scroll_top: f32,',
+'}',
+'',
+'impl GraphView {',
+'    pub fn visible_rows(&mut self, range: Range<usize>) {'
+] },
+Object.assign({ id: 'c1', mine: ['        let rows = self.layout.visible(range);'], theirs: ['        let rows = self.layout.rows_in(range.clone());'] }, mineA, thA),
+{ ctx: [
+'        self.list.set_rows(rows);',
+'    }',
+'',
+'    pub fn on_scroll(&mut self, delta: f32) {',
+'        self.scroll_top = (self.scroll_top + delta).max(0.0);',
+'        let first = (self.scroll_top / ROW_HEIGHT) as usize;',
+'        let count = self.list.viewport_rows();',
+'        self.visible_rows(first..first + count);',
+'    }',
+'',
+'    pub fn select(&mut self, index: usize) {',
+'        self.list.set_selected(index);',
+'        self.ensure_visible(index);',
+'    }',
+'',
+'    fn ensure_visible(&mut self, index: usize) {',
+'        let top = index as f32 * ROW_HEIGHT;',
+'        if top < self.scroll_top {',
+'            self.scroll_top = top;',
+'        }',
+'    }',
+'}',
+''
+] },
+Object.assign({ id: 'c2', mine: ['const ROW_HEIGHT: f32 = 36.0;'], theirs: ['const ROW_HEIGHT: f32 = 32.0;', 'const OVERSCAN: usize = 8;'] }, mineA, thB),
+{ ctx: [
+'const LANE_WIDTH: f32 = 18.0;',
+'const DOT_RADIUS: f32 = 4.5;',
+'',
+'fn lane_x(lane: usize) -> f32 {',
+'    12.0 + lane as f32 * LANE_WIDTH',
+'}'
+] }
+] },
+{ path: 'src/graph/layout.rs', name: 'layout.rs', note: '1 处内容冲突', segs: [
+{ ctx: [
+'impl LaneLayout {',
+'    pub fn rows_in(&self, range: Range<usize>) -> Vec<Row> {'
+] },
+Object.assign({ id: 'c3', mine: ['        self.rows[range].to_vec()'], theirs: ['        let end = range.end.min(self.rows.len());', '        self.rows[range.start..end].to_vec()'] }, mineB, thA),
+{ ctx: [
+'    }',
+'',
+'    pub fn len(&self) -> usize {',
+'        self.rows.len()',
+'    }',
+'}'
+] }
+] },
+{ path: 'src/sync/log.rs', name: 'sync/log.rs', note: '你修改了，对方删除了', card: {
+id: 'c4', title: '一边修改，一边删除', desc: '你修改了这个文件，对方把它删除了。两种结果只能选一个。', tip: '',
+mineDesc: '修改了 12 行，文件还在。', mineHash: 'a41f9c2', mineWho: '林夏 · 2 分钟前', mineLabel: '保留文件',
+theirsDesc: '删除了整个文件。', theirsHash: '9d3e5b2', theirsWho: '周屿 · 20 分钟前', theirsLabel: '删除文件',
+resMine: '结果：保留 src/sync/log.rs，内容是你修改后的版本。', resTheirs: '结果：删除 src/sync/log.rs。' } },
+{ path: 'Cargo.lock', name: 'Cargo.lock', note: '锁文件，建议用对方的', card: {
+id: 'c5', title: '锁文件冲突', desc: '这个文件是自动生成的，逐行合并容易出错，所以按整个文件选择。', tip: '建议：用对方的，完成合并后重新生成。',
+mineDesc: '你本地生成的依赖版本。', mineHash: 'a41f9c2', mineWho: '林夏 · 2 分钟前', mineLabel: '整个文件用你的',
+theirsDesc: '远程生成的依赖版本。', theirsHash: '9d3e5b2', theirsWho: '周屿 · 20 分钟前', theirsLabel: '整个文件用对方的',
+resMine: '结果：使用你本地的 Cargo.lock。', resTheirs: '结果：使用远程的 Cargo.lock。' } }
+];
+const G = [];
+files.forEach((f, i) => {
+const ids = f.card ? [f.card.id] : f.segs.filter((g) => g.id).map((g) => g.id);
+f.ids = ids;
+ids.forEach((id, j) => G.push({ file: i, idx: j, id: id }));
+});
+const split = (x, y) => {
+if (y === undefined) return ['', x, ''];
+let p = 0;
+while (p < x.length && p < y.length && x[p] === y[p]) p++;
+let q = 0;
+while (q < x.length - p && q < y.length - p && x[x.length - 1 - q] === y[y.length - 1 - q]) q++;
+return [x.slice(0, p), x.slice(p, x.length - q), x.slice(x.length - q)];
+};
+const sans = "-apple-system, 'PingFang SC', sans-serif";
+const mono = "'SF Mono', ui-monospace, Menlo, monospace";
+const on = ['#1D1D1F', '#FFFFFF'];
+const off = ['#FFFFFF', '#1D1D1F'];
+const scrollTo = (top) => {
+const el = this._scroll || (typeof document !== 'undefined' ? document.getElementById('cf-scroll') : null);
+if (!el) return;
+if (el.scrollTo) el.scrollTo({ top: top, behavior: 'smooth' }); else el.scrollTop = top;
+};
+const topsOf = {};
+const goto = (gi) => {
+const g = G[gi];
+this.setState({ file: g.file, cur: g.idx });
+const t = topsOf[g.file];
+setTimeout(() => scrollTo(t ? Math.max(0, t[g.idx] - 90) : 0), 40);
+};
+const pick = (id, v) => () => {
+const n = Object.assign({}, choice);
+n[id] = v;
+const here = G.findIndex((g) => g.id === id);
+this.setState({ choice: n, file: G[here].file, cur: G[here].idx });
+for (let j = 1; j < G.length; j++) {
+const t = (here + j) % G.length;
+if (!n[G[t].id]) { setTimeout(() => goto(t), 600); break; }
+}
+};
+const build = (f, fIndex) => {
+const rows = [];
+const tops = [];
+let y = 0, a = 0, b = 0, c = 0, k = 0;
+f.segs.forEach((g) => {
+if (g.ctx) {
+g.ctx.forEach((t) => {
+a++; b++; c++;
+rows.push({ line: true, head: false, aN: a, bN: b, cN: c, aPre: t, aMid: '', aPost: '', bPre: t, bMid: '', bPost: '', cText: t, aBg: '#FFFFFF', bBg: '#FFFFFF', cBg: '#FFFFFF', cFg: '#1D1D1F', cFont: mono });
+y += 24;
+});
+return;
+}
+const idx = k++;
+const ch = choice[g.id];
+const gNo = G.findIndex((x) => x.id === g.id) + 1;
+tops.push(y);
+rows.push({
+head: true, line: false, title: '冲突 ' + gNo,
+ring: (fIndex === fi && idx === cur) ? accent : 'transparent',
+status: ch ? '已解决' : '待处理',
+stBg: ch ? '#E3F3E8' : '#FFE9A8', stFg: ch ? '#1A6B34' : '#5C4300',
+mineHash: g.mineHash, mineWho: g.mineWho, mineMsg: g.mineMsg,
+theirsHash: g.theirsHash, theirsWho: g.theirsWho, theirsMsg: g.theirsMsg,
+mineBg: ch === 'mine' ? on[0] : off[0], mineFg: ch === 'mine' ? on[1] : off[1],
+theirsBg: ch === 'theirs' ? on[0] : off[0], theirsFg: ch === 'theirs' ? on[1] : off[1],
+bothBg: ch === 'both' ? on[0] : off[0], bothFg: ch === 'both' ? on[1] : off[1],
+pickMine: pick(g.id, 'mine'), pickTheirs: pick(g.id, 'theirs'), pickBoth: pick(g.id, 'both')
+});
+y += 39;
+const m = g.mine.map((t) => ({ t: t, src: 'm' }));
+const th = g.theirs.map((t) => ({ t: t, src: 't' }));
+const res = ch === 'mine' ? m : (ch === 'theirs' ? th : (ch === 'both' ? m.concat(th) : null));
+const n = Math.max(g.mine.length, g.theirs.length, res ? res.length : 1);
+for (let i = 0; i < n; i++) {
+const mt = g.mine[i], tt = g.theirs[i];
+const ms = mt === undefined ? null : split(mt, tt);
+const ts = tt === undefined ? null : split(tt, mt);
+const r = res ? res[i] : null;
+if (mt !== undefined) a++;
+if (tt !== undefined) b++;
+if (r) c++;
+rows.push({
+line: true, head: false,
+aN: mt === undefined ? '' : a, bN: tt === undefined ? '' : b, cN: r ? c : '',
+aPre: ms ? ms[0] : '', aMid: ms ? ms[1] : '', aPost: ms ? ms[2] : '',
+bPre: ts ? ts[0] : '', bMid: ts ? ts[1] : '', bPost: ts ? ts[2] : '',
+aBg: mt === undefined ? '#FFF7EE' : '#FFEBD6',
+bBg: tt === undefined ? '#F1F6FF' : '#DCE9FF',
+cText: res ? (r ? r.t : '') : (i === 0 ? '  待选择：用左边或右边的版本' : ''),
+cBg: res ? (r ? (r.src === 'm' ? '#FFEBD6' : '#DCE9FF') : '#FAFAFB') : '#FFF3CC',
+cFg: res ? '#1D1D1F' : '#5C4300',
+cFont: res ? mono : sans
+});
+y += 24;
+}
+});
+return { rows: rows, tops: tops, total: y };
+};
+const layouts = files.map((f, i) => {
+if (f.card) return null;
+const l = build(f, i);
+topsOf[i] = l.tops;
+return l;
+});
+const f = files[fi];
+const lay = layouts[fi];
+const marks = lay ? f.ids.map((id, i) => ({
+top: (lay.tops[i] / Math.max(lay.total, 640) * 100).toFixed(1) + '%',
+bg: choice[id] ? '#1A6B34' : '#C2540A',
+ring: i === cur ? '#1D1D1F' : 'transparent',
+label: '跳到这个文件的第 ' + (i + 1) + ' 处冲突',
+go: () => goto(G.findIndex((g) => g.id === id))
+})) : [];
+const items = files.map((x, i) => {
+const done = x.ids.filter((id) => choice[id]).length;
+return {
+name: x.name, note: x.note, done: done, total: x.ids.length,
+count: done + ' / ' + x.ids.length,
+bg: i === fi ? '#E0E0E5' : 'transparent',
+open: () => { this.setState({ file: i, cur: 0 }); setTimeout(() => scrollTo(0), 40); }
+};
+});
+const pending = items.filter((x) => x.done < x.total);
+const resolved = items.filter((x) => x.done === x.total);
+let gi = G.findIndex((g) => g.file === fi && g.idx === cur);
+if (gi < 0) gi = G.findIndex((g) => g.file === fi);
+const N = G.length;
+const doneCount = G.filter((g) => choice[g.id]).length;
+const allDone = doneCount === N;
+const setFile = (v) => () => {
+const n = Object.assign({}, choice);
+f.ids.forEach((id) => { n[id] = v; });
+this.setState({ choice: n });
+};
+let card = { hasTip: false };
+if (f.card) {
+const k = f.card;
+const ch = choice[k.id];
+card = Object.assign({}, k, {
+hasTip: !!k.tip,
+status: ch ? '已解决' : '待处理',
+stBg: ch ? '#E3F3E8' : '#FFE9A8', stFg: ch ? '#1A6B34' : '#5C4300',
+mineBg: ch === 'mine' ? on[0] : off[0], mineFg: ch === 'mine' ? on[1] : off[1],
+theirsBg: ch === 'theirs' ? on[0] : off[0], theirsFg: ch === 'theirs' ? on[1] : off[1],
+result: ch === 'mine' ? k.resMine : (ch === 'theirs' ? k.resTheirs : '结果：还没有选择。'),
+pickMine: pick(k.id, 'mine'), pickTheirs: pick(k.id, 'theirs')
+});
+}
+return {
+accent: accent,
+curPath: f.path,
+isText: !f.card,
+isCard: !!f.card,
+card: card,
+rows: lay ? lay.rows : [],
+marks: marks,
+pending: pending, resolved: resolved,
+hasPending: pending.length > 0, hasResolved: resolved.length > 0,
+gNo: gi + 1, gTotal: N, fNo: fi + 1, fTotal: files.length,
+prev: () => goto((gi - 1 + N) % N),
+next: () => goto((gi + 1) % N),
+fileMine: setFile('mine'), fileTheirs: setFile('theirs'),
+setScroll: (el) => { this._scroll = el; },
+allDone: allDone, notDone: !allDone,
+progressShort: '已解决 ' + doneCount + ' / ' + N + ' 处',
+progress: allDone ? N + ' 处冲突都已解决，' + files.length + ' 个文件可以合并了。' : '已解决 ' + doneCount + ' / ' + N + ' 处冲突 · ' + resolved.length + ' / ' + files.length + ' 个文件，全部解决后才能完成合并。'
+};
+}
+}
+</script>
+</body>
+</html>

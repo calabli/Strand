@@ -1,0 +1,23 @@
+[package]
+name = "strand-core"
+description = "Strand 核心层：Git 读写、图谱布局、错误码。不依赖 Tauri，可单独测试"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# 日志用 gix；工作区状态和差异用 git2；提交、网络、变基调用系统 git（会运行钩子、签名、换行符转换）
+gix = { version = "0.90", default-features = false, features = ["max-performance", "sha1", "revision"] }
+
+git2 = { version = "0.21", default-features = false }
+notify = "8"
+similar = "3"
+regex = "1"
+trash = "5"
+notify-debouncer-mini = "0.7"
+
+[dev-dependencies]
+tempfile = "3"

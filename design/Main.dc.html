@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>历史与提交图谱</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button,input{font:inherit;color:inherit}
+a{color:#1D1D1F}a:hover{color:#000000}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-direction: column; background: #FFFFFF; color: #1D1D1F; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; font-size: 13px; line-height: 1.4; position: relative">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; background: #F5F5F7; border-bottom: 1px solid #DCDCE0">
+<div aria-hidden="true" style="display: flex; gap: 8px; margin-right: 8px">
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span>
+</div>
+<button type="button" style="display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; font-weight: 600; font-size: 13px; cursor: pointer">
+strand-app
+<svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#6E6E73" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4l3 3 3-3"></path></svg>
+</button>
+<div style="display: flex; align-items: center; height: 30px; border-radius: 15px; background: #FFFFFF; border: 1px solid #DCDCE0; overflow: hidden">
+<button type="button" style="display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 0; background: transparent; cursor: pointer">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#1D1D1F" stroke-width="1.4" stroke-linecap="round"><circle cx="3" cy="2.5" r="1.5"></circle><circle cx="3" cy="9.5" r="1.5"></circle><circle cx="9" cy="4" r="1.5"></circle><path d="M3 4v4M9 5.5c0 2-6 1-6 2.5"></path></svg>
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">feature/commit-graph</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 0; border-left: 1px solid #DCDCE0; background: transparent; cursor: pointer">
+<span style="font-variant-numeric: tabular-nums">↑2</span>
+<span style="font-variant-numeric: tabular-nums; color: #6E6E73">↓1</span>
+<span style="font-weight: 600; color: {{accent}}">同步</span>
+</button>
+</div>
+<nav aria-label="视图" style="display: flex; padding: 2px; border-radius: 9px; background: #E4E4E8; margin-left: auto">
+<span aria-current="page" style="display: flex; align-items: center; height: 26px; padding: 0 16px; border-radius: 7px; background: #FFFFFF; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.12)">历史</span>
+<a href="Changes.dc.html" style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 16px; border-radius: 7px; text-decoration: none">改动 <span style="padding: 0 6px; border-radius: 8px; background: #FFFFFF; font-size: 11px; font-weight: 600">3</span></a>
+</nav>
+<button type="button" onClick="{{undo}}" style="display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid #DCDCE0; border-radius: 8px; background: #FFFFFF; cursor: pointer; margin-left: auto">
+<svg aria-hidden="true" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="#1D1D1F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2L2 4.5 4.5 7"></path><path d="M2 4.5h5.5a3.5 3.5 0 010 7H5"></path></svg>
+撤销
+<span style="color: #6E6E73">⌘Z</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 30px; width: 220px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 8px; background: #FFFFFF; color: #6E6E73; cursor: pointer">
+<svg aria-hidden="true" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="#6E6E73" stroke-width="1.5" stroke-linecap="round"><circle cx="5.5" cy="5.5" r="4"></circle><path d="M8.5 8.5L12 12"></path></svg>
+<span style="flex-grow: 1; text-align: left">搜索或输入命令</span>
+<span>⌘K</span>
+</button>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex-grow: 1">
+
+<aside style="flex: 0 0 232px; box-sizing: border-box; padding: 12px 10px; background: #F5F5F7; border-right: 1px solid #DCDCE0; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="padding: 0 8px 4px; font-size: 11px; font-weight: 600; color: #6E6E73">工作区</div>
+<a href="Changes.dc.html" style="display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 8px; border-radius: 6px; text-decoration: none">改动<span style="color: #6E6E73">3</span></a>
+<span aria-current="page" style="display: flex; align-items: center; height: 28px; padding: 0 8px; border-radius: 6px; background: #E0E0E5; font-weight: 600">历史</span>
+<button type="button" style="display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer">暂存架<span style="color: #6E6E73">2</span></button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="padding: 0 8px 4px; font-size: 11px; font-weight: 600; color: #6E6E73">本地分支</div>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #0064E0"></span>main</button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 600"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #C2540A"></span><span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">feature/commit-graph</span><span style="font-family: -apple-system, 'PingFang SC', sans-serif; font-size: 11px; font-weight: 600; color: #6E6E73">当前</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #7A3FD0"></span>fix/diff-ime</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="padding: 0 8px 4px; font-size: 11px; font-weight: 600; color: #6E6E73">远程 · origin</div>
+<button type="button" style="display: flex; align-items: center; height: 28px; padding: 0 8px 0 24px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">main</button>
+<button type="button" style="display: flex; align-items: center; height: 28px; padding: 0 8px 0 24px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">feature/commit-graph</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="padding: 0 8px 4px; font-size: 11px; font-weight: 600; color: #6E6E73">标签</div>
+<button type="button" style="display: flex; align-items: center; height: 28px; padding: 0 8px 0 24px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">v0.4.0</button>
+</div>
+<div style="margin-top: auto; padding: 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #DCDCE0; color: #6E6E73; font-size: 12px">把一个分支拖到另一个分支上，可以合并或变基。</div>
+</aside>
+
+<main style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid #E6E6EA">
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">分支：全部</button>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">作者</button>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">日期</button>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">路径</button>
+<span style="margin-left: auto; color: #6E6E73; font-size: 12px">点一行查看详情</span>
+</div>
+<div style="position: relative; padding: 8px 12px 8px 0">
+<svg aria-hidden="true" width="64" height="432" viewBox="0 0 64 432" fill="none" style="position: absolute; left: 12px; top: 8px; pointer-events: none">
+<path d="M14 90V432" stroke="#0064E0" stroke-width="2"></path>
+<path d="M32 18V172C32 204 14 202 14 234" stroke="#C2540A" stroke-width="2"></path>
+<path d="M14 90C14 112 50 104 50 126V198C50 222 14 212 14 234" stroke="#7A3FD0" stroke-width="2"></path>
+<circle cx="32" cy="18" r="5.5" fill="#FFFFFF" stroke="#C2540A" stroke-width="3"></circle>
+<circle cx="32" cy="54" r="4.5" fill="#C2540A" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="14" cy="90" r="4.5" fill="#0064E0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="50" cy="126" r="4.5" fill="#7A3FD0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="32" cy="162" r="4.5" fill="#C2540A" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="50" cy="198" r="4.5" fill="#7A3FD0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="14" cy="234" r="4.5" fill="#0064E0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="14" cy="270" r="4.5" fill="#0064E0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="14" cy="306" r="4.5" fill="#0064E0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="14" cy="342" r="4.5" fill="#0064E0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="14" cy="378" r="4.5" fill="#0064E0" stroke="#FFFFFF" stroke-width="2"></circle>
+<circle cx="14" cy="414" r="4.5" fill="#0064E0" stroke="#FFFFFF" stroke-width="2"></circle>
+</svg>
+<sc-for list="{{commits}}" as="item" hint-placeholder-count="12">
+<button type="button" onClick="{{item.pick}}" style="display: grid; grid-template-columns: minmax(0, 1fr) 56px 76px; align-items: center; gap: 12px; width: calc(100% - 84px); height: 36px; margin-left: 84px; padding: 0 10px; border: 0; border-radius: 8px; text-align: left; cursor: pointer; background: {{item.bg}}; color: {{item.fg}}">
+<span style="display: flex; align-items: center; gap: 8px; min-width: 0">
+<sc-if value="{{item.ref1}}" hint-placeholder-val="{{false}}"><span style="flex-shrink: 0; padding: 1px 7px; border-radius: 5px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11px; background: {{item.ref1Bg}}; color: {{item.ref1Fg}}">{{item.ref1}}</span></sc-if>
+<sc-if value="{{item.ref2}}" hint-placeholder-val="{{false}}"><span style="flex-shrink: 0; padding: 1px 7px; border-radius: 5px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11px; background: #EFEFF2; color: #3A3A3F">{{item.ref2}}</span></sc-if>
+<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{item.msg}}</span>
+<sc-if value="{{item.unpushed}}" hint-placeholder-val="{{false}}"><span style="flex-shrink: 0; font-size: 11px; color: {{item.sub}}">未推送</span></sc-if>
+</span>
+<span style="color: {{item.sub}}; white-space: nowrap">{{item.author}}</span>
+<span style="color: {{item.sub}}; white-space: nowrap; text-align: right">{{item.time}}</span>
+</button>
+</sc-for>
+</div>
+
+<section aria-label="操作时间线" style="margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid #E6E6EA; background: #FAFAFB">
+<span style="font-size: 11px; font-weight: 600; color: #6E6E73; margin-right: 4px">操作时间线</span>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">提交 a41f9c2 <span style="color: #6E6E73">· 2 分钟前</span></button>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">提交 7be0d15 <span style="color: #6E6E73">· 40 分钟前</span></button>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">拉取 origin/main <span style="color: #6E6E73">· 1 小时前</span></button>
+<button type="button" style="height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 13px; background: #FFFFFF; cursor: pointer">变基到 main <span style="color: #6E6E73">· 昨天</span></button>
+<span style="margin-left: auto; font-size: 12px; color: #6E6E73">点任意一步，可回到那一步之前</span>
+</section>
+</main>
+
+<aside aria-label="提交详情" style="flex: 1 1 340px; max-width: 100%; box-sizing: border-box; padding: 20px; border-left: 1px solid #E6E6EA; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 17px; font-weight: 600; line-height: 1.3">{{sel.msg}}</h1>
+<p style="margin: 0; color: #4A4A4F">{{sel.desc}}</p>
+</div>
+<div style="display: flex; align-items: center; gap: 10px">
+<span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; color: #FFFFFF; font-weight: 600; background: {{sel.avBg}}">{{sel.initial}}</span>
+<div style="display: flex; flex-direction: column">
+<span style="font-weight: 600">{{sel.author}}</span>
+<span style="color: #6E6E73; font-size: 12px">{{sel.time}}</span>
+</div>
+<button type="button" style="margin-left: auto; height: 26px; padding: 0 10px; border: 1px solid #DCDCE0; border-radius: 6px; background: #FFFFFF; cursor: pointer; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px" aria-label="复制提交哈希">{{sel.id}}</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" style="height: 28px; padding: 0 12px; border: 0; border-radius: 7px; color: #FFFFFF; font-weight: 600; cursor: pointer; background: {{accent}}">检出</button>
+<button type="button" style="height: 28px; padding: 0 12px; border: 1px solid #DCDCE0; border-radius: 7px; background: #FFFFFF; cursor: pointer">拣选</button>
+<button type="button" style="height: 28px; padding: 0 12px; border: 1px solid #DCDCE0; border-radius: 7px; background: #FFFFFF; cursor: pointer">还原</button>
+<button type="button" style="height: 28px; padding: 0 12px; border: 1px solid #DCDCE0; border-radius: 7px; background: #FFFFFF; cursor: pointer">从这里新建分支</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; padding-bottom: 6px; border-bottom: 1px solid #E6E6EA; font-size: 11px; font-weight: 600; color: #6E6E73"><span>改动文件</span><span>{{sel.fileCount}} 个</span></div>
+<sc-for list="{{sel.files}}" as="f" hint-placeholder-count="3">
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer">
+<span style="flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: {{f.stBg}}; color: {{f.stFg}}">{{f.st}}</span>
+<span style="flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px">{{f.path}}</span>
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #1A6B34">+{{f.add}}</span>
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #B3261E">−{{f.del}}</span>
+</button>
+</sc-for>
+</div>
+</aside>
+</div>
+
+<sc-if value="{{undone}}" hint-placeholder-val="{{false}}">
+<div role="status" style="position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px; border-radius: 12px; background: #1D1D1F; color: #FFFFFF; box-shadow: 0 8px 24px rgba(0,0,0,0.24)">
+<span>已撤销：提交 a41f9c2，改动已放回工作区</span>
+<button type="button" onClick="{{redo}}" style="height: 28px; padding: 0 12px; border: 0; border-radius: 7px; background: #FFFFFF; color: #1D1D1F; font-weight: 600; cursor: pointer">重做</button>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0064E0","options":["#0064E0","#7A3FD0","#B3401A","#0A6B74"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+const accent = this.props.accent ?? '#0064E0';
+const picked = (this.state && this.state.picked) || 'a41f9c2';
+const av = { '林夏': '#C2540A', '周屿': '#7A3FD0', '陈默': '#0064E0' };
+const st = { M: ['#E8F0FE', '#0B4FB3'], A: ['#E3F3E8', '#1A6B34'], D: ['#FDECEA', '#B3261E'] };
+const f = (path, s, add, del) => ({ path: path, st: s, add: add, del: del, stBg: st[s][0], stFg: st[s][1] });
+const raw = [
+{ id: 'a41f9c2', msg: '图谱：泳道计算移到后台线程', desc: '布局计算不再占用界面线程，切换分支时旧任务会被取消。', author: '林夏', time: '2 分钟前', ref1: 'feature/commit-graph', head: true, unpushed: true, files: [f('src/graph/layout.rs', 'M', 9, 3), f('src/graph/mod.rs', 'M', 2, 0), f('benches/graph_layout.rs', 'A', 41, 0)] },
+{ id: '7be0d15', msg: '图谱：虚拟滚动支持 10 万条提交', desc: '只渲染可视区域的行，滚动时按页向核心层取数据。', author: '林夏', time: '40 分钟前', unpushed: true, files: [f('src/ui/graph_view.rs', 'M', 86, 32), f('src/ui/virtual_list.rs', 'A', 120, 0)] },
+{ id: '3c9e7aa', msg: '合并分支 fix/diff-ime', desc: '合并输入法和行级暂存的两个修复。', author: '陈默', time: '1 小时前', ref1: 'main', ref2: 'origin/main', files: [f('src/ui/diff_view.rs', 'M', 18, 7), f('src/stage/lines.rs', 'M', 6, 2)] },
+{ id: 'e52b014', msg: '修复：diff 视图中输入法候选框错位', desc: '候选框位置改为跟随光标所在行的屏幕坐标。', author: '周屿', time: '3 小时前', ref1: 'fix/diff-ime', files: [f('src/ui/diff_view.rs', 'M', 18, 7)] },
+{ id: '91d4c6f', msg: '图谱：读取 commit-graph 文件加速首屏', desc: '仓库里有 commit-graph 文件时优先使用，没有时提示生成。', author: '林夏', time: '昨天', files: [f('src/graph/loader.rs', 'M', 54, 11), f('src/graph/mod.rs', 'M', 3, 1)] },
+{ id: '0fa83d7', msg: '修复：行级暂存丢失换行符', desc: '生成补丁时保留文件原有的行尾。', author: '周屿', time: '昨天', files: [f('src/stage/lines.rs', 'M', 6, 2), f('tests/stage_lines.rs', 'A', 28, 0)] },
+{ id: 'b7702e1', msg: '发布 0.4.0', desc: '更新版本号和更新日志。', author: '陈默', time: '3 天前', ref1: 'v0.4.0', tag: true, files: [f('Cargo.toml', 'M', 1, 1), f('CHANGELOG.md', 'M', 14, 0)] },
+{ id: '5d1c9b8', msg: '侧边栏：仓库分组与搜索', desc: '多个仓库可以分组，支持按名称过滤。', author: '周屿', time: '4 天前', files: [f('src/ui/sidebar.rs', 'M', 72, 19)] },
+{ id: 'c08e4f3', msg: '状态监听改为增量刷新', desc: '文件变化时只重新计算受影响的路径。', author: '陈默', time: '5 天前', files: [f('src/watch/mod.rs', 'M', 47, 38)] },
+{ id: '2a6f7d0', msg: '暂存架：支持命名和预览', desc: '搁置改动时可以起名字，展开后直接看 diff。', author: '林夏', time: '6 天前', files: [f('src/shelf/mod.rs', 'A', 133, 0), f('src/ui/shelf_view.rs', 'A', 88, 0)] },
+{ id: '8e3b1c4', msg: '移除旧的同步日志实现', desc: '已被操作时间线取代。', author: '陈默', time: '上周', files: [f('src/sync/log.rs', 'D', 0, 96)] },
+{ id: 'f19a0b6', msg: 'diff：换用 imara-diff', desc: '大文件的差异计算明显变快。', author: '周屿', time: '上周', files: [f('src/diff/engine.rs', 'M', 39, 61), f('Cargo.toml', 'M', 1, 1)] }
+];
+const commits = raw.map((c) => {
+const on = c.id === picked;
+return Object.assign({}, c, {
+bg: on ? accent : 'transparent',
+fg: on ? '#FFFFFF' : '#1D1D1F',
+sub: on ? '#FFFFFF' : '#6E6E73',
+ref1Bg: c.head ? '#1D1D1F' : (c.tag ? '#FFF1D6' : '#E8F0FE'),
+ref1Fg: c.head ? '#FFFFFF' : (c.tag ? '#6B4200' : '#0B4FB3'),
+initial: c.author.slice(0, 1),
+avBg: av[c.author],
+fileCount: c.files.length,
+pick: () => this.setState({ picked: c.id })
+});
+});
+return {
+accent: accent,
+commits: commits,
+sel: commits.find((c) => c.id === picked) || commits[0],
+undone: !!(this.state && this.state.undone),
+undo: () => this.setState({ undone: true }),
+redo: () => this.setState({ undone: false })
+};
+}
+}
+</script>
+</body>
+</html>
