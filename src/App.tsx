@@ -1005,6 +1005,7 @@ export default function App() {
           {panel === "commit" && (
           <CommitPanel
             repoPath={repo.path}
+            onRefresh={() => refreshStatus()}
             onWritten={doneCb}
             onShelve={ss.shelve}
             onPickedChange={setPanelSel}

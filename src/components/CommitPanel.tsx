@@ -3,15 +3,16 @@
 // 已实现：文件勾选（新出现的改动默认勾选）、全选、未跟踪文件列表、提交说明和标题字数、提交（⌘↵）。
 // 搁置到暂存架（按勾选的文件，问名字或直接搁置）和贮藏（全部改动）在按钮行和“改动”节点上（说明书 4.7、4.9）。
 // 行级勾选在差异标签页里做，这里的勾选框显示三态（全选、部分、不选），点部分态变为全选（说明书 4.3）。
-// 文件行悬停出现丢弃图标；“改动”节点上有回滚图标（丢弃勾选的文件）；未跟踪的文件有加入版本控制、加入忽略规则、删除三个图标。
+// 文件行悬停出现丢弃图标；未跟踪的文件有加入版本控制、加入忽略规则、删除三个图标。
+// 最上面一行工具图标（说明书 4.7）：刷新、回滚、查看差异、直接搁置、创建补丁、按目录分组、展开或折叠“改动”。
 // 提交选项（说明书 4.6）：提交前格式化、提交前运行检查（命令存在仓库的 Git 配置里）、签名行。提交时先格式化再检查，
 // 没通过时显示问题列表，用户选择仍然提交或取消；运行中点提交按钮取消。
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api/commands";
 import type { CheckRun, ChecksInfo, CommitCreated, OpInfo, RangeCommit, RepoState, Selection, WorktreeStatus } from "../api/types";
-import { FileRow, StatusBadge } from "./FileRow";
-import { settings } from "../settings";
+import { DirHead, FileRow, StatusBadge, groupByDir } from "./FileRow";
+import { setSettings, settings, useSettings } from "../settings";
 import { t, tr } from "../i18n";
 import { ChecksOptions, ChecksReport } from "./checks";
 
@@ -44,6 +45,8 @@ interface Props {
   onBlame: (path: string) => void;
   /** 文件的右键菜单（说明书 12.2） */
   onFileMenu: (path: string, x: number, y: number) => void;
+  /** 工具行的刷新：重新读取工作区状态 */
+  onRefresh: () => void;
 }
 
 const DISCARD_ICON = "M4.5 2 1.5 5l3 3M1.5 5h7a4 4 0 0 1 0 8H6";
@@ -62,9 +65,15 @@ const PATCH_ICON = "M3.5 1.5h5l2.5 2.5v8.5h-7.5zM5.5 7h3M5.5 9.5h3";
 const HISTORY_ICON = "M2.5 7a4.5 4.5 0 1 0 1.3-3.2M2.5 1.5v3h3M7 4.5V7l1.8 1.2";
 const GENERATE_ICON = "M7 1.5l1.2 3.3L11.5 6 8.2 7.2 7 10.5 5.8 7.2 2.5 6l3.3-1.2zM11 9.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z";
 const OPTIONS_ICON = "M2 3.5h6M11 3.5h1M2 7h1M6 7h6M2 10.5h5M10 10.5h2M9.5 2v3M4.5 5.5v3M8.5 9v3";
+const REFRESH_ICON = "M11.5 7A4.5 4.5 0 1 1 10 3.6M11.5 1.5v3h-3";
+const DIFF_ICON = "M3.5 1.5h7v11h-7zM5.5 5h3M7 3.5v3M5.5 9.5h3";
+const GROUP_ICON = "M1.5 3h4l1 1.5h6V12h-11zM4 7.5h6M4 9.5h4";
 const QUICK_SHELF_ICON = "M1.5 7h11M1.5 10.5h11M3 7v3.5M11 7v3.5M7 1v4M5 3l2 2 2-2";
 
-export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu }: Props) {
+export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onRefresh }: Props) {
+  const groupDir = useSettings().groupByDir;
+  // “改动”节点展开还是折叠（说明书 4.1）
+  const [changesOpen, setChangesOpen] = useState(true);
   // 记录“取消勾选”的路径，这样新出现的改动自动是勾选状态
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState("");
@@ -317,73 +326,8 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     return on.length ? t("提交选项（提交前：{0}）", on.join(t("、"))) : t("提交选项");
   })();
 
-  if (!status) return <div className="cp-empty dim">{t("正在读取工作区…")}</div>;
-
-  const allState = picked.length === 0 ? false : picked.length === changes.length ? true : "mixed";
-
-  return (
-    <div className="cp">
-      <div className="cp-list">
-        {changes.length === 0 ? (
-          <p className="cp-clean dim" ref={cleanNote} tabIndex={-1}>
-            {t("没有改动，工作区是干净的")}
-          </p>
-        ) : (
-          <>
-            <label className="cp-node">
-              <input
-                type="checkbox"
-                checked={allState === true}
-                ref={(el) => {
-                  if (el) el.indeterminate = allState === "mixed";
-                }}
-                onChange={toggleAll}
-              />
-              <span className="cp-node-name">{t("改动")}</span>
-              <span className="dim">
-                {t("已选 {0} / {1}", picked.length, changes.length)}
-              </span>
-              <button
-                type="button"
-                className="ib sm cp-quick"
-                title={picked.length ? t("为勾选的文件创建补丁") : t("先勾选要做成补丁的文件")}
-                aria-label={t("创建补丁")}
-                disabled={picked.length === 0}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onPatch(selectionOf(picked));
-                }}
-              >
-                <BoxIcon d={PATCH_ICON} />
-              </button>
-              <button
-                type="button"
-                className="ib sm"
-                title={picked.length ? t("回滚：丢弃勾选文件的改动") : t("先勾选要回滚的文件")}
-                aria-label={t("回滚")}
-                disabled={disabled || picked.length === 0}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onDiscard(pickedPaths);
-                }}
-              >
-                <BoxIcon d={DISCARD_ICON} />
-              </button>
-              <button
-                type="button"
-                className="ib sm"
-                title={picked.length ? t("直接搁置勾选的文件（自动命名）") : t("先勾选要搁置的文件")}
-                aria-label={t("直接搁置")}
-                disabled={disabled || picked.length === 0}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onShelve(pickedPaths, false);
-                }}
-              >
-                <BoxIcon d={QUICK_SHELF_ICON} />
-              </button>
-            </label>
-            {changes.map((c) => (
+  /** “改动”里的一个文件行；inDir 为真时按目录分组显示（只显示文件名） */
+  const changeRow = (c: (typeof changes)[number], inDir: boolean) => (
               <div
                 key={c.path}
                 onContextMenu={(e) => {
@@ -400,6 +344,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                 }}
               >
               <FileRow
+                inDir={inDir}
                 f={c}
                 active={activePath === c.path}
                 onOpen={() => onOpenDiff(c.path)}
@@ -442,7 +387,128 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                 }
               />
               </div>
-            ))}
+  );
+
+  if (!status) return <div className="cp-empty dim">{t("正在读取工作区…")}</div>;
+
+  const allState = picked.length === 0 ? false : picked.length === changes.length ? true : "mixed";
+
+  return (
+    <div className="cp">
+      {/* 工具图标行（说明书 4.1、4.7）：刷新、回滚、查看差异、直接搁置、创建补丁、按目录分组、展开或折叠 */}
+      <div className="cp-tools">
+        <button type="button" className="ib sm" title={t("刷新（重新读取工作区）")} aria-label={t("刷新")} onClick={onRefresh}>
+          <BoxIcon d={REFRESH_ICON} />
+        </button>
+        <button
+          type="button"
+          className="ib sm"
+          title={picked.length ? t("回滚：丢弃勾选文件的改动") : t("先勾选要回滚的文件")}
+          aria-label={t("回滚")}
+          disabled={disabled || picked.length === 0}
+          onClick={() => onDiscard(pickedPaths)}
+        >
+          <BoxIcon d={DISCARD_ICON} />
+        </button>
+        <button
+          type="button"
+          className="ib sm"
+          title={changes.length ? t("查看差异（第一个勾选的文件）") : t("没有改动")}
+          aria-label={t("查看差异")}
+          disabled={changes.length === 0}
+          onClick={() => {
+            // 按列表上看到的顺序取第一个（分组时目录排过序）
+            const list = picked.length ? picked : changes;
+            const first = groupDir ? groupByDir(list, (c) => c.path)[0].items[0] : list[0];
+            onOpenDiff(first.path);
+          }}
+        >
+          <BoxIcon d={DIFF_ICON} />
+        </button>
+        <button
+          type="button"
+          className="ib sm"
+          title={picked.length ? t("直接搁置勾选的文件（自动命名）") : t("先勾选要搁置的文件")}
+          aria-label={t("直接搁置")}
+          disabled={disabled || picked.length === 0}
+          onClick={() => onShelve(pickedPaths, false)}
+        >
+          <BoxIcon d={QUICK_SHELF_ICON} />
+        </button>
+        <button
+          type="button"
+          className="ib sm"
+          title={picked.length ? t("为勾选的文件创建补丁") : t("先勾选要做成补丁的文件")}
+          aria-label={t("创建补丁")}
+          disabled={picked.length === 0}
+          onClick={() => onPatch(selectionOf(picked))}
+        >
+          <BoxIcon d={PATCH_ICON} />
+        </button>
+        <button
+          type="button"
+          className={"ib sm" + (groupDir ? " pressed" : "")}
+          aria-pressed={groupDir}
+          title={t("按目录分组（提交详情里的文件列表也一样）")}
+          aria-label={t("按目录分组")}
+          onClick={() => setSettings({ groupByDir: !groupDir })}
+        >
+          <BoxIcon d={GROUP_ICON} />
+        </button>
+        <button
+          type="button"
+          className="ib sm"
+          title={changesOpen ? t("折叠“改动”") : t("展开“改动”")}
+          aria-label={changesOpen ? t("折叠“改动”") : t("展开“改动”")}
+          disabled={changes.length === 0}
+          onClick={() => setChangesOpen((o) => !o)}
+        >
+          <BoxIcon d={changesOpen ? "M4 6l3-3 3 3M4 11l3-3 3 3" : "M4 3l3 3 3-3M4 8l3 3 3-3"} />
+        </button>
+      </div>
+      <div className="cp-list">
+        {changes.length === 0 ? (
+          <p className="cp-clean dim" ref={cleanNote} tabIndex={-1}>
+            {t("没有改动，工作区是干净的")}
+          </p>
+        ) : (
+          <>
+            <label className="cp-node">
+              <button
+                type="button"
+                className="fold"
+                aria-expanded={changesOpen}
+                title={changesOpen ? t("折叠") : t("展开")}
+                aria-label={changesOpen ? t("折叠“改动”") : t("展开“改动”")}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setChangesOpen((o) => !o);
+                }}
+              >
+                {changesOpen ? "▾" : "▸"}
+              </button>
+              <input
+                type="checkbox"
+                checked={allState === true}
+                ref={(el) => {
+                  if (el) el.indeterminate = allState === "mixed";
+                }}
+                onChange={toggleAll}
+              />
+              <span className="cp-node-name">{t("改动")}</span>
+              <span className="dim">
+                {t("已选 {0} / {1}", picked.length, changes.length)}
+              </span>
+            </label>
+            {changesOpen &&
+              (groupDir
+                ? groupByDir(changes, (c) => c.path).map((g) => (
+                    <div key={g.dir} role="group" aria-label={g.dir || t("根目录")}>
+                      <DirHead dir={g.dir} count={g.items.length} />
+                      {g.items.map((c) => changeRow(c, true))}
+                    </div>
+                  ))
+                : changes.map((c) => changeRow(c, false)))}
           </>
         )}
         {untracked.length > 0 && (

@@ -1,13 +1,15 @@
 // 提交详情（说明书 5.5）：上半是改动文件，下半是提交信息和操作图标行（5.6）。
 // 选中两个及以上提交时改为“已选 N 个提交”和批量操作（5.4）。
 // 文件行悬停出现漏斗图标，点它把路径填进日志的路径过滤（说明书写的是单击文件，单击已经用来打开差异）。
-// 待实现：按目录分组、和本地比较、创建补丁、查看这个版本时的仓库、逐行追溯。
+// 文件列表标题右边是“按目录分组”开关，和提交面板共用一个设置（说明书 4.7、5.5）；
+// 和本地比较、创建补丁、查看这个版本时的仓库在下面的操作图标行里；文件行悬停有逐行追溯。
 
 import { useEffect, useState } from "react";
 import { ApiError, api, openUrl } from "../api/commands";
 import type { Cap, Commit, CommitCaps, FileChange } from "../api/types";
 import { COMMIT_ICONS as ICON, type CommitOps } from "./commitOps";
-import { FileRow } from "./FileRow";
+import { DirHead, FileRow, groupByDir } from "./FileRow";
+import { setSettings, useSettings } from "../settings";
 import { formatTime, relTime, shortId } from "./format";
 import { FILTER_ICONS } from "./LogFilterBar";
 import { t, tr } from "../i18n";
@@ -68,6 +70,7 @@ interface Props {
 
 export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame }: Props) {
   const [files, setFiles] = useState<FileChange[] | null>(null);
+  const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -117,17 +120,11 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   }
 
   if (!commit) return <aside className="detail empty">{t("选择一个提交查看详情")}</aside>;
-  return (
-    <aside className="detail">
-      <div className="dfiles">
-        <div className="dsub dim">
-          {files ? t("{0} 个文件", files.length) : error ? "" : t("正在读取改动…")}
-          {commit.parents.length > 1 && files && <span>{t("（相对第一个父提交）")}</span>}
-        </div>
-        {error && <p className="err">{tr(error)}</p>}
-        {files?.map((f) => (
+  /** 改动文件的一行；inDir 为真时按目录分组显示（只显示文件名） */
+  const fileRow = (f: FileChange, inDir: boolean) => (
           <FileRow
             key={f.path}
+            inDir={inDir}
             f={f}
             active={activePath === f.path}
             onOpen={() => onOpenDiff(commit, f.path)}
@@ -148,7 +145,38 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
               </span>
             }
           />
-        ))}
+  );
+
+  return (
+    <aside className="detail">
+      <div className="dfiles">
+        <div className="dsub dim">
+          {files ? t("{0} 个文件", files.length) : error ? "" : t("正在读取改动…")}
+          {commit.parents.length > 1 && files && <span>{t("（相对第一个父提交）")}</span>}
+          <span className="grow" />
+          <button
+            type="button"
+            className={"ib sm" + (groupDir ? " pressed" : "")}
+            aria-pressed={groupDir}
+            title={t("按目录分组（提交面板里的文件列表也一样）")}
+            aria-label={t("按目录分组")}
+            onClick={() => setSettings({ groupByDir: !groupDir })}
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
+              <path d="M1.5 3h4l1 1.5h6V12h-11zM4 7.5h6M4 9.5h4" />
+            </svg>
+          </button>
+        </div>
+        {error && <p className="err">{tr(error)}</p>}
+        {files &&
+          (groupDir
+            ? groupByDir(files, (f) => f.path).map((g) => (
+                <div key={g.dir} role="group" aria-label={g.dir || t("根目录")}>
+                  <DirHead dir={g.dir} count={g.items.length} />
+                  {g.items.map((f) => fileRow(f, true))}
+                </div>
+              ))
+            : files.map((f) => fileRow(f, false)))}
       </div>
       <div className="dinfo">
         <div className="dacts" role="toolbar" aria-label={t("提交操作")}>

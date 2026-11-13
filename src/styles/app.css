@@ -110,6 +110,12 @@ button:disabled { cursor: default; opacity: 0.45; }
 .frow-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0; border: 0;
   background: transparent; text-align: left; }
 .fpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow.in-dir { padding-left: 22px; }
+.fdir { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; color: var(--fg2); font-size: 12px; }
+.fdir-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-tools { display: flex; gap: 1px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.cp-tools .ib { width: 28px; }
+.cp-node .fold { width: 16px; height: 16px; padding: 0; border: 0; background: transparent; color: var(--fg2); display: grid; place-items: center; }
 .st { flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; font-size: 11px;
   font-weight: 700; background: var(--theirs-bg); color: var(--theirs-ink); }
 .st-A { background: var(--ok-bg); color: var(--ok-ink); }
@@ -153,7 +159,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 /* 详情 */
 .detail { display: flex; flex-direction: column; padding: 0; }
 .dfiles { max-height: 45%; overflow: auto; padding: 8px 4px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-.dsub { padding: 2px 8px 6px; font-size: 11px; font-weight: 600; }
+.dsub { display: flex; align-items: center; gap: 4px; padding: 2px 8px 6px; font-size: 11px; font-weight: 600; }
 .dinfo { padding: 16px; overflow: auto; }
 
 /* 底部提示 */
