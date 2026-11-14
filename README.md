@@ -109,7 +109,7 @@ Output goes to `target/release/bundle/`; the plain executable is `target/release
 `.github/workflows/build.yml` runs on pushes, pull requests, tags and manual dispatch:
 
 - **Test**: core tests and a frontend type check on macOS.
-- **Build (macOS arm64)**: builds the Apple silicon `.app` and `.dmg` on `macos-14`.
+- **Build (macOS arm64)**: builds the Apple silicon `.app` and `.dmg` on `macos-latest` (Apple silicon).
 - **Build (Windows x64)**: builds the NSIS installer, the MSI and the portable exe on `windows-latest`.
 
 Artifacts are uploaded for every run. Pushing a tag such as `v0.1.0` also creates a GitHub Release with all the files.
