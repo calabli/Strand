@@ -10,7 +10,7 @@ import type { ProjectSearch, RefsList, WorktreeStatus } from "../api/types";
 import { Picker, type PickItem } from "./Picker";
 import { findRegExp } from "./format";
 import { Found } from "./inlineDiff";
-import { FileTree, StatusBadge } from "./FileRow";
+import { FileTree, StatusBadge, TypeIcon } from "./FileRow";
 import { t, tr } from "../i18n";
 
 /** 搜索时最多显示这么多个文件 */
@@ -67,9 +67,7 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen }: Props)
     return (
       <div key={p} className={"frow in-dir prow" + (active === p ? " active" : "")} style={{ paddingLeft: 8 + depth * 14 }}>
         <button type="button" className="frow-main" title={p} onClick={() => onOpen(p)}>
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden="true" className="dim">
-            <path d="M3 1.5h5l3 3v8H3zM8 1.5v3h3" />
-          </svg>
+          <TypeIcon path={p} />
           <span className={"fpath mono" + (st ? " changed" : "")}>{name}</span>
           {st && <StatusBadge s={st === "R" ? "M" : st} />}
         </button>

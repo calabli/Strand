@@ -74,11 +74,13 @@ interface Props {
   onFileHistory: (path: string) => void;
   /** 日志在按改动内容搜索：只列改动行有匹配的文件，差异里标出匹配的行 */
   find?: { text: string; regex: boolean; caseSensitive: boolean } | null;
+  /** 仓库名：按目录树显示时作为根节点 */
+  repoName?: string;
   /** 日志在按说明搜索：标题和正文里标出搜索词 */
   highlight?: { text: string; regex: boolean; caseSensitive: boolean } | null;
 }
 
-export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory, find, highlight }: Props) {
+export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory, find, highlight, repoName }: Props) {
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
@@ -252,7 +254,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
           </button>
         </div>
         {error && <p className="err">{tr(error)}</p>}
-        {listed && (groupDir ? <FileTree items={listed} pathOf={(f) => f.path} leaf={(f, d) => fileRow(f, d)} /> : listed.map((f) => fileRow(f)))}
+        {listed && (groupDir ? <FileTree items={listed} pathOf={(f) => f.path} leaf={(f, d) => fileRow(f, d)} root={repoName} /> : listed.map((f) => fileRow(f)))}
         {find && matches && matches.length === 0 && !allFiles && <p className="dim small pad">{t("这个提交的改动里没有找到“{0}”（可能是合并带进来的，或跨了多行）", find.text)}</p>}
       </div>
       {/* 上下拖动：文件列表的高度；显示差异框时还有提交信息的高度，差异框占剩下的 */}

@@ -1271,6 +1271,7 @@ export default function App() {
           onOpenDiff={(c, path) => openDiff({ kind: "commit", id: c.id, path })}
           onBlame={(path, rev) => setBlame({ path, rev })}
           onFileHistory={(p) => openFile(p)}
+          repoName={repo.name}
           find={ui.searchIn === "changes" && ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : null}
           highlight={ui.searchIn === "message" && ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : null}
           onFilterPath={(path) => {
