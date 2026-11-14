@@ -19,6 +19,10 @@ export interface MenuItem {
   icon?: string;
   /** 子菜单 */
   sub?: MenuEntry[];
+  /** 分组标题：灰色小字，不能点 */
+  heading?: boolean;
+  /** 勾选状态：左边显示 ✓（图标位置） */
+  checked?: boolean;
 }
 export type MenuEntry = MenuItem | "-";
 
@@ -110,12 +114,17 @@ function List({
         {items.map((it, i) =>
           it === "-" ? (
             <div key={i} className="menu-sep" role="separator" />
+          ) : it.heading ? (
+            <div key={i} className="menu-heading" role="presentation">
+              {tr(it.label)}
+            </div>
           ) : (
             <button
               key={i}
               data-i={i}
               type="button"
-              role="menuitem"
+              role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
+              aria-checked={it.checked}
               aria-haspopup={it.sub ? "menu" : undefined}
               aria-expanded={it.sub ? open?.i === i : undefined}
               className={(it.danger ? "danger-text" : "") + (open?.i === i ? " sub-open" : "")}
@@ -132,7 +141,7 @@ function List({
                 it.run?.();
               }}
             >
-              <MenuIcon d={it.icon} />
+              <MenuIcon d={it.checked ? "M3 7.5l2.5 2.5L11 4.5" : it.icon} />
               <span className="menu-label">{tr(it.label)}</span>
               {it.hint && <span className="kbd menu-hint">{keys(it.hint)}</span>}
               {it.sub && <span className="menu-more">›</span>}

@@ -59,6 +59,8 @@ export interface LogPage {
   offset: number;
   rows: Commit[];
   graph: GraphRow[];
+  /** 折叠线性分支时：和 rows 对应，这一行下面折叠了几个提交 */
+  folded?: number[];
   total: number;
   lanes: number;
   /** 过滤结果还没算完：total 是目前找到的数目，过一会儿再查会更多（说明书 15） */
@@ -90,6 +92,12 @@ export interface LogFilter {
   until?: number | null;
   /** 搜索文字搜哪里：提交说明（默认），还是改动内容（git log -S / -G） */
   search_in?: "message" | "changes";
+  /** 只看第一父提交 */
+  first_parent?: boolean;
+  /** 不显示合并提交 */
+  no_merges?: boolean;
+  /** 折叠线性分支（没有别的过滤、按图谱顺序时） */
+  collapse_linear?: boolean;
   /** 路径子串 */
   path?: string | null;
 }

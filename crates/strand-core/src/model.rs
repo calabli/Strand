@@ -126,6 +126,9 @@ pub struct LogPage {
     pub lanes: u32,
     /// 过滤结果还没算完（说明书 15“首批结果先返回，其余分批追加”）：total 是目前找到的数目，过一会儿再查会更多
     pub partial: bool,
+    /// 折叠线性分支时：和 rows 一一对应，这一行下面折叠起来的提交数（0 是没有折叠）；没折叠时为空
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub folded: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]

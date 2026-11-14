@@ -79,7 +79,7 @@ function baseGraph(i: number): GraphRow {
   return { lane: 0, edges: i === TOTAL - 1 ? [] : [{ from_lane: 0, to_lane: 0, kind: "straight" }] };
 }
 
-const isEmpty = (f: LogFilter) => !f.text && !f.branch && !f.author && !f.authors?.length && !f.author_match?.text.trim() && f.since == null && f.until == null && !f.path;
+const isEmpty = (f: LogFilter) => !f.text && !f.branch && !f.author && !f.authors?.length && !f.author_match?.text.trim() && f.since == null && f.until == null && !f.path && !f.first_parent && !f.no_merges;
 
 
 /** 示例数据上的过滤：分支按“从这一行往下”近似，路径按每 3 个提交改一次近似 */
@@ -103,6 +103,8 @@ function filtered(f: LogFilter, sort: LogSort): number[] | null {
     const c = commitAt(i);
     if (byAuthor && !picked.has(c.author.email.toLowerCase()) && !rule?.(c.author.name, c.author.email)) continue;
     if (f.since != null && c.time < f.since) continue;
+    if (f.no_merges && c.parents.length > 1) continue;
+    if (f.first_parent && i % 10 >= 3 && i % 10 <= 4) continue;
     if (f.until != null && c.time >= f.until) continue;
     if (f.path && i % 3 !== 0) continue;
     // 示例数据没有文件内容：搜改动内容时当作每 6 个提交有一个改过这段文字
@@ -130,7 +132,8 @@ export function logQuery(offset: number, limit: number, filter: LogFilter = {}, 
   if (!rows) {
     const end = Math.min(TOTAL, offset + Math.min(limit, 500));
     const idx = Array.from({ length: Math.max(0, end - offset) }, (_, j) => offset + j);
-    return delay({ offset, rows: idx.map(commitAt), graph: idx.map(graphAt), total: TOTAL, lanes: 3 });
+    // 折叠线性分支：示例里每 10 个提交的第 3 个下面算折叠了 2 个
+    return delay({ offset, rows: idx.map(commitAt), graph: idx.map(graphAt), total: TOTAL, lanes: 3, folded: filter.collapse_linear ? idx.map((i) => (i % 10 === 2 ? 2 : 0)) : undefined });
   }
   // 路径过滤在真实仓库上由后台的 git rev-list 边跑边给结果（说明书 15）：示例里头 3 秒只给一部分，标记 partial
   let partial = false;

@@ -1172,6 +1172,7 @@ export default function App() {
               onJumpRow={goRow}
               headId={repo.head.commit ?? null}
               currentBranch={repo.head.kind === "branch" ? repo.head.branch ?? null : null}
+              onExpand={() => setUi((u) => ({ ...u, collapse: false }))}
               onMenu={(c, x, y) => {
                 if (multi.length >= 2 && multi.includes(c.id)) {
                   setMenu({

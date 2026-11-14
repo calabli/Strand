@@ -280,3 +280,43 @@ fn authors_multi_rules_and_date_range() {
     let until = LogFilter { until: Some(BASE + 100), ..Default::default() };
     assert_eq!(titles(&mut s, &until, LogSort::Date), ["修复 other", "初始提交"]);
 }
+
+/// 只看第一父提交、不显示合并提交、折叠线性分支
+#[test]
+fn first_parent_no_merges_and_collapse() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    git_as(d, &["init", "-q", "-b", "main"], LIN, BASE);
+    commit(d, "a.txt", "主线 1", LIN, 0);
+    git_as(d, &["checkout", "-q", "-b", "side"], LIN, BASE);
+    commit(d, "s.txt", "旁支 1", ZHOU, 10);
+    commit(d, "s.txt", "旁支 2", ZHOU, 20);
+    commit(d, "s.txt", "旁支 3", ZHOU, 30);
+    git_as(d, &["checkout", "-q", "main"], LIN, BASE);
+    commit(d, "b.txt", "主线 2", LIN, 40);
+    git_as(d, &["merge", "-q", "--no-ff", "-m", "合并旁支", "side"], LIN, BASE + 50);
+    git_as(d, &["branch", "-q", "-D", "side"], LIN, BASE);
+    git_as(d, &["checkout", "-q", "-b", "kept", "HEAD~1"], LIN, BASE);
+    commit(d, "k.txt", "保留的分支", LIN, 60);
+    git_as(d, &["checkout", "-q", "main"], LIN, BASE);
+    let mut s = Session::open(d).unwrap();
+
+    let fp = LogFilter { first_parent: true, ..Default::default() };
+    assert_eq!(titles(&mut s, &fp, LogSort::Topo), ["合并旁支", "主线 2", "主线 1"]);
+    let nm = LogFilter { no_merges: true, ..Default::default() };
+    assert!(!titles(&mut s, &nm, LogSort::Topo).contains(&"合并旁支".to_string()));
+    assert_eq!(titles(&mut s, &nm, LogSort::Topo).len(), 6);
+
+    // 折叠：已删除的旁支上的三个提交收起来，记在合并提交那一行；有分支的“保留的分支”不折叠；图谱照样有
+    let c = LogFilter { collapse_linear: true, ..Default::default() };
+    let p = s.log_query(&c, LogSort::Topo, 0, 100).unwrap();
+    let got: Vec<(&str, u32)> = p.rows.iter().map(|r| r.title.as_str()).zip(p.folded.iter().copied()).collect();
+    assert_eq!(got, [("保留的分支", 0), ("合并旁支", 3), ("主线 2", 0), ("主线 1", 0)]);
+    assert_eq!(p.graph.len(), 4);
+    assert!(p.lanes >= 2, "合并提交仍然画出两条线");
+    // 折叠起来的提交找不到位置，留下的能找到
+    let out = Command::new("git").args(["rev-parse", "main^2"]).current_dir(d).output().unwrap();
+    let hidden = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert_eq!(s.log_locate_in(&hidden, &c, LogSort::Topo).unwrap(), None);
+    assert_eq!(s.log_locate_in("main", &c, LogSort::Topo).unwrap(), Some(1));
+}

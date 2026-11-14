@@ -32,9 +32,15 @@ export interface LogUi {
   sort: LogSort;
   /** 搜索框搜哪里：提交说明和哈希，还是改动内容（这段文字加进来或删掉的提交） */
   searchIn: "message" | "changes";
+  /** 只看第一父提交 */
+  firstParent: boolean;
+  /** 不显示合并提交 */
+  noMerges: boolean;
+  /** 折叠线性分支（没有别的过滤、按图谱顺序时才有效） */
+  collapse: boolean;
 }
 
-export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, branch: null, authors: [], authorRule: null, date: "all", from: null, to: null, path: null, sort: "topo", searchIn: "message" };
+export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, branch: null, authors: [], authorRule: null, date: "all", from: null, to: null, path: null, sort: "topo", searchIn: "message", firstParent: false, noMerges: false, collapse: false };
 
 const DATE_LABEL: Record<Exclude<DateRange, "custom">, string> = { all: t("所有日期"), today: t("今天"), "3d": t("最近 3 天"), "6d": t("最近 6 天") };
 
@@ -66,10 +72,13 @@ export function toFilter(u: LogUi): LogFilter {
     until: u.date === "custom" && u.to ? dayStart(u.to, 1) : null,
     path: u.path,
     search_in: u.searchIn,
+    first_parent: u.firstParent,
+    no_merges: u.noMerges,
+    collapse_linear: u.collapse,
   };
 }
 
-export const isFiltered = (u: LogUi) => !!(u.text || u.branch || u.authors.length || u.authorRule || u.date !== "all" || u.path || u.sort !== "topo");
+export const isFiltered = (u: LogUi) => !!(u.text || u.branch || u.authors.length || u.authorRule || u.date !== "all" || u.path || u.sort !== "topo" || u.firstParent || u.noMerges);
 
 /** 作者条件显示成一小段文字：勾选的第一个人的名字（多的显示 +N），有规则时接上规则 */
 function authorText(u: LogUi): string | null {
@@ -100,7 +109,7 @@ export const FILTER_ICONS = {
   author: "M7 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M2.5 12.5c.5-2.5 2.3-3.5 4.5-3.5s4 1 4.5 3.5",
   date: "M2 3.5h10v8.5H2zM2 6.5h10M5 2v3M9 2v3",
   path: "M1.5 3.5h4l1.5 1.5h5.5v6.5h-11z",
-  sort: "M12.5 7a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0M7 4v3.2l2.2 1.4",
+  sort: "M4 2v10M2 10l2 2 2-2M8.5 3h4M8.5 7h3M8.5 11h2",
   jump: "M1.5 7h8M6.5 4l3 3-3 3M12.5 2v10",
   funnel: "M1.5 2.5h11L8.5 7.5v4l-3 1.2V7.5z",
   rebase: "M3 2v10M3 4.5h5a2 2 0 0 1 0 4H5M7 6.5 5 8.5l2 2M11 2v3M11 9v3",
@@ -274,11 +283,32 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
       <span className="fbar-acts">
       <button
         type="button"
-        className={"ib" + (ui.sort === "date" ? " pressed" : "")}
-        title={ui.sort === "date" ? t("按时间排序（点击改回图谱顺序）") : t("按时间排序")}
-        aria-label={t("按时间排序")}
-        aria-pressed={ui.sort === "date"}
-        onClick={() => set({ sort: ui.sort === "date" ? "topo" : "date" })}
+        className={"ib" + (ui.sort === "date" || ui.firstParent || ui.noMerges || ui.collapse ? " pressed" : "")}
+        title={t("排序和显示：按时间或图谱顺序、只看第一父提交、不显示合并、折叠线性分支")}
+        aria-label={t("排序和显示")}
+        aria-haspopup="menu"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          // 折叠只在按图谱顺序、没有别的过滤条件时有效（过滤和按时间排序时不画图谱）
+          const plain = !isFiltered({ ...ui, sort: "topo", firstParent: false, noMerges: false }) && ui.sort === "topo" && !ui.firstParent && !ui.noMerges;
+          setMenu({
+            x: r.left,
+            y: r.bottom + 4,
+            items: [
+              { heading: true, label: t("排序") },
+              { label: t("按提交时间"), checked: ui.sort === "date", run: () => set({ sort: "date" }) },
+              { label: t("按图谱顺序（拓扑）"), checked: ui.sort === "topo", run: () => set({ sort: "topo" }) },
+              "-",
+              { heading: true, label: t("选项") },
+              { label: t("只看第一父提交"), checked: ui.firstParent, run: () => set({ firstParent: !ui.firstParent }) },
+              { label: t("不显示合并提交"), checked: ui.noMerges, run: () => set({ noMerges: !ui.noMerges }) },
+              "-",
+              { heading: true, label: t("分支") },
+              { label: t("折叠线性分支"), checked: ui.collapse, disabled: !plain, why: t("按图谱顺序、没有过滤条件时才能折叠"), run: () => set({ collapse: true }) },
+              { label: t("展开线性分支"), disabled: !ui.collapse, why: t("现在没有折叠"), run: () => set({ collapse: false }) },
+            ],
+          });
+        }}
       >
         <Icon d={FILTER_ICONS.sort} />
       </button>

@@ -24,16 +24,16 @@ export interface LogData {
   /** 过滤结果还没算完，还会追加 */
   partial: boolean;
   /** 第 i 行的数据，没加载时为 undefined；没有图谱时 graph 为 undefined */
-  row: (i: number) => { commit: Commit; graph?: GraphRow } | undefined;
+  row: (i: number) => { commit: Commit; graph?: GraphRow; folded?: number } | undefined;
   /** 确保 [start, end) 范围内的行已经加载或正在加载 */
   ensure: (start: number, end: number) => void;
   error: { code: ErrorCode; message: string } | null;
 }
 
 export function useLog(repoKey: string | null, query: LogQuery): LogData {
-  const pages = useRef(new Map<number, { rows: Commit[]; graph: GraphRow[] }>());
+  const pages = useRef(new Map<number, { rows: Commit[]; graph: GraphRow[]; folded?: number[] }>());
   /** 重新读取前的页：新的第一页回来之前照样显示 */
-  const stale = useRef(new Map<number, { rows: Commit[]; graph: GraphRow[] }>());
+  const stale = useRef(new Map<number, { rows: Commit[]; graph: GraphRow[]; folded?: number[] }>());
   const lastRepo = useRef<string | null>(null);
   const pending = useRef(new Set<number>());
   const [total, setTotal] = useState(0);
@@ -60,7 +60,7 @@ export function useLog(repoKey: string | null, query: LogQuery): LogData {
         api.logQuery(page * PAGE, PAGE, q.current.filter, q.current.sort).then(
           (p) => {
             if (gen !== generation.current) return;
-            pages.current.set(page, { rows: p.rows, graph: p.graph });
+            pages.current.set(page, { rows: p.rows, graph: p.graph, folded: p.folded });
             setTotal(p.total);
             setPartial(!!p.partial);
             setVersion((v) => v + 1);
@@ -80,7 +80,7 @@ export function useLog(repoKey: string | null, query: LogQuery): LogData {
       .logQuery(page * PAGE, PAGE, q.current.filter, q.current.sort)
       .then((p) => {
         if (gen !== generation.current) return; // 仓库或过滤条件已经变了，丢弃旧结果
-        pages.current.set(page, { rows: p.rows, graph: p.graph });
+        pages.current.set(page, { rows: p.rows, graph: p.graph, folded: p.folded });
         if (page === 0) stale.current.clear();
         setTotal(p.total);
         setLanes(p.lanes);
@@ -125,7 +125,7 @@ export function useLog(repoKey: string | null, query: LogQuery): LogData {
     const p = pages.current.get(pg) ?? (pages.current.has(0) ? undefined : stale.current.get(pg));
     if (!p) return undefined;
     const j = i % PAGE;
-    return p.rows[j] ? { commit: p.rows[j], graph: p.graph[j] } : undefined;
+    return p.rows[j] ? { commit: p.rows[j], graph: p.graph[j], folded: p.folded?.[j] ?? 0 } : undefined;
   }, []);
 
   const ensure = useCallback(

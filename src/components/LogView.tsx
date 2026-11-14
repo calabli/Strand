@@ -199,9 +199,11 @@ interface Props {
   /** 点折叠的长连线上的箭头：跳到线的另一头并选中那一行 */
   onJumpRow?: (row: number) => void;
   onMenu: (c: Commit, x: number, y: number) => void;
+  /** 折叠线性分支时，点“已折叠”标记展开 */
+  onExpand?: () => void;
 }
 
-export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, selected, multi, onSelect, jump, onJumpRow, headId, currentBranch, onMenu }: Props) {
+export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, selected, multi, onSelect, jump, onJumpRow, headId, currentBranch, onMenu, onExpand }: Props) {
   const marker = useMarker(highlight);
   const { exactDates: exact, mergeRefs, dimMerges } = useSettings();
   const box = useRef<HTMLDivElement>(null);
@@ -292,15 +294,26 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
         {r.graph ? <GraphCell g={r.graph} width={graphW} isHead={c.id === headId} onJump={onJumpRow} /> : <span />}
         <span className={"msg" + (c.is_merge && dimMerges ? " merge" : "")}>
           <RefChips c={c} merge={mergeRefs} current={currentBranch ?? null} />
-          <span className="title">
-            {marked(c.title, marker)}
+          <span className="title">{marked(c.title, marker)}</span>
+            {/* 折叠线性分支：这一行下面收起来的提交（图谱上这一段直接连到下面留下的提交） */}
+            {!!r.folded && (
+              <span
+                className="folded-tag"
+                title={t("下面有 {0} 个提交折叠起来了（旁支上没有分支或标签的连续提交）。点击展开线性分支", r.folded)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onExpand?.();
+                }}
+              >
+                ⋯ {t("{0} 个已折叠", r.folded)}
+              </span>
+            )}
             {/* 搜到了但标题里没有：匹配在正文里，或匹配的是版本号 */}
             {marker && highlight && !hits(c.title, marker) && (
               <span className="in-body" title={hashHit(c.id, highlight.text) ? t("版本号以“{0}”开头", highlight.text.trim()) : t("搜索的文字在提交说明的正文里，选中后在右边的详情里标出")}>
                 {hashHit(c.id, highlight.text) ? t("版本号") : t("正文")}
               </span>
             )}
-          </span>
           {c.unpushed && (
             <span className="unpushed" title={t("未推送")}>
               ↑

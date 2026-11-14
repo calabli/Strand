@@ -50,6 +50,13 @@ pub struct LogFilter {
     pub path: Option<String>,
     /// 搜索文字搜哪里：提交说明（默认），还是改动内容（`git log -S` / `-G`，说明书 5.1 的扩展）
     pub search_in: SearchIn,
+    /// 只看第一父提交：从当前分支（有分支过滤时从那个分支）沿第一个父提交往回走，合并进来的分支上的提交不显示
+    pub first_parent: bool,
+    /// 不显示合并提交
+    pub no_merges: bool,
+    /// 折叠线性分支（只在没有别的过滤条件、按图谱顺序时起作用）：旁支上没有引用、只有一个父提交和一个子提交的连续提交收起来，
+    /// 图谱照样画，上面那一行标出折叠了几个
+    pub collapse_linear: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -70,6 +77,8 @@ impl LogFilter {
             && self.author_match.as_ref().is_none_or(|m| m.text.is_empty())
             && self.since.is_none()
             && self.until.is_none()
+            && !self.first_parent
+            && !self.no_merges
             && self.path.as_deref().is_none_or(str::is_empty)
     }
 
@@ -166,6 +175,8 @@ pub struct Cache {
     run: Option<Run>,
     /// 路径过滤的后台查询
     path: Option<PathJob>,
+    /// 折叠线性分支后的视图
+    collapsed: Option<Arc<Collapsed>>,
     /// 按改动内容搜索的后台查询
     changes: Option<PathJob>,
 }
@@ -174,7 +185,17 @@ impl Cache {
     /// 引用变了、提交没变：过滤结果重算，作者信息和路径查询留着
     pub(crate) fn forget_results(&mut self) {
         self.run = None;
+        // 引用变了，哪些提交有引用（不折叠）也变了
+        self.collapsed = None;
     }
+}
+
+/// 折叠线性分支后的视图：留下的行、它们的图谱、每行下面折叠了几个
+struct Collapsed {
+    rows: Vec<u32>,
+    graph: Vec<crate::model::GraphRow>,
+    lanes: u32,
+    folded: Vec<u32>,
 }
 
 /// 一组过滤条件的计算进度
@@ -351,6 +372,22 @@ impl Session {
     /// 带过滤和排序的一页日志。不过滤、按图谱顺序时和 [`Session::log_page`] 相同。
     pub fn log_query(&mut self, f: &LogFilter, sort: LogSort, offset: usize, limit: usize) -> Result<LogPage> {
         if f.is_empty() && sort == LogSort::Topo {
+            if f.collapse_linear {
+                let v = self.collapsed();
+                let total = v.rows.len();
+                let start = offset.min(total);
+                let end = (start + limit.min(MAX_PAGE)).min(total);
+                let commits = self.commits_at(v.rows[start..end].iter().copied())?;
+                return Ok(LogPage {
+                    offset: start,
+                    rows: commits,
+                    graph: v.graph[start..end].to_vec(),
+                    total,
+                    lanes: v.lanes,
+                    partial: false,
+                    folded: v.folded[start..end].to_vec(),
+                });
+            }
             return self.log_page(offset, limit);
         }
         let (rows, partial) = self.filtered(f, sort)?;
@@ -358,17 +395,83 @@ impl Session {
         let start = offset.min(total);
         let end = (start + limit.min(MAX_PAGE)).min(total);
         let commits = self.commits_at(rows[start..end].iter().copied())?;
-        Ok(LogPage { offset: start, rows: commits, graph: Vec::new(), total, lanes: 0, partial })
+        Ok(LogPage { offset: start, rows: commits, graph: Vec::new(), total, lanes: 0, partial, folded: Vec::new() })
     }
 
     /// 某个提交在过滤结果里的位置；不在结果里返回 `None`
     pub fn log_locate_in(&mut self, rev: &str, f: &LogFilter, sort: LogSort) -> Result<Option<usize>> {
         let Some(row) = self.log_locate(rev) else { return Ok(None) };
         if f.is_empty() && sort == LogSort::Topo {
+            if f.collapse_linear {
+                // 折叠起来的提交不在列表里
+                return Ok(self.collapsed().rows.iter().position(|&r| r as usize == row));
+            }
             return Ok(Some(row));
         }
         let (rows, _) = self.filtered(f, sort)?;
         Ok(rows.iter().position(|&r| r as usize == row))
+    }
+
+    /// HEAD 所在的行；没有（空仓库、HEAD 不在日志里）时是第一行
+    fn head_row_or_top(&self) -> usize {
+        self.head_row().map(|r| r as usize).unwrap_or(0)
+    }
+
+    /// 从某一行沿第一个父提交往回走经过的行
+    fn first_parent_chain(&self, from: usize) -> Vec<bool> {
+        let mut on = vec![false; self.ids.len()];
+        let mut r = from;
+        while r < on.len() && !on[r] {
+            on[r] = true;
+            match self.parents[r].first() {
+                Some(&p) => r = p as usize,
+                None => break,
+            }
+        }
+        on
+    }
+
+    /// 折叠线性分支后的视图（算一次缓存起来，引用或日志变了就重算）。
+    /// 当前分支沿第一父提交的那条线全部保留；其余的提交，没有引用、日志里只有一个父提交、只有一个子提交的折叠起来，
+    /// 留下的行的父提交跳过折叠的那些直接连到下面留下的提交上，再重新排图谱。
+    fn collapsed(&mut self) -> Arc<Collapsed> {
+        if let Some(c) = &self.filter_cache.collapsed {
+            return c.clone();
+        }
+        let n = self.ids.len();
+        let main = self.first_parent_chain(self.head_row_or_top());
+        let mut kids = vec![0u32; n];
+        for ps in &self.parents {
+            for &p in ps {
+                kids[p as usize] += 1;
+            }
+        }
+        let hide: Vec<bool> = (0..n)
+            .map(|r| !main[r] && self.parents[r].len() == 1 && kids[r] == 1 && !self.refs.contains_key(&self.ids[r]))
+            .collect();
+        let rows: Vec<u32> = (0..n as u32).filter(|&r| !hide[r as usize]).collect();
+        let mut pos = vec![u32::MAX; n];
+        for (i, &r) in rows.iter().enumerate() {
+            pos[r as usize] = i as u32;
+        }
+        let mut folded = vec![0u32; rows.len()];
+        let mut parents: Vec<Vec<u32>> = Vec::with_capacity(rows.len());
+        for (i, &r) in rows.iter().enumerate() {
+            let mut ps = Vec::new();
+            for &p in &self.parents[r as usize] {
+                let mut p = p as usize;
+                while hide[p] {
+                    folded[i] += 1;
+                    p = self.parents[p][0] as usize;
+                }
+                ps.push(pos[p]);
+            }
+            parents.push(ps);
+        }
+        let layout = crate::graph::layout(&parents);
+        let c = Arc::new(Collapsed { rows, graph: layout.rows, lanes: layout.lanes, folded });
+        self.filter_cache.collapsed = Some(c.clone());
+        c
     }
 
     /// 仓库里出现过的作者，按提交数从多到少
@@ -466,6 +569,14 @@ impl Session {
             Some(b) => self.reachable(b),
             None => (0..n as u32).collect(),
         };
+        if f.first_parent {
+            let tip = f.branch.as_deref().and_then(|b| self.log_locate(b)).unwrap_or_else(|| self.head_row_or_top());
+            let on = self.first_parent_chain(tip);
+            rows.retain(|&r| on[r as usize]);
+        }
+        if f.no_merges {
+            rows.retain(|&r| self.parents[r as usize].len() < 2);
+        }
         let rule = f.author_match.as_ref().filter(|m| !m.text.trim().is_empty());
         let by_author = f.author.is_some() || !f.authors.is_empty() || rule.is_some();
         if f.since.is_some() || f.until.is_some() || by_author {

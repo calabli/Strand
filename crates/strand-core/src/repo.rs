@@ -33,7 +33,7 @@ pub struct Session {
     pub(crate) times: Vec<i64>,
     graph: Vec<GraphRow>,
     lanes: u32,
-    refs: HashMap<gix::ObjectId, Vec<Ref>>,
+    pub(crate) refs: HashMap<gix::ObjectId, Vec<Ref>>,
     /// 上次读取时 HEAD 指向的分支和提交（`reload_if_changed` 用来判断要不要重新读；“未推送”按当前分支算）
     loaded_head: (Option<String>, Option<gix::ObjectId>),
     /// 每行：从 HEAD 能到达
@@ -294,7 +294,7 @@ impl Session {
         let start = offset.min(total);
         let end = (start + limit.min(MAX_PAGE)).min(total);
         let rows = self.commits_at((start..end).map(|r| r as u32))?;
-        Ok(LogPage { offset: start, rows, graph: self.graph[start..end].to_vec(), total, lanes: self.lanes, partial: false })
+        Ok(LogPage { offset: start, rows, graph: self.graph[start..end].to_vec(), total, lanes: self.lanes, partial: false, folded: Vec::new() })
     }
 
     /// 读取并解码若干行的提交内容
