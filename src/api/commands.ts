@@ -308,7 +308,9 @@ export const api = {
     inTauri ? call("file_diff_versions", { from, fromPath, to, toPath, context }) : mock.fileDiffVersions(from, fromPath, to, toPath),
   stashList: (): Promise<StashEntry[]> => (inTauri ? call("stash_list") : mock.stashList()),
   stashFiles: (index: number): Promise<FileChange[]> => (inTauri ? call("stash_files", { index }) : mock.stashFiles(index)),
-  stashPush: (message: string | null = null): Promise<Written<null>> => (inTauri ? call("stash_push", { message }) : mock.stashPush()),
+  /** includeUntracked: also stash untracked files (git stash -u) */
+  stashPush: (message: string | null = null, includeUntracked = false): Promise<Written<null>> =>
+    inTauri ? call("stash_push", { message, includeUntracked }) : mock.stashPush(),
   /** Restore a stash: drop true restores and deletes, otherwise restores and keeps; returns CONFLICTS on conflicts and the repository enters "restore in progress" */
   stashApply: (index: number, drop: boolean): Promise<Written<null>> =>
     inTauri ? call("stash_apply", { index, drop }) : mock.stashApply(index, drop),

@@ -32,6 +32,13 @@ impl Session {
     pub fn diff_commit_ctx(&self, id: &str, path: &str, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
         let d = commit_diff_ctx(&repo, id, Some(path), context)?;
+        // A stash made with -u keeps untracked files in its third parent: show them as added
+        if d.deltas().len() == 0 {
+            if let Some(untracked) = stash_untracked(&repo, id) {
+                let d = commit_diff_ctx(&repo, &untracked, Some(path), context)?;
+                return diff::first_file(&d, path);
+            }
+        }
         diff::prefetch(&repo, &d, usize::MAX);
         diff::first_file(&d, path)
     }
@@ -54,4 +61,10 @@ fn commit_diff_ctx<'r>(repo: &'r git2::Repository, id: &str, path: Option<&str>,
     }
     repo.diff_tree_to_tree(parent.as_ref(), Some(&tree), Some(&mut opts))
         .map_err(|e| CoreError::git("读取提交差异失败", e))
+}
+
+/// The commit holding a stash's untracked files (its third parent), when it was made with -u
+pub(crate) fn stash_untracked(repo: &git2::Repository, id: &str) -> Option<String> {
+    let c = repo.find_commit(git2::Oid::from_str(id).ok()?).ok()?;
+    (c.parent_count() == 3).then(|| c.parent_id(2).ok().map(|o| o.to_string())).flatten()
 }

@@ -46,18 +46,44 @@ export function useStashShelf({ refreshKey, ask, done, failed, say }: Deps) {
     [done, failed, say],
   );
 
-  const stash = useCallback(() => run(api.stashPush(), t("已贮藏全部改动")), [run]);
+  /** Stash all changes; with untracked files in the worktree, ask whether to include them (git stash -u) */
+  const stash = useCallback(
+    (untracked: string[] = []) => {
+      if (!untracked.length) return run(api.stashPush(), t("已贮藏全部改动"));
+      const some = untracked.slice(0, 3).join("、") + (untracked.length > 3 ? t(" 等") : "");
+      ask({
+        title: t("贮藏全部改动"),
+        message: t("工作区里还有 {0} 个未跟踪的文件（{1}）。", untracked.length, some),
+        choices: [
+          { value: "tracked", label: t("只贮藏已跟踪文件的改动"), hint: t("未跟踪的文件留在工作区") },
+          { value: "all", label: t("连同未跟踪的文件一起贮藏"), hint: t("它们会从工作区移走，取回贮藏时放回来") },
+        ],
+        initialChoice: "tracked",
+        confirm: t("贮藏"),
+        onSubmit: (v) => run(api.stashPush(null, v === "all"), v === "all" ? t("已贮藏全部改动和 {0} 个未跟踪的文件", untracked.length) : t("已贮藏全部改动")),
+      });
+    },
+    [ask, run],
+  );
 
   /** Shelve the selected files; with ask true ask for a name first, otherwise name it "Changes · n" */
   const shelve = useCallback(
-    (paths: string[], askName: boolean) => {
+    (paths: string[], askName: boolean, untracked: string[] = []) => {
       if (!askName) return run(api.shelfSave("", paths), t("已搁置到暂存架"));
       ask({
         title: t("搁置到暂存架"),
         message: t("把 {0} 个文件的改动收到暂存架，工作区里这些文件回到最近一次提交的样子。", paths.length),
         input: { initial: t("改动 · {0}", shelves.length + 1), placeholder: t("名字") },
+        // Untracked files can come along; they leave the worktree and come back on restore
+        choices: untracked.length
+          ? [
+              { value: "checked", label: t("只搁置勾选的文件") },
+              { value: "all", label: t("再加上 {0} 个未跟踪的文件", untracked.length), hint: untracked.slice(0, 3).join("、") + (untracked.length > 3 ? t(" 等") : "") },
+            ]
+          : undefined,
+        initialChoice: "checked",
         confirm: t("搁置"),
-        onSubmit: (name) => run(api.shelfSave(name, paths), t("已搁置到“{0}”", name)),
+        onSubmit: (name, _alt, { choice }) => run(api.shelfSave(name, choice === "all" ? [...paths, ...untracked] : paths), t("已搁置到“{0}”", name)),
       });
     },
     [ask, run, shelves.length],

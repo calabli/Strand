@@ -19,8 +19,8 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Commit whole files or individual lines; hooks, signing and line-ending conversion run as usual.
 - Changelists, message history, `commit.template` support, committing as another author, `Co-authored-by` lines.
 - Format and check commands before committing, with recognized issues listed by file and line.
-- Amend, fixup and squash into earlier commits; interactive rebase in a window.
-- Shelf (per-file, named, partial restore) and stash.
+- Amend, fixup and squash into earlier commits; interactive rebase in a window (reorder, keep, fold, drop, edit messages).
+- Shelf (per-file, named, partial restore) and stash, both optionally including untracked files.
 
 **Undo**
 - An operation timeline records every write. ⌘Z undoes commits, resets, rebases, branch deletions, discards, cherry-picks and more, and redo brings them back.
@@ -116,7 +116,7 @@ Output goes to `target/release/bundle/`; the plain executable is `target/release
 - **Build (macOS arm64)**: builds the Apple silicon `.app` and `.dmg` on `macos-latest` (Apple silicon).
 - **Build (Windows x64)**: builds the NSIS installer, the MSI and the portable exe on `windows-latest`.
 
-Artifacts are uploaded for every run. Pushing a tag such as `v0.1.0` also creates a GitHub Release with all the files.
+Artifacts are uploaded for every run. Pushing a tag such as `v0.1.0` also creates a GitHub Release with all the files; its notes list the commit titles since the previous tag.
 
 ### Releasing a new version
 
@@ -169,9 +169,9 @@ Everything can be done with the keyboard: icon buttons have accessible names mat
 ## Known limitations
 
 - Macs with Intel chips aren't built by CI; the macOS build is not notarized and the Windows builds are not signed.
-- Shelf and stash don't include untracked files; the shelf works on whole files.
+- The shelf works on whole files.
 - Undo snapshots don't include untracked files, except for the operations on untracked files themselves. Changes inside a worktree that was force-removed can't be brought back.
-- Rebasing in the rebase window stops at merge commits, and messages can't be edited there.
+- Rebasing in the rebase window stops at merge commits.
 - Cloning uses system Git only; authentication relies on SSH keys and credential helpers.
 - Pre-commit check settings live in each repository's Git config and can't be shared through the repository.
 - The graph is drawn as one SVG per row.

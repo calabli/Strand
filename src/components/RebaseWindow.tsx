@@ -16,7 +16,8 @@ interface Deps {
   say: (message: string) => void;
 }
 
-type Row = RangeCommit & { action: Exclude<StepAction, "fixup"> };
+/** message: a new message typed in the window (only used for kept commits) */
+type Row = RangeCommit & { action: Exclude<StepAction, "fixup">; message?: string };
 
 export function useRebase({ ask, done, failed, say }: Deps) {
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -133,6 +134,7 @@ const I = {
   pick: "M2.5 7.5 5.5 10.5 11.5 3.5",
   squash: "M3 2.5v4.5a2 2 0 0 0 2 2h6.5M8.5 6 11.5 9 8.5 12",
   drop: "M2.5 3.5h9M5.5 3.5V2h3v1.5M3.5 3.5l.5 8.5h6l.5-8.5",
+  edit: "M9.5 2.5l2 2-7 7H2.5v-2zM8 4l2 2",
 };
 
 function Ico({ d }: { d: string }) {
@@ -160,6 +162,23 @@ function countAfter(rows: Row[]) {
 
 function RebaseWindow({ rows, orig, hasPushed, onChange, onApply, onClose }: { rows: Row[]; orig: string[]; hasPushed: boolean; onChange: (f: (r: Row[] | null) => Row[] | null) => void; onApply: (s: RebaseStep[]) => void; onClose: () => void }) {
   useReturnFocus();
+  // Editing a commit message in the window: the commit id and the text being typed
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const fullMessage = (r: Row) => r.message ?? (r.body ? `${r.title}\n\n${r.body}` : r.title);
+  const saveEdit = () => {
+    if (!editing) return;
+    const text = editing.text.replace(/\s+$/, "");
+    if (!text.split("\n")[0].trim()) return;
+    onChange((rs) =>
+      rs &&
+      rs.map((r) => {
+        if (r.id !== editing.id) return r;
+        const original = r.body ? `${r.title}\n\n${r.body}` : r.title;
+        return { ...r, message: text === original ? undefined : text };
+      }),
+    );
+    setEditing(null);
+  };
   const move = (i: number, d: -1 | 1) =>
     onChange((rs) => {
       if (!rs) return rs;
@@ -169,7 +188,7 @@ function RebaseWindow({ rows, orig, hasPushed, onChange, onApply, onClose }: { r
     });
   const set = (i: number, action: Row["action"]) => onChange((rs) => rs && rs.map((r, k) => (k === i ? { ...r, action } : r)));
   const after = countAfter(rows);
-  const changed = rows.some((r, k) => r.action !== "pick" || r.id !== orig[k]);
+  const changed = rows.some((r, k) => r.action !== "pick" || r.id !== orig[k] || r.message !== undefined);
   // The nearest kept commit before each row (to tell whether a squash has a target)
   let keptAbove = false;
   const effective = rows.map((r) => {
@@ -185,11 +204,16 @@ function RebaseWindow({ rows, orig, hasPushed, onChange, onApply, onClose }: { r
         aria-modal="true"
         aria-label={t("整理提交")}
         onKeyDown={(e) => {
-          if (e.key === "Escape") onClose();
+          if (e.key === "Escape") {
+            if (editing) {
+              e.stopPropagation();
+              setEditing(null);
+            } else onClose();
+          }
         }}
       >
         <h2>{t("整理提交")}</h2>
-        <p className="modal-msg">{t("最早的在最上面。可以调整顺序，选择保留、并入上一个或丢弃。")}</p>
+        <p className="modal-msg">{t("最早的在最上面。可以调整顺序，选择保留、并入上一个或丢弃，点铅笔改保留的提交的说明。")}</p>
         <ol className="rb-list">
           {rows.map((r, i) => (
             <li key={r.id} className={"rb-row " + effective[i]}>
@@ -217,10 +241,59 @@ function RebaseWindow({ rows, orig, hasPushed, onChange, onApply, onClose }: { r
                   </button>
                 ))}
               </span>
-              <span className="rb-text" title={r.body ? `${r.title}\n\n${r.body}` : r.title}>
-                <span className="mono dim">{shortId(r.id)}</span> <span className="rb-title">{r.title}</span>
+              <span className="rb-text" title={fullMessage(r)}>
+                <span className="mono dim">{shortId(r.id)}</span> <span className="rb-title">{r.message !== undefined ? r.message.split("\n")[0] : r.title}</span>
               </span>
+              {r.message !== undefined && effective[i] === "pick" && <span className="rb-edited">{t("已改说明")}</span>}
               {r.pushed && <span className="rb-pushed">{t("已推送")}</span>}
+              <button
+                type="button"
+                className="ib sm rb-edit"
+                title={effective[i] === "pick" ? t("改说明") : t("只有保留的提交能改说明")}
+                aria-label={t("改 {0} 的说明", shortId(r.id))}
+                disabled={effective[i] !== "pick"}
+                onClick={() => setEditing({ id: r.id, text: fullMessage(r) })}
+              >
+                <Ico d={I.edit} />
+              </button>
+              {editing?.id === r.id && (
+                <div className="rb-editor">
+                  <textarea
+                    autoFocus
+                    rows={4}
+                    value={editing.text}
+                    aria-label={t("新的提交说明")}
+                    onChange={(e) => setEditing({ id: r.id, text: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        saveEdit();
+                      }
+                    }}
+                  />
+                  <div className="rb-editor-btns">
+                    {r.message !== undefined && (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => {
+                          onChange((rs) => rs && rs.map((x) => (x.id === r.id ? { ...x, message: undefined } : x)));
+                          setEditing(null);
+                        }}
+                      >
+                        {t("恢复原说明")}
+                      </button>
+                    )}
+                    <span className="grow" />
+                    <button type="button" className="btn sm" onClick={() => setEditing(null)}>
+                      {t("取消")}
+                    </button>
+                    <button type="button" className="btn sm primary" disabled={!editing.text.split("\n")[0].trim()} onClick={saveEdit} title={t("确定（⌘↵）")}>
+                      {t("确定")}
+                    </button>
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ol>
@@ -238,7 +311,7 @@ function RebaseWindow({ rows, orig, hasPushed, onChange, onApply, onClose }: { r
             className={"btn " + (after === 0 ? "danger" : "primary")}
             disabled={!changed}
             title={changed ? undefined : t("还没有做任何调整")}
-            onClick={() => onApply(rows.map((r) => ({ id: r.id, action: r.action })))}
+            onClick={() => onApply(rows.map((r, i) => ({ id: r.id, action: r.action, ...(r.message !== undefined && effective[i] === "pick" ? { message: r.message } : {}) })))}
           >
             {t("整理")}
           </button>

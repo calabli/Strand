@@ -194,3 +194,25 @@ fn pushed_commits_in_range_warn_and_need_force() {
     s.reload().unwrap();
     assert!(feature(&s).needs_force, "整理后要强制推送");
 }
+
+/// Editing messages in the rebase window: kept commits get new messages, also combined with reordering and squashing
+#[test]
+fn reword_in_rebase_window() {
+    let r = sample();
+    let p = r.dir.path();
+    let s = Session::open(p).unwrap();
+    let mut b = step(&r.b, StepAction::Pick);
+    b.message = Some("B 改过的标题\n\n正文第一行\n正文第二行".into());
+    let mut d = step(&r.d, StepAction::Pick);
+    d.message = Some("D 新说明".into());
+    // New order: A, D (new message), C squashed into D, B (new message)
+    s.rebase_apply(&[step(&r.a, StepAction::Pick), d, step(&r.c, StepAction::Squash), b]).unwrap();
+    assert_eq!(titles(p, 3), "B 改过的标题\nD 新说明\nA");
+    assert_eq!(git(p, &["log", "-1", "--format=%b"]), "正文第一行\n正文第二行");
+    // C's changes are in D's commit, D's message comes first in the combined message
+    assert!(git(p, &["show", "--stat", "--format=", "HEAD~1"]).contains("c.txt"));
+    assert!(git(p, &["log", "-1", "--format=%B", "HEAD~1"]).starts_with("D 新说明"));
+    for f in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+        assert!(!read(p, f).is_empty(), "{f}");
+    }
+}

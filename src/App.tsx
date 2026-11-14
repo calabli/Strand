@@ -1038,7 +1038,7 @@ export default function App() {
         setPanel("files");
         if (!panelOpen) togglePanel();
       } },
-      { id: "stash-push", section: m, icon: COMMIT_ICONS.stash, label: t("贮藏全部改动"), run: ss.stash, disabled: !normal, why: busyWhy },
+      { id: "stash-push", section: m, icon: COMMIT_ICONS.stash, label: t("贮藏全部改动"), run: () => ss.stash(status?.untracked ?? []), disabled: !normal, why: busyWhy },
       { id: "reload", section: m, icon: COMMIT_ICONS.reload, label: t("重新读取仓库"), run: reload },
       { id: "repos", section: m, icon: COMMIT_ICONS.repo, label: t("切换仓库…"), run: () => setRepoPop({ x: 12, y: 48 }) },
       { id: "open", section: m, icon: COMMIT_ICONS.folder, label: t("打开仓库…"), run: choose },
@@ -1312,7 +1312,7 @@ export default function App() {
             repoPath={repo.path}
             onRefresh={() => refreshStatus()}
             onWritten={doneCb}
-            onShelve={ss.shelve}
+            onShelve={(paths, askName) => ss.shelve(paths, askName, status?.untracked ?? [])}
             onPickedChange={setPanelSel}
             lineSel={lineSel}
             onClearLines={(p) =>
@@ -1328,7 +1328,7 @@ export default function App() {
             onFileMenu={fileMenu}
             onApplyPatch={() => setApplying({ text: "" })}
             onPatch={(sel) => openPatch(t("{0} 个文件的补丁", sel.files.length), api.patchWorktree(sel), "changes.patch")}
-            onStash={ss.stash}
+            onStash={() => ss.stash(status?.untracked ?? [])}
             status={status}
             disabled={repo.state !== "normal"}
             activePath={tab === "diff" && target?.kind === "worktree" ? target.path : null}

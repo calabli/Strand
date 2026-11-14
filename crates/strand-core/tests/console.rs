@@ -26,7 +26,7 @@ fn records_commands_notes_and_masks() {
 
     let mut s = Session::open(p).unwrap();
     std::fs::write(p.join("a.txt"), "a 改\n").unwrap();
-    s.run_op("贮藏 控制台测试", OpKind::Stash, |s| s.stash_push(Some("控制台测试"))).unwrap();
+    s.run_op("贮藏 控制台测试", OpKind::Stash, |s| s.stash_push(Some("控制台测试"), false)).unwrap();
     let tail = console::tail(300);
     assert!(tail.iter().any(|e| e.kind == EntryKind::Note && e.text == "贮藏 控制台测试"), "{tail:#?}");
     let cmd = tail.iter().find(|e| e.kind == EntryKind::Command && e.text.contains("stash push") && e.text.contains("控制台测试")).expect("记下了 git stash push");

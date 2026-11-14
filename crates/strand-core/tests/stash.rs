@@ -46,13 +46,13 @@ fn stash_push_apply_pop_drop() {
     let d = repo();
     let p = d.path();
     let s = Session::open(p).unwrap();
-    assert_eq!(s.stash_push(None).unwrap_err().code, ErrorCode::NothingSelected);
+    assert_eq!(s.stash_push(None, false).unwrap_err().code, ErrorCode::NothingSelected);
 
     write(p, "a.txt", "a2\n");
-    s.stash_push(Some("改 a")).unwrap();
+    s.stash_push(Some("改 a"), false).unwrap();
     assert_eq!(read(p, "a.txt"), "a1\n");
     write(p, "b.txt", "b2\n");
-    s.stash_push(None).unwrap();
+    s.stash_push(None, false).unwrap();
     let list = s.stash_list().unwrap();
     assert_eq!(list.len(), 2);
     assert!(list[1].message.ends_with("改 a"));
@@ -76,7 +76,7 @@ fn stash_pop_conflict_then_finish_or_abort() {
     let p = d.path();
     let mut s = Session::open(p).unwrap();
     write(p, "a.txt", "贮藏里的 a\n");
-    s.stash_push(None).unwrap();
+    s.stash_push(None, false).unwrap();
     write(p, "a.txt", "提交里的 a\n");
     git(p, &["commit", "-qam", "改 a"]);
     write(p, "b.txt", "我在改 b\n");
@@ -180,7 +180,7 @@ fn undo_stash_pop_brings_the_stash_back() {
     let p = d.path();
     let mut s = Session::open(p).unwrap();
     write(p, "a.txt", "a2\n");
-    s.run_op("贮藏", OpKind::Other, |s| s.stash_push(None)).unwrap();
+    s.run_op("贮藏", OpKind::Other, |s| s.stash_push(None, false)).unwrap();
     s.run_op("取回贮藏", OpKind::Other, |s| s.stash_apply(0, true)).unwrap();
     assert!(s.stash_list().unwrap().is_empty());
     assert_eq!(read(p, "a.txt"), "a2\n");
@@ -296,4 +296,80 @@ fn shelf_restore_some_files_conflict() {
     assert_eq!(list.len(), 1);
     assert_ne!(list[0].id, e.id);
     assert_eq!(list[0].files[0].path, "b.txt");
+}
+
+/// Stash with untracked files (git stash -u): the list shows them, their diff is readable, undo and pop bring them back
+#[test]
+fn stash_with_untracked_files() {
+    use strand_core::oplog::OpScope;
+    let d = repo();
+    let p = d.path();
+    write(p, "a.txt", "a2\n");
+    write(p, "new.txt", "新文件\n");
+    let mut s = Session::open(p).unwrap();
+    let scope = OpScope { files: vec!["new.txt".into()], ..Default::default() };
+    s.run_op_scoped("贮藏", OpKind::Stash, &scope, |s| s.stash_push(Some("带新文件"), true)).unwrap();
+    assert!(!p.join("new.txt").exists());
+    assert_eq!(read(p, "a.txt"), "a1\n");
+    let files = s.stash_files(0).unwrap();
+    let paths: Vec<_> = files.iter().map(|f| (f.path.as_str(), format!("{:?}", f.status))).collect();
+    assert!(paths.contains(&("a.txt", "M".into())) && paths.contains(&("new.txt", "A".into())), "{paths:?}");
+    assert_eq!(s.stash_untracked_files(0).unwrap(), vec!["new.txt".to_string()]);
+    let id = s.stash_list().unwrap()[0].id.clone();
+    let diff = s.diff_commit(&id, "new.txt").unwrap();
+    assert_eq!(diff.hunks[0].lines[0].text, "新文件");
+
+    // Undo: the stash goes away and the untracked file is back
+    s.reload().unwrap();
+    s.oplog_undo(None, false).unwrap();
+    assert_eq!(read(p, "new.txt"), "新文件\n");
+    assert_eq!(read(p, "a.txt"), "a2\n");
+    assert!(s.stash_list().unwrap().is_empty());
+    s.oplog_redo().unwrap();
+    assert!(!p.join("new.txt").exists());
+
+    // Pop brings the untracked file back
+    s.stash_apply(0, true).unwrap();
+    assert_eq!(read(p, "new.txt"), "新文件\n");
+    assert!(s.stash_list().unwrap().is_empty());
+    // Without -u untracked files stay where they are
+    s.stash_push(None, false).unwrap();
+    assert_eq!(read(p, "new.txt"), "新文件\n");
+}
+
+/// Shelving untracked files: they leave the worktree (empty folders too), show in the entry, and come back on restore and undo
+#[test]
+fn shelf_with_untracked_files() {
+    use strand_core::oplog::OpScope;
+    let d = repo();
+    let p = d.path();
+    write(p, "a.txt", "a2\n");
+    std::fs::create_dir_all(p.join("sub/deep")).unwrap();
+    write(p, "sub/deep/n.txt", "n1\nn2\n");
+    write(p, "keep.txt", "不搁置\n");
+    let mut s = Session::open(p).unwrap();
+    let paths = vec!["a.txt".to_string(), "sub/deep/n.txt".to_string()];
+    let scope = OpScope { files: vec!["sub/deep/n.txt".into()], ..Default::default() };
+    let (e, _) = s.run_op_scoped("搁置", OpKind::Shelf, &scope, |s| s.shelf_save("带新文件", &paths)).unwrap();
+    assert!(!p.join("sub").exists(), "empty folders are removed");
+    assert_eq!(read(p, "a.txt"), "a1\n");
+    assert_eq!(read(p, "keep.txt"), "不搁置\n");
+    let files = s.shelf_files(e.id).unwrap();
+    let n = files.iter().find(|f| f.path == "sub/deep/n.txt").unwrap();
+    assert_eq!((format!("{:?}", n.status), n.added), ("A".to_string(), 2));
+    assert_eq!(s.shelf_diff(e.id, "sub/deep/n.txt", Some(1_000_000)).unwrap().hunks[0].lines.len(), 2);
+    // The real index wasn't touched by the intent-to-add trick
+    assert_eq!(git(p, &["status", "--porcelain", "--", "sub"]), "");
+
+    s.reload().unwrap();
+    s.oplog_undo(None, false).unwrap();
+    assert_eq!(read(p, "sub/deep/n.txt"), "n1\nn2\n");
+    assert_eq!(read(p, "a.txt"), "a2\n");
+    s.oplog_redo().unwrap();
+    assert!(!p.join("sub/deep/n.txt").exists());
+
+    s.shelf_restore(e.id).unwrap();
+    assert_eq!(read(p, "sub/deep/n.txt"), "n1\nn2\n");
+    assert_eq!(read(p, "a.txt"), "a2\n");
+    assert!(git(p, &["status", "--porcelain"]).contains("?? sub/"), "restored as untracked again");
 }

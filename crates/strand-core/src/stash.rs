@@ -33,6 +33,9 @@ pub struct StashEntry {
 pub struct ShelfFile {
     pub path: String,
     pub status: FileStatus,
+    /// Was an untracked file when shelved: restored as untracked again
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untracked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,7 +117,21 @@ impl Session {
     /// Files changed in a stash (relative to HEAD at stash time)
     pub fn stash_files(&self, index: usize) -> Result<Vec<crate::model::FileChange>> {
         let e = self.stash_at(index)?;
-        self.commit_files(&e.id)
+        let mut files = self.commit_files(&e.id)?;
+        // Stashed with -u: untracked files live in the third parent, shown as added
+        if let Some(u) = crate::history::stash_untracked(&self.git2()?, &e.id) {
+            files.extend(self.commit_files(&u)?);
+        }
+        Ok(files)
+    }
+
+    /// Untracked files kept in a stash (made with -u); empty otherwise
+    pub fn stash_untracked_files(&self, index: usize) -> Result<Vec<String>> {
+        let e = self.stash_at(index)?;
+        match crate::history::stash_untracked(&self.git2()?, &e.id) {
+            Some(u) => Ok(self.commit_files(&u)?.into_iter().map(|f| f.path).collect()),
+            None => Ok(Vec::new()),
+        }
     }
 
     fn stash_at(&self, index: usize) -> Result<StashEntry> {
@@ -124,10 +141,13 @@ impl Session {
             .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "这条贮藏已经不在了，列表可能已经变化"))
     }
 
-    /// Stash all tracked changes
-    pub fn stash_push(&self, message: Option<&str>) -> Result<()> {
+    /// Stash all tracked changes; with `include_untracked`, untracked files too (git stash -u; ignored files stay)
+    pub fn stash_push(&self, message: Option<&str>, include_untracked: bool) -> Result<()> {
         let before = self.stash_list()?.first().map(|e| e.id.clone());
         let mut args = vec!["stash", "push", "--quiet"];
+        if include_untracked {
+            args.push("--include-untracked");
+        }
         if let Some(m) = message.filter(|m| !m.trim().is_empty()) {
             args.extend(["--message", m]);
         }
@@ -240,18 +260,19 @@ impl Session {
             return Err(CoreError::new(ErrorCode::NothingSelected, "至少勾选一个文件"));
         }
         let status = self.status()?;
-        let files: Vec<ShelfFile> = status
+        let mut files: Vec<ShelfFile> = status
             .changes
             .iter()
             .filter(|c| paths.contains(&c.path))
-            .map(|c| ShelfFile { path: c.path.clone(), status: c.status })
+            .map(|c| ShelfFile { path: c.path.clone(), status: c.status, untracked: false })
             .collect();
+        // Untracked files among the paths are shelved as added files
+        let untracked: Vec<String> = status.untracked.iter().filter(|p| paths.contains(p)).cloned().collect();
+        files.extend(untracked.iter().map(|p| ShelfFile { path: p.clone(), status: FileStatus::A, untracked: true }));
         if files.is_empty() {
             return Err(CoreError::new(ErrorCode::NothingSelected, "选中的文件没有改动"));
         }
-        let mut args: Vec<&str> = vec!["diff", "HEAD", "--binary", "--no-color", "--no-ext-diff", "--"];
-        args.extend(paths.iter().map(String::as_str));
-        let patch = git_cli::run(self.path(), &args, None)?;
+        let patch = self.shelf_patch_text(paths, &untracked)?;
         if patch.trim().is_empty() {
             return Err(CoreError::new(ErrorCode::NothingSelected, "选中的文件没有改动"));
         }
@@ -267,10 +288,45 @@ impl Session {
         let entry = ShelfEntry { id, name, time: now(), files, base, deleted: None };
         idx.entries.push(entry.clone());
         self.shelf_write(&idx)?;
-        let mut restore: Vec<&str> = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
-        restore.extend(paths.iter().map(String::as_str));
-        git_cli::run(self.path(), &restore, None)?;
+        let tracked: Vec<&str> = paths.iter().filter(|p| !untracked.contains(p)).map(String::as_str).collect();
+        if !tracked.is_empty() {
+            let mut restore: Vec<&str> = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+            restore.extend(tracked);
+            git_cli::run(self.path(), &restore, None)?;
+        }
+        // Shelved untracked files leave the worktree (they're in the patch now)
+        for p in &untracked {
+            let full = self.path().join(p);
+            std::fs::remove_file(&full).map_err(io("搁置未跟踪的文件失败"))?;
+            remove_empty_parents(self.path(), &full);
+        }
         Ok(entry)
+    }
+
+    /// The patch for shelving: `git diff HEAD` of the paths; untracked ones are marked "intent to add" in a temporary
+    /// copy of the index so they appear as new files (the real index is untouched)
+    fn shelf_patch_text(&self, paths: &[String], untracked: &[String]) -> Result<String> {
+        let mut args: Vec<&str> = vec!["diff", "HEAD", "--binary", "--no-color", "--no-ext-diff", "--"];
+        args.extend(paths.iter().map(String::as_str));
+        if untracked.is_empty() {
+            return git_cli::run(self.path(), &args, None);
+        }
+        let git_dir = self.git2()?.path().to_path_buf();
+        let tmp = git_dir.join("strand").join("shelf-index");
+        std::fs::create_dir_all(git_dir.join("strand")).map_err(io("保存暂存架失败"))?;
+        let real = git_dir.join("index");
+        if real.exists() {
+            std::fs::copy(&real, &tmp).map_err(io("保存暂存架失败"))?;
+        } else {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        let idx = tmp.to_string_lossy().to_string();
+        let env = [("GIT_INDEX_FILE", idx.as_str())];
+        let mut add: Vec<&str> = vec!["add", "--intent-to-add", "--"];
+        add.extend(untracked.iter().map(String::as_str));
+        let r = git_cli::run_env(self.path(), &add, None, &env).and_then(|_| git_cli::run_env(self.path(), &args, None, &env));
+        let _ = std::fs::remove_file(&tmp);
+        r
     }
 
     /// Restore a shelf entry to the worktree and delete the entry. On conflicts with the worktree enters "restore in progress" and returns `CONFLICTS`.
@@ -281,7 +337,10 @@ impl Session {
         let p = patch.to_string_lossy().to_string();
         refresh_index(self.path());
         match git_cli::run(self.path(), &["apply", "--3way", "--binary", &p], None) {
-            Ok(_) => self.shelf_mark_deleted(id),
+            Ok(_) => {
+                self.unstage_restored_untracked(&entry, None);
+                self.shelf_mark_deleted(id)
+            }
             Err(err) => {
                 if self.index_has_conflicts() {
                     self.set_unstash(&Unstash { source: UnstashSource::Shelf, id: id.to_string(), label: entry.name, drop: true, remainder: None })?;
@@ -322,7 +381,10 @@ impl Session {
         let r = git_cli::run(self.path(), &["apply", "--3way", "--binary", &p], None);
         let _ = std::fs::remove_file(&part);
         match r {
-            Ok(_) => self.shelf_mark_deleted(id),
+            Ok(_) => {
+                self.unstage_restored_untracked(&entry, Some(paths));
+                self.shelf_mark_deleted(id)
+            }
             Err(err) => {
                 if self.index_has_conflicts() {
                     self.set_unstash(&Unstash { source: UnstashSource::Shelf, id: id.to_string(), label: entry.name, drop: true, remainder: Some(rest_id) })?;
@@ -515,6 +577,17 @@ impl Session {
         self.shelf_write(&idx)
     }
 
+    /// `git apply --3way` stages the files it creates; files that were untracked when shelved go back to untracked
+    fn unstage_restored_untracked(&self, entry: &ShelfEntry, only: Option<&[String]>) {
+        let files: Vec<&str> = entry.files.iter().filter(|f| f.untracked && only.is_none_or(|o| o.contains(&f.path))).map(|f| f.path.as_str()).collect();
+        if files.is_empty() {
+            return;
+        }
+        let mut args = vec!["rm", "--cached", "--quiet", "--ignore-unmatch", "--"];
+        args.extend(files);
+        let _ = git_cli::run(self.path(), &args, None);
+    }
+
     // ---------- Conflicts when restoring ----------
 
     pub(crate) fn require_clean_state(&self) -> Result<()> {
@@ -675,4 +748,15 @@ fn apply_hunks(old: &[u8], hunks: &[crate::model::Hunk]) -> Option<Vec<u8>> {
         out.extend_from_slice(l);
     }
     Some(out)
+}
+
+/// Remove directories left empty after deleting `file`, up to (not including) the worktree root
+fn remove_empty_parents(root: &std::path::Path, file: &std::path::Path) {
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+        if d == root || !d.starts_with(root) || std::fs::remove_dir(d).is_err() {
+            break;
+        }
+        dir = d.parent();
+    }
 }

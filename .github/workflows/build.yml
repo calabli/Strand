@@ -132,6 +132,27 @@ jobs:
     needs: [test, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Release notes from commit titles since the previous tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          range="${prev:+$prev..}$TAG"
+          {
+            echo "## What's changed"
+            echo
+            git log "$range" --no-merges --format='- %s' | grep -v -E '^- (Release [0-9]|Website: download links)' || true
+            if [ -n "$prev" ]; then
+              echo
+              echo "Full list: https://github.com/${{ github.repository }}/compare/$prev...$TAG"
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -155,7 +176,9 @@ jobs:
           add("darwin-aarch64", /_aarch64\.app\.tar\.gz$/);
           add("windows-x86_64", /_x64-setup\.exe$/);
           if (!Object.keys(platforms).length) { console.log("No signed update packages; skipping latest.json"); process.exit(0); }
-          const json = { version, notes: `Strand ${version}. See the release page for details.`, pub_date: new Date().toISOString(), platforms };
+          // The in-app update card shows these notes; drop the heading and link
+          const notes = fs.readFileSync("release-notes.md", "utf8").split("\n").filter((l) => l.startsWith("- ")).join("\n") || `Strand ${version}`;
+          const json = { version, notes, pub_date: new Date().toISOString(), platforms };
           fs.writeFileSync("artifacts/latest.json", JSON.stringify(json, null, 2));
           console.log(JSON.stringify(json, null, 2));
           JS
@@ -163,4 +186,4 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
-          generate_release_notes: true
+          body_path: release-notes.md

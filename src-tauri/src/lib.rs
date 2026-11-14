@@ -1134,23 +1134,26 @@ async fn stash_files(state: State<'_, AppState>, index: usize) -> CmdResult<Vec<
 }
 
 #[tauri::command]
-async fn stash_push(state: State<'_, AppState>, message: Option<String>) -> CmdResult<Written<()>> {
-    logged_op(&state, "贮藏改动".into(), OpKind::Stash, move |s| s.stash_push(message.as_deref())).await
+async fn stash_push(state: State<'_, AppState>, message: Option<String>, include_untracked: Option<bool>) -> CmdResult<Written<()>> {
+    let with_untracked = include_untracked.unwrap_or(false);
+    // Snapshots only cover tracked files: record the untracked ones too so undo puts them back
+    let files = if with_untracked { with_repo(&state, |s| Ok(s.status()?.untracked)).await? } else { Vec::new() };
+    let scope = OpScope { files, ..Default::default() };
+    let label = if with_untracked { "贮藏改动（含未跟踪的文件）" } else { "贮藏改动" };
+    logged_op_scoped(&state, label.into(), OpKind::Stash, scope, move |s| s.stash_push(message.as_deref(), with_untracked)).await
 }
 
 /// Restore a stash: `drop` true restores and deletes (pop), otherwise restores and keeps (apply)
 #[tauri::command]
 async fn stash_apply(state: State<'_, AppState>, index: usize, drop: bool) -> CmdResult<Written<()>> {
-    logged_op_by(
-        &state,
-        OpKind::Stash,
-        move |s| {
-            let m = s.stash_list().ok().and_then(|l| l.into_iter().find(|e| e.index == index)).map(|e| short(&e.message)).unwrap_or_default();
-            format!("{}贮藏“{m}”", if drop { "取回" } else { "应用" })
-        },
-        move |s| s.stash_apply(index, drop),
-    )
-    .await
+    // Untracked files the stash brings back: recorded so undo removes them again
+    let (label, files) = with_repo(&state, move |s| {
+        let m = s.stash_list().ok().and_then(|l| l.into_iter().find(|e| e.index == index)).map(|e| short(&e.message)).unwrap_or_default();
+        Ok((format!("{}贮藏“{m}”", if drop { "取回" } else { "应用" }), s.stash_untracked_files(index).unwrap_or_default()))
+    })
+    .await?;
+    let scope = OpScope { files, ..Default::default() };
+    logged_op_scoped(&state, label, OpKind::Stash, scope, move |s| s.stash_apply(index, drop)).await
 }
 
 #[tauri::command]
@@ -1175,28 +1178,37 @@ async fn shelf_list(state: State<'_, AppState>) -> CmdResult<Vec<ShelfEntry>> {
 #[tauri::command]
 async fn shelf_save(state: State<'_, AppState>, name: String, paths: Vec<String>) -> CmdResult<Written<ShelfEntry>> {
     let label = if name.trim().is_empty() { "搁置改动".to_string() } else { format!("搁置“{}”", short(name.trim())) };
-    logged_op(&state, label, OpKind::Shelf, move |s| s.shelf_save(&name, &paths)).await
+    // Untracked files being shelved are removed from the worktree: record them so undo brings them back
+    let p2 = paths.clone();
+    let files = with_repo(&state, move |s| Ok(s.status()?.untracked.into_iter().filter(|u| p2.contains(u)).collect::<Vec<_>>())).await?;
+    let scope = OpScope { files, ..Default::default() };
+    logged_op_scoped(&state, label, OpKind::Shelf, scope, move |s| s.shelf_save(&name, &paths)).await
 }
 
 #[tauri::command]
 async fn shelf_restore(state: State<'_, AppState>, id: u64, paths: Option<Vec<String>>) -> CmdResult<Written<()>> {
     let some = paths.as_ref().map(|p| p.len());
-    logged_op_by(
-        &state,
-        OpKind::Shelf,
-        move |s| {
-            let n = s.shelf_list().ok().and_then(|l| l.into_iter().find(|e| e.id == id)).map(|e| e.name).unwrap_or_default();
-            match some {
-                // Restore only some files (spec §4.9)
-                Some(k) => format!("从搁置“{}”取回 {k} 个文件", short(&n)),
-                None => format!("取回搁置“{}”", short(&n)),
-            }
-        },
-        move |s| match &paths {
-            Some(p) => s.shelf_restore_files(id, p),
-            None => s.shelf_restore(id),
-        },
-    )
+    // Added files the entry brings back (including once-untracked ones): recorded so undo removes them again
+    let p2 = paths.clone();
+    let (label, files) = with_repo(&state, move |s| {
+        let entry = s.shelf_list().ok().and_then(|l| l.into_iter().find(|e| e.id == id));
+        let n = entry.as_ref().map(|e| e.name.clone()).unwrap_or_default();
+        let label = match some {
+            // Restore only some files (spec §4.9)
+            Some(k) => format!("从搁置“{}”取回 {k} 个文件", short(&n)),
+            None => format!("取回搁置“{}”", short(&n)),
+        };
+        let added = entry
+            .map(|e| e.files.into_iter().filter(|f| f.status == strand_core::model::FileStatus::A).map(|f| f.path).filter(|f| p2.as_ref().is_none_or(|p| p.contains(f))).collect())
+            .unwrap_or_default();
+        Ok((label, added))
+    })
+    .await?;
+    let scope = OpScope { files, ..Default::default() };
+    logged_op_scoped(&state, label, OpKind::Shelf, scope, move |s| match &paths {
+        Some(p) => s.shelf_restore_files(id, p),
+        None => s.shelf_restore(id),
+    })
     .await
 }
 

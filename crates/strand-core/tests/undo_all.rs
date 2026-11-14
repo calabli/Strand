@@ -214,10 +214,10 @@ fn every_undoable_operation_round_trips() {
     s.reload().unwrap();
     check(&mut s, "删除搁置", |s| op(s, "删除搁置", OpKind::Shelf, |s| s.shelf_delete(id)));
     write(p, "a.txt", "a 贮藏\n");
-    check(&mut s, "贮藏", |s| op(s, "贮藏", OpKind::Stash, |s| s.stash_push(Some("贮藏一下"))));
+    check(&mut s, "贮藏", |s| op(s, "贮藏", OpKind::Stash, |s| s.stash_push(Some("贮藏一下"), false)));
     check(&mut s, "取回贮藏", |s| op(s, "取回贮藏", OpKind::Stash, |s| s.stash_apply(0, true)));
     write(p, "a.txt", "a 再贮藏\n");
-    s.stash_push(Some("第二个")).unwrap();
+    s.stash_push(Some("第二个"), false).unwrap();
     s.reload().unwrap();
     check(&mut s, "丢弃贮藏", |s| op(s, "丢弃贮藏", OpKind::Stash, |s| s.stash_drop(0)));
     write(p, "new.txt", "新文件\n");
