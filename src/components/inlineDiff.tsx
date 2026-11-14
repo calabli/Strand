@@ -35,51 +35,60 @@ function Ws({ t }: { t: string }) {
 /** 一段普通文字：显示空白字符时换成 Ws */
 const plain = (s: string, ws: boolean | undefined, key?: number) => (ws ? <Ws key={key} t={s} /> : s);
 
-/** 文字里匹配搜索的地方包在 <mark class="find"> 里（搜索结果高亮搜索词）；ws 为真时显示空白字符 */
-export function Found({ t, find, ws }: { t: string; find?: RegExp | null; ws?: boolean }) {
-  if (!find || !t) return <>{plain(t, ws)}</>;
-  const g = new RegExp(find.source, find.flags.includes("g") ? find.flags : find.flags + "g");
-  const out: ReactNode[] = [];
-  let last = 0;
-  for (const m of t.matchAll(g)) {
-    if (!m[0]) break;
-    const at = m.index ?? 0;
-    if (at > last) out.push(plain(t.slice(last, at), ws, -at - 1));
-    out.push(
-      <mark key={at} className="find">
-        {plain(m[0], ws)}
-      </mark>,
-    );
-    last = at + m[0].length;
+/** 语法着色的一段：[开始, 结束, 种类] */
+export type Tok = [number, number, string];
+
+/**
+ * 一行文字，几层标记叠在一起画：语法着色（toks）、和配对行不同的部分加深（diff 区间）、搜索词（find）、空白字符（ws）。
+ * 先把所有区间的边界收集起来切成小段，每一小段按它落在哪些区间里套上对应的标签。
+ */
+export function Rich({ t, toks, diff, find, ws }: { t: string; toks?: Tok[] | null; diff?: [number, number] | null; find?: RegExp | null; ws?: boolean }) {
+  if (!t) return null;
+  const finds: [number, number][] = [];
+  if (find) {
+    const g = new RegExp(find.source, find.flags.includes("g") ? find.flags : find.flags + "g");
+    for (const m of t.matchAll(g)) {
+      if (!m[0]) break;
+      finds.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
+    }
   }
-  if (!out.length) return <>{plain(t, ws)}</>;
-  out.push(plain(t.slice(last), ws, -1));
+  if (!toks?.length && !diff && !finds.length) return <>{plain(t, ws)}</>;
+  const cuts = new Set<number>([0, t.length]);
+  for (const [a, b] of toks ?? []) cuts.add(Math.min(a, t.length)).add(Math.min(b, t.length));
+  if (diff) cuts.add(diff[0]).add(diff[1]);
+  for (const [a, b] of finds) cuts.add(a).add(b);
+  const points = [...cuts].sort((x, y) => x - y);
+  const out: ReactNode[] = [];
+  let ti = 0;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const [a, b] = [points[i], points[i + 1]];
+    if (a === b) continue;
+    while (toks && ti < toks.length && toks[ti][1] <= a) ti++;
+    const kind = toks && ti < toks.length && toks[ti][0] <= a ? toks[ti][2] : null;
+    let node: ReactNode = plain(t.slice(a, b), ws, a);
+    if (kind) node = <span className={"tk-" + kind}>{node}</span>;
+    if (finds.some(([x, y]) => x <= a && b <= y)) node = <mark className="find">{node}</mark>;
+    if (diff && diff[0] <= a && b <= diff[1]) node = <mark>{node}</mark>;
+    out.push(<span key={a}>{node}</span>);
+  }
   return <>{out}</>;
 }
 
+/** 文字里匹配搜索的地方包在 <mark class="find"> 里（搜索结果高亮搜索词）；ws 为真时显示空白字符；toks 是语法着色 */
+export function Found({ t, find, ws, toks }: { t: string; find?: RegExp | null; ws?: boolean; toks?: Tok[] | null }) {
+  return <Rich t={t} find={find} ws={ws} toks={toks} />;
+}
+
 /**
- * 显示 t，和 other 不同的部分包在 <mark> 里；other 为空，或两行没有共同部分时原样显示。
- * find 给出时，搜索词再单独标出来（在“不同的部分”里也标）。
- * 搜索词跨过“不同的部分”边界时按三段分别找，跨界的那一处标不出来（很少见）。
+ * 显示 t，和 other 不同的部分加深；other 为空，或两行没有共同部分时不加深。
+ * find 给出时搜索词单独标出来，toks 是语法着色，ws 显示空白字符。
  */
-export function Hi({ t, other, find, ws }: { t: string; other?: string; find?: RegExp | null; ws?: boolean }) {
-  if (other === undefined) return <Found t={t} find={find} ws={ws} />;
-  const [a, b, c] = splitDiff(t, other);
-  // 共同的部分只有缩进、空白或一两个标点（如结尾的“);”）时，两行其实完全不同
-  if ((a + c).replace(/\s+/g, "").length < 4) return <Found t={t} find={find} ws={ws} />;
-  if (find && find.test(t) && ![a, b, c].some((x) => find.test(x))) {
-    // 搜索词正好跨过边界：宁可不加深不同的部分，也要把搜索词标出来
-    return <Found t={t} find={find} ws={ws} />;
+export function Hi({ t, other, find, ws, toks }: { t: string; other?: string; find?: RegExp | null; ws?: boolean; toks?: Tok[] | null }) {
+  let diff: [number, number] | null = null;
+  if (other !== undefined) {
+    const [a, b, c] = splitDiff(t, other);
+    // 共同的部分只有缩进、空白或一两个标点（如结尾的“);”）时，两行其实完全不同
+    if ((a + c).replace(/\s+/g, "").length >= 4 && b) diff = [a.length, a.length + b.length];
   }
-  return (
-    <>
-      <Found t={a} find={find} ws={ws} />
-      {b && (
-        <mark>
-          <Found t={b} find={find} ws={ws} />
-        </mark>
-      )}
-      <Found t={c} find={find} ws={ws} />
-    </>
-  );
+  return <Rich t={t} diff={diff} find={find} ws={ws} toks={toks} />;
 }

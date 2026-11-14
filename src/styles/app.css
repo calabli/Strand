@@ -818,7 +818,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .pf-more { margin: 2px 0 4px 30px; }
 .tv-line.focus { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 /* 搜索词高亮（搜索结果、差异、文件全文）：明黄底深色字，和差异的红绿、行内加深都能区分开，深浅色主题一样 */
-mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0 1px; box-shadow: 0 0 0 1px rgba(160, 120, 0, 0.35); }
+mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0; box-shadow: 0 0 0 1px rgba(160, 120, 0, 0.35); }
 .dl-add mark mark.find, .dl-del mark mark.find { background: #FFD84D; }
 .in-body { flex-shrink: 0; margin-left: 2px; padding: 0 5px; border-radius: 4px; background: var(--chip); color: var(--fg2); font-size: 10px; font-weight: 600; vertical-align: 1px; }
 .crow.sel .in-body { background: color-mix(in srgb, #fff 25%, transparent); color: inherit; }
@@ -917,3 +917,19 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0 
 .dfile.split .ann { width: 120px; }
 .dfile.with-ann .dl-fold { padding-left: 246px; }
 .dfile.split.with-ann .dl-fold { padding-left: 182px; }
+
+/* 语法高亮的颜色（highlight.js 的种类 → 主题变量） */
+.tk-keyword, .tk-selector-tag, .tk-literal, .tk-built_in.tk-keyword, .tk-doctag { color: var(--sx-kw); }
+.tk-string, .tk-regexp, .tk-template-string, .tk-subst, .tk-char { color: var(--sx-str); }
+.tk-comment, .tk-quote { color: var(--sx-com); font-style: italic; }
+.tk-number, .tk-symbol, .tk-bullet, .tk-variable.language_, .tk-literal { color: var(--sx-num); }
+.tk-title, .tk-section, .tk-function, .tk-selector-id, .tk-selector-class { color: var(--sx-fn); }
+.tk-type, .tk-built_in, .tk-class, .tk-params, .tk-variable, .tk-template-variable { color: var(--sx-type); }
+.tk-tag, .tk-name, .tk-selector-pseudo { color: var(--sx-tag); }
+.tk-attr, .tk-attribute, .tk-property, .tk-meta, .tk-link { color: var(--sx-attr); }
+.tk-emphasis { font-style: italic; }
+.tk-strong { font-weight: 700; }
+.tk-addition { color: var(--ok-ink); }
+.tk-deletion { color: var(--danger); }
+/* 搜索词里的着色不要盖掉黄底深字 */
+mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }

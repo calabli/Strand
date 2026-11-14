@@ -181,6 +181,7 @@ export const en: Record<string, string> = {
   "输入文字后可以按规则过滤": "Type something to filter by a rule",
   "当前规则": "Current rule",
   "清除": "Clear",
+  "语法高亮": "Syntax Highlighting",
   "\n点击在日志里定位": "\nClick to locate it in the log",
   "这个差异不能逐行追溯": "Blame isn't available for this diff",
   "在差异标签页里打开后可以逐行追溯": "Open it in the diff tab to use blame",

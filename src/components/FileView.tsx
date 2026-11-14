@@ -15,7 +15,8 @@ import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
 import { findRegExp, relTime, shortId } from "./format";
 import { Found } from "./inlineDiff";
-import { settings } from "../settings";
+import { highlight, langOf, type Tok } from "../highlight";
+import { settings, useSettings } from "../settings";
 import { t, tr } from "../i18n";
 
 const WORK = "work";
@@ -311,6 +312,18 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
     if (all.length && all[all.length - 1] === "") all.pop();
     return all;
   }, [f]);
+  // 语法高亮（在后台线程里着色，先显示没着色的）
+  const syntax = useSettings().diffSyntax;
+  const [toks, setToks] = useState<{ f: FileText; lines: Tok[][] } | null>(null);
+  useEffect(() => {
+    if (!f?.text || !syntax) return;
+    let live = true;
+    highlight(langOf(f.path), [f.text]).then(([t]) => live && t && setToks({ f, lines: t }));
+    return () => {
+      live = false;
+    };
+  }, [f, syntax]);
+  const lineToks = syntax && toks?.f === f ? toks.lines : null;
   return (
     <div className="fv-text" ref={box}>
       {load.loading && !f && <p className="pad dim">{t("正在读取…")}</p>}
@@ -323,7 +336,7 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
             <div key={i} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
               <span className="ln">{i + 1}</span>
               <span className="code">
-                <Found t={l} find={find} />
+                <Found t={l} find={find} toks={lineToks?.[i]} />
               </span>
             </div>
           ))}

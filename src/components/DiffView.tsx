@@ -18,6 +18,7 @@ import { api } from "../api/commands";
 import type { DiffLine, FileDiff } from "../api/types";
 import { Menu, type MenuState } from "./Menu";
 import { formatTime, shortId } from "./format";
+import { highlight, langOf, type Tok } from "../highlight";
 import { t, tr } from "../i18n";
 import { setSettings, useSettings } from "../settings";
 import { Hi } from "./inlineDiff";
@@ -157,6 +158,34 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const showWs = settings.diffWs;
   const lineNo = settings.diffLineNo;
   const wrap = settings.diffWrap;
+  const syntax = settings.diffSyntax;
+
+  // 语法高亮：拼出旧版本和新版本（整个文件时就是两个完整的文件），在后台线程里着色，按行号对上
+  const [hl, setHl] = useState<{ diff: FileDiff; old: Map<number, Tok[]>; neu: Map<number, Tok[]> } | null>(null);
+  useEffect(() => {
+    if (!diff || diff.binary || !syntax) return;
+    const lang = langOf(diff.path);
+    if (!lang) return;
+    const old: { no: number; text: string }[] = [];
+    const neu: { no: number; text: string }[] = [];
+    for (const h of diff.hunks)
+      for (const l of h.lines) {
+        if (l.kind !== "add" && l.old_no) old.push({ no: l.old_no, text: l.text });
+        if (l.kind !== "del" && l.new_no) neu.push({ no: l.new_no, text: l.text });
+      }
+    let live = true;
+    highlight(lang, [old.map((x) => x.text).join("\n"), neu.map((x) => x.text).join("\n")]).then(([a, b]) => {
+      if (!live) return;
+      const map = (rows: typeof old, toks: Tok[][] | null) => new Map(toks ? rows.map((r, i) => [r.no, toks[i] ?? []] as const) : []);
+      setHl({ diff, old: map(old, a), neu: map(neu, b) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [diff, syntax]);
+  const hlNow = syntax && hl?.diff === diff ? hl : null;
+  /** 一行的语法着色：删除行（和左边）按旧版本，其余按新版本 */
+  const toksOf = (side: 0 | 1, no: number | undefined | null) => (hlNow && no ? (side === 0 ? hlNow.old : hlNow.neu).get(no) : undefined);
   const blameOn = settings.diffBlame && !!blameSides && !compact;
   const [menu, setMenu] = useState<MenuState | null>(null);
 
@@ -206,6 +235,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         { label: t("折叠没改的部分"), checked: fold, run: () => (setSettings({ diffFold: !fold }), setOpened(new Set())) },
         "-",
         { heading: true, label: t("显示") },
+        { label: t("语法高亮"), checked: syntax, run: () => setSettings({ diffSyntax: !syntax }) },
         { label: t("显示空白字符"), checked: showWs, run: () => setSettings({ diffWs: !showWs }) },
         { label: t("显示行号"), checked: lineNo, run: () => setSettings({ diffLineNo: !lineNo }) },
         { label: t("自动换行"), checked: wrap, run: () => setSettings({ diffWrap: !wrap }) },
@@ -286,7 +316,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
       <span className="ln">{it.kind === "del" ? "" : it.line.new_no ?? ""}</span>
       <span className="sign">{it.kind === "add" ? "+" : it.kind === "del" ? "−" : ""}</span>
       <span className="code">
-        <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} />
+        <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} toks={it.kind === "del" ? toksOf(0, it.line.old_no) : toksOf(1, it.line.new_no)} />
       </span>
     </div>
   );
@@ -342,7 +372,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
       <span className="ln">{(side === 0 ? it.line.old_no : it.line.new_no) ?? ""}</span>
       <span className="sign">{it.kind === "add" ? "+" : it.kind === "del" ? "−" : ""}</span>
       <span className="code">
-        <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} />
+        <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} toks={toksOf(side, side === 0 ? it.line.old_no : it.line.new_no)} />
       </span>
     </div>
   );
