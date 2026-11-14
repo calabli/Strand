@@ -391,8 +391,8 @@ async fn checkout_detached(state: State<'_, AppState>, rev: String) -> CmdResult
 }
 
 #[tauri::command]
-async fn tag_create(state: State<'_, AppState>, name: String, at: String) -> CmdResult<Written<()>> {
-    logged_op(&state, format!("新建标签 {name}"), OpKind::Tag, move |s| s.tag_create(&name, &at)).await
+async fn tag_create(state: State<'_, AppState>, name: String, at: String, message: Option<String>, sign: Option<bool>) -> CmdResult<Written<()>> {
+    logged_op(&state, format!("新建标签 {name}"), OpKind::Tag, move |s| s.tag_create(&name, &at, message.as_deref(), sign.unwrap_or(false))).await
 }
 
 #[tauri::command]
@@ -634,22 +634,22 @@ async fn remote_pull_preview(state: State<'_, AppState>, mode: PullMode) -> CmdR
 }
 
 #[tauri::command]
-async fn remote_push_preview(state: State<'_, AppState>, to: Option<String>) -> CmdResult<PushPreview> {
+async fn remote_push_preview(state: State<'_, AppState>, to: Option<String>, remote: Option<String>) -> CmdResult<PushPreview> {
     let path = repo_path(&state)?;
-    tauri::async_runtime::spawn_blocking(move || remote::push_preview(&path, to.as_deref()))
+    tauri::async_runtime::spawn_blocking(move || remote::push_preview_on(&path, to.as_deref(), remote.as_deref()))
         .await
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
 #[tauri::command]
-async fn remote_push(app: AppHandle, state: State<'_, AppState>, task_id: String, force: bool, tags: bool, to: Option<String>) -> CmdResult<Written<()>> {
+async fn remote_push(app: AppHandle, state: State<'_, AppState>, task_id: String, force: bool, tags: bool, to: Option<String>, remote: Option<String>) -> CmdResult<Written<()>> {
     let branch = with_repo(&state, |s| Ok(s.state()?.head.branch.unwrap_or_default())).await?;
     let log = NetLog::Push(match &to {
         Some(id) => format!("推送 {branch} 到 {} 为止", &id[..id.len().min(7)]),
         None if force => format!("强制推送 {branch}"),
         None => format!("推送 {branch}"),
     });
-    net_task(app, &state, task_id, log, move |p, c, pr| remote::push(p, &PushOptions { force, tags, to }, c, pr)).await
+    net_task(app, &state, task_id, log, move |p, c, pr| remote::push(p, &PushOptions { force, tags, to, remote }, c, pr)).await
 }
 
 /// 推送一个标签（说明书 6.5、7.4）
@@ -657,6 +657,34 @@ async fn remote_push(app: AppHandle, state: State<'_, AppState>, task_id: String
 async fn tag_push(app: AppHandle, state: State<'_, AppState>, task_id: String, name: String) -> CmdResult<Written<()>> {
     let log = NetLog::Push(format!("推送标签 {name}"));
     net_task(app, &state, task_id, log, move |p, c, pr| remote::tag_push(p, &name, c, pr)).await
+}
+
+// ---------- 管理远程 ----------
+
+#[tauri::command]
+async fn remote_list(state: State<'_, AppState>) -> CmdResult<Vec<remote::RemoteInfo>> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || remote::remote_list(&path)).await.map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+#[tauri::command]
+async fn remote_add(state: State<'_, AppState>, name: String, url: String) -> CmdResult<Written<()>> {
+    write_op(&state, move |s| remote::remote_add(s.path(), &name, &url)).await
+}
+
+#[tauri::command]
+async fn remote_remove(state: State<'_, AppState>, name: String) -> CmdResult<Written<()>> {
+    write_op(&state, move |s| remote::remote_remove(s.path(), &name)).await
+}
+
+#[tauri::command]
+async fn remote_rename(state: State<'_, AppState>, name: String, new_name: String) -> CmdResult<Written<()>> {
+    write_op(&state, move |s| remote::remote_rename(s.path(), &name, &new_name)).await
+}
+
+#[tauri::command]
+async fn remote_set_url(state: State<'_, AppState>, name: String, url: String) -> CmdResult<Written<()>> {
+    write_op(&state, move |s| remote::remote_set_url(s.path(), &name, &url)).await
 }
 
 // ---------- 冲突解决（说明书第 8 节） ----------
@@ -855,6 +883,82 @@ async fn file_save(path: String, text: String) -> CmdResult<()> {
         .await
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
         .map_err(|e| CoreError::git("保存文件失败", e))
+}
+
+/// 读一个文本文件（选择补丁文件、拖进窗口的补丁）；最多 20 MB
+#[tauri::command]
+async fn file_read_text(path: String) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let meta = std::fs::metadata(&path).map_err(|e| CoreError::git("读取文件失败", e))?;
+        if meta.len() > 20 << 20 {
+            return Err(CoreError::new(strand_core::ErrorCode::InvalidRange, "文件太大（超过 20 MB）"));
+        }
+        let b = std::fs::read(&path).map_err(|e| CoreError::git("读取文件失败", e))?;
+        Ok(String::from_utf8_lossy(&b).into_owned())
+    })
+    .await
+    .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+// ---------- 二分查找 ----------
+
+#[tauri::command]
+async fn bisect_status(state: State<'_, AppState>) -> CmdResult<strand_core::bisect::BisectStatus> {
+    with_repo(&state, |s| s.bisect_status()).await
+}
+
+#[tauri::command]
+async fn bisect_mark(state: State<'_, AppState>, mark: strand_core::bisect::BisectMark, rev: Option<String>) -> CmdResult<Written<strand_core::bisect::BisectStatus>> {
+    write_op(&state, move |s| s.bisect_mark(mark, rev.as_deref())).await
+}
+
+#[tauri::command]
+async fn bisect_reset(state: State<'_, AppState>) -> CmdResult<Written<()>> {
+    write_op(&state, |s| s.bisect_reset()).await
+}
+
+// ---------- 签名 ----------
+
+#[tauri::command]
+async fn commit_signature(state: State<'_, AppState>, id: String) -> CmdResult<strand_core::sign::Signature> {
+    with_repo(&state, move |s| s.commit_signature(&id)).await
+}
+
+#[tauri::command]
+async fn signing_config(state: State<'_, AppState>) -> CmdResult<strand_core::sign::SigningConfig> {
+    with_repo(&state, |s| s.signing_config()).await
+}
+
+#[tauri::command]
+async fn signing_set(state: State<'_, AppState>, commit: bool) -> CmdResult<strand_core::sign::SigningConfig> {
+    with_repo(&state, move |s| s.signing_set(commit)).await
+}
+
+// ---------- 操作记录（reflog） ----------
+
+#[tauri::command]
+async fn reflog_refs(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+    with_repo(&state, |s| s.reflog_refs()).await
+}
+
+#[tauri::command]
+async fn reflog(state: State<'_, AppState>, name: String) -> CmdResult<Vec<strand_core::reflog::ReflogEntry>> {
+    with_repo(&state, move |s| s.reflog(&name)).await
+}
+
+// ---------- 应用补丁 ----------
+
+#[tauri::command]
+async fn patch_preview(state: State<'_, AppState>, text: String) -> CmdResult<strand_core::patch::PatchPreview> {
+    with_repo(&state, move |s| s.patch_preview(&text)).await
+}
+
+/// 应用补丁：commit 为真时按邮件格式生成提交，否则应用到工作区（有冲突时进入冲突解决）
+#[tauri::command]
+async fn patch_apply(state: State<'_, AppState>, text: String, commit: bool) -> CmdResult<Written<usize>> {
+    let n = strand_core::patch::mail_commits(&text).len();
+    let (label, kind) = if commit { (format!("应用补丁（{n} 个提交）"), OpKind::Commit) } else { ("应用补丁到工作区".to_string(), OpKind::Other) };
+    logged_op(&state, label, kind, move |s| s.patch_apply(&text, commit)).await
 }
 
 // ---------- 丢弃改动、未跟踪的文件（说明书 4.7、4.8） ----------
@@ -1140,6 +1244,22 @@ pub fn run(adopted: Option<u128>) {
             commit_tree,
             project_files,
             file_text,
+            file_read_text,
+            patch_preview,
+            reflog_refs,
+            bisect_status,
+            bisect_mark,
+            bisect_reset,
+            remote_list,
+            remote_add,
+            remote_remove,
+            remote_rename,
+            remote_set_url,
+            commit_signature,
+            signing_config,
+            signing_set,
+            reflog,
+            patch_apply,
             save_worktree_file,
             file_history,
             file_diff_versions,

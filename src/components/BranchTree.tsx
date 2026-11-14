@@ -59,6 +59,8 @@ interface Props {
   onMenu: (x: number, y: number, items: MenuEntry[]) => void;
   /** 推送一个标签（说明书 6.5） */
   onPushTag?: (name: string) => void;
+  /** 打开管理远程 */
+  onRemotes?: () => void;
   /** 图标列里的更新（拉取当前分支）和抓取；pullWhy 是不能拉取的原因 */
   remote?: { fetch: () => void; pull: () => void; pullWhy: string | null };
 }
@@ -100,7 +102,7 @@ function worktreeActions(w: Worktree, ops: BranchOps): MenuEntry[] {
   ];
 }
 
-export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick, onLocate, onMenu, onPushTag, remote }: Props) {
+export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick, onLocate, onMenu, onPushTag, onRemotes, remote }: Props) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Record<Group, boolean>>({ local: true, remote: true, tags: false, worktrees: true });
 
@@ -352,6 +354,11 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                 type="button"
                 className="trow tremote"
                 aria-expanded={f ? true : !closedRemotes.has(remote)}
+                onContextMenu={(e) => {
+                  if (!onRemotes) return;
+                  e.preventDefault();
+                  onMenu(e.clientX, e.clientY, [{ label: t("管理远程…"), run: onRemotes }]);
+                }}
                 onClick={() =>
                   setClosedRemotes((s) => {
                     const n = new Set(s);
@@ -406,7 +413,14 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
               }}
             >
               <KindIcon d={I.tag} />
-              <span className="tname mono">{tg.name}</span>
+              <span className="tname mono" title={tg.message ? `${tg.name}\n\n${tg.message}` : undefined}>
+                {tg.name}
+              </span>
+              {tg.message && (
+                <span className="tag-note dim" title={tg.message} aria-label={t("带说明的标签")}>
+                  ¶
+                </span>
+              )}
               {tg.unpushed && onPushTag && (
                 // 未推送的标签显示推送图标（说明书 6.5），点一下推送
                 <button

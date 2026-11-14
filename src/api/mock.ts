@@ -407,13 +407,16 @@ import type { PushPreview } from "./types";
 export const slow = <T,>(result: T) =>
   new Promise<Written<T>>((r) => setTimeout(() => r({ result, state: { ...state, head: refs.head } }), 1200));
 
-export const pushPreview = (to: string | null = null) =>
+export const pushPreview = (to: string | null = null, remote: string | null = null) =>
   delay<PushPreview>({
     branch: "feature/commit-graph",
-    target: "origin/feature/commit-graph",
-    new_branch: false,
+    // 示例：有两个以上远程时当作还没推送过的新分支，可以选推送到哪个远程
+    target: `${remote ?? "origin"}/feature/commit-graph`,
+    new_branch: mockRemotes.length > 1,
+    remote: remote ?? "origin",
+    remotes: mockRemotes.map((r) => r.name),
     commits: (to === H(1) ? [1] : [0, 1]).map((i) => ({ id: H(i), title: commitAt(i).title })),
-    behind: to ? 0 : 1,
+    behind: to || mockRemotes.length > 1 ? 0 : 1,
     needs_force: false,
     to: to ?? undefined,
     left: to === H(1) ? 1 : 0,
@@ -852,4 +855,149 @@ function fullDiff(path: string): FileDiff {
   del("        self.debug_dump();");
   while (o <= 120) ctx(o === 120 ? "}" : `    // 结尾第 ${o} 行`);
   return { path, binary: false, truncated: false, hunks: [{ title: "第 1 行起", old_start: 1, new_start: 1, lines }] };
+}
+
+// ---------- 应用补丁的示例数据 ----------
+import type { PatchPreview } from "./types";
+
+export const SAMPLE_PATCH = `From 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b Mon Sep 17 00:00:00 2001
+From: 林夏 <lin@example.com>
+Date: Fri, 13 Nov 2026 10:00:00 +0800
+Subject: [PATCH] 图谱：长连线折叠后箭头可以点击
+
+---
+ src/graph/layout.rs | 4 +++-
+ src/graph/arrow.rs  | 12 ++++++++++++
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/src/graph/layout.rs b/src/graph/layout.rs
+--- a/src/graph/layout.rs
++++ b/src/graph/layout.rs
+@@ -1,3 +1,5 @@
+-old
++new
++more
++lines
+`;
+
+export function patchPreview(text: string): Promise<PatchPreview> {
+  if (!text.includes("diff --git") && !text.includes("\n--- ")) return Promise.reject({ code: "INVALID_RANGE", message: "这不是一个补丁：里面没有找到文件改动（diff）" });
+  const commits = [...text.matchAll(/^Subject: (?:\[PATCH[^\]]*\] )?(.*)$/gm)].map((m) => ({ title: m[1], author: "林夏" }));
+  const files = [...text.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].map((m, i) => ({ path: m[2], status: (i === 1 ? "A" : "M") as "A" | "M", added: 3 + i, deleted: i ? 0 : 1, binary: false }));
+  return delay({ files: files.length ? files : [{ path: "README.md", status: "M" as const, added: 2, deleted: 1, binary: false }], commits, fit: text.includes("conflict") ? "three_way" : "clean" });
+}
+
+export const patchApply = (_text: string, commit: boolean) => ok(commit ? 1 : 0, commit ? "应用补丁（1 个提交）" : "应用补丁到工作区", commit ? "commit" : "other");
+
+// ---------- 操作记录的示例数据 ----------
+import type { ReflogEntry } from "./types";
+
+export function reflog(name: string): Promise<ReflogEntry[]> {
+  return logQuery(0, 40).then((page) => {
+    const acts: [string, string][] = [
+      ["checkout", "moving from main to feature/commit-graph"],
+      ["commit", "图谱：泳道折叠"],
+      ["reset", "moving to HEAD~1"],
+      ["commit (amend)", "修复：差异视图中文换行"],
+      ["rebase (finish)", "returning to refs/heads/feature/commit-graph"],
+      ["merge origin/main", "Fast-forward"],
+      ["pull", "Fast-forward"],
+      ["cherry-pick", "统一错误提示"],
+      ["commit", "提交面板：目录勾选"],
+      ["checkout", "moving from feature/commit-graph to main"],
+    ];
+    const now = Math.floor(Date.now() / 1000);
+    return acts.map(([action, message], i) => {
+      const c = page.rows[i * 2];
+      const lost = i === 2;
+      return {
+        index: i,
+        id: lost ? "deadbeef" + c.id.slice(8) : c.id,
+        old_id: page.rows[i * 2 + 1].id,
+        action: name === "HEAD" || !action.startsWith("checkout") ? action : "commit",
+        message,
+        time: now - i * 3600 * 5,
+        title: c.title,
+        exists: true,
+        in_log: !lost,
+      };
+    });
+  });
+}
+
+// ---------- 签名的示例数据 ----------
+import type { Signature, SigningConfig } from "./types";
+
+export const signing: SigningConfig = { commit: false, tag: false, key: "~/.ssh/id_ed25519.pub", format: "ssh" };
+export function commitSignature(id: string): Promise<Signature> {
+  const n = parseInt(id.slice(0, 2), 16) % 4;
+  return delay(n === 0 ? { status: "good", signer: "lin@example.com", key: "SHA256:k3J…" } : n === 1 ? { status: "unknown", signer: "", key: "4F2A9C1E" } : { status: "none", signer: "", key: "" });
+}
+
+// ---------- 远程的示例数据 ----------
+import type { RemoteInfo } from "./types";
+
+let mockRemotes: RemoteInfo[] = [{ name: "origin", url: "git@github.com:example/strand-app.git" }];
+export const remoteList = () => delay(mockRemotes.map((r) => ({ ...r })));
+const bad = (message: string) => Promise.reject({ code: "INVALID_NAME", message });
+export function remoteEdit(f: () => string | void): Promise<Written<null>> {
+  const e = f();
+  return e ? bad(e) : ok(null);
+}
+export const remoteAddMock = (name: string, url: string) => {
+  if (!name.trim() || /[\s/]/.test(name)) return "远程的名字不能为空，也不能有空格或斜杠";
+  if (mockRemotes.some((r) => r.name === name)) return `已经有叫 ${name} 的远程了`;
+  if (!url.trim()) return "地址不能为空，也不能有空格";
+  mockRemotes = [...mockRemotes, { name, url }];
+};
+export const remoteRemoveMock = (name: string) => {
+  mockRemotes = mockRemotes.filter((r) => r.name !== name);
+};
+export const remoteRenameMock = (name: string, to: string) => {
+  if (mockRemotes.some((r) => r.name === to)) return `已经有叫 ${to} 的远程了`;
+  mockRemotes = mockRemotes.map((r) => (r.name === name ? { ...r, name: to } : r));
+};
+export const remoteSetUrlMock = (name: string, url: string) => {
+  if (!url.trim()) return "地址不能为空，也不能有空格";
+  mockRemotes = mockRemotes.map((r) => (r.name === name ? { ...r, url } : r));
+};
+
+// ---------- 二分查找的示例数据：在示例日志的前 16 个提交里找，第 5 个是第一个坏的 ----------
+import type { BisectMark, BisectStatus } from "./types";
+
+let bis: { bad: number | null; good: number[]; skip: number[]; cur: number | null } | null = null;
+function bisectNow(): BisectStatus {
+  if (!bis) return { active: false, start: "", good: [], skipped: [] };
+  const lo = bis.bad ?? 0;
+  const hi = bis.good.length ? Math.min(...bis.good) : null;
+  const left = hi === null || bis.bad === null ? null : hi - lo - 1;
+  const done = left === 0;
+  return {
+    active: true,
+    start: "feature/commit-graph",
+    bad: bis.bad === null ? null : H(bis.bad),
+    good: bis.good.map(H),
+    skipped: bis.skip.map(H),
+    current: bis.cur === null ? null : H(bis.cur),
+    remaining: left === null ? null : Math.max(0, left - 1),
+    steps: left === null ? null : Math.ceil(Math.log2(left + 1)),
+    first_bad: done ? H(lo) : null,
+    first_bad_title: done ? commitAt(lo).title : null,
+  };
+}
+export const bisectStatus = () => delay(bisectNow());
+export function bisectMark(mark: BisectMark, rev: string | null): Promise<Written<BisectStatus>> {
+  bis ??= { bad: null, good: [], skip: [], cur: 0 };
+  const i = rev ? Math.max(0, rowOf(rev)) : (bis.cur ?? 0);
+  if (mark === "bad") bis.bad = i;
+  if (mark === "good") bis.good.push(i);
+  if (mark === "skip") bis.skip.push(i);
+  const st0 = bisectNow();
+  if (bis.bad !== null && bis.good.length && !st0.first_bad) bis.cur = Math.floor((bis.bad + Math.min(...bis.good)) / 2);
+  // 示例：第 5 个以前（更新的）是坏的
+  return delay({ result: bisectNow(), state: { ...state, head: refs.head, bisecting: true } });
+}
+export function bisectReset(): Promise<Written<null>> {
+  bis = null;
+  return delay({ result: null, state: { ...state, head: refs.head, bisecting: false } });
 }

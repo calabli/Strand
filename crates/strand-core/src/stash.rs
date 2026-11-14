@@ -75,6 +75,8 @@ pub struct Unstash {
 pub enum UnstashSource {
     Stash,
     Shelf,
+    /// 应用补丁到工作区时有冲突（完成时没有条目要删）
+    Patch,
 }
 
 fn now() -> i64 {
@@ -495,7 +497,7 @@ impl Session {
 
     // ---------- 取回时的冲突 ----------
 
-    fn require_clean_state(&self) -> Result<()> {
+    pub(crate) fn require_clean_state(&self) -> Result<()> {
         if self.state()?.state != crate::model::RepoMode::Normal {
             return Err(CoreError::new(ErrorCode::MergeInProgress, "合并或取回还没完成，先解决冲突或中止"));
         }
@@ -510,7 +512,7 @@ impl Session {
         Ok(self.strand_dir()?.join("unstash.json"))
     }
 
-    fn set_unstash(&self, u: &Unstash) -> Result<()> {
+    pub(crate) fn set_unstash(&self, u: &Unstash) -> Result<()> {
         let f = self.unstash_file()?;
         std::fs::create_dir_all(f.parent().expect("有上级目录")).map_err(io("保存取回状态失败"))?;
         std::fs::write(f, serde_json::to_vec(u).unwrap_or_default()).map_err(io("保存取回状态失败"))
@@ -533,6 +535,7 @@ impl Session {
                 match u.source {
                     UnstashSource::Stash => self.drop_stash_id(&u.id)?,
                     UnstashSource::Shelf => self.shelf_mark_deleted(u.id.parse().unwrap_or(0))?,
+                    UnstashSource::Patch => {}
                 }
             }
         }
@@ -555,7 +558,7 @@ fn shelf_gone() -> CoreError {
     CoreError::new(ErrorCode::NotFound, "这条搁置已经不在了")
 }
 
-fn overwrite_error(e: CoreError) -> CoreError {
+pub(crate) fn overwrite_error(e: CoreError) -> CoreError {
     let text = e.detail.as_ref().map(|d| d.to_string()).unwrap_or_default();
     if text.contains("would be overwritten") || text.contains("does not match index") || text.contains("already exists in working directory") {
         return CoreError::new(ErrorCode::WorktreeConflict, "工作区里这些文件有改动，取回会覆盖它们。先提交、搁置或贮藏这些改动").with_detail(e.detail.unwrap_or_default());
@@ -597,6 +600,6 @@ fn split_patch(patch: &[u8]) -> Result<Vec<(Vec<String>, Vec<u8>)>> {
 
 /// `git apply` 按索引里记的文件状态判断工作区有没有改动；撤销等操作刚改写过文件时状态可能是旧的，
 /// 会误报“does not match index”。先刷新一次（失败不要紧）。
-fn refresh_index(dir: &std::path::Path) {
+pub(crate) fn refresh_index(dir: &std::path::Path) {
     let _ = git_cli::run(dir, &["update-index", "-q", "--refresh"], None);
 }

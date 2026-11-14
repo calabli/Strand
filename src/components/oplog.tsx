@@ -120,7 +120,7 @@ function ago(at: number) {
 }
 
 /** 日志底部的操作时间线：最近 5 步，最新的在左；点一步回到这一步之前 */
-export function Timeline({ oplog, disabled }: { oplog: Oplog; disabled: boolean }) {
+export function Timeline({ oplog, disabled, onReflog }: { oplog: Oplog; disabled: boolean; onReflog?: () => void }) {
   const steps = oplog.live.slice(0, 5);
   if (!steps.length) return null;
   const title = (o: OpInfo, i: number) => {
@@ -146,6 +146,11 @@ export function Timeline({ oplog, disabled }: { oplog: Oplog; disabled: boolean 
           <span className="tl-label">{tr(o.label)}</span>
         </button>
       ))}
+      {onReflog && (
+        <button type="button" className="tl-more linklike small" title={t("Git 自己记下的操作记录（reflog）：更早的、命令行里做的也在里面，可以找回丢掉的提交")} onClick={onReflog}>
+          {t("更多…")}
+        </button>
+      )}
     </div>
   );
 }

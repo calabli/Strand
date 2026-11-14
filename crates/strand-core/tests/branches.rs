@@ -168,8 +168,8 @@ fn remote_checkout_detached_and_tags() {
     assert_eq!(s.branch_checkout_remote("origin/main").unwrap(), "main");
     assert_eq!(git(p, &["branch", "--show-current"]), "main");
 
-    s.tag_create("v0.1", "main~1").unwrap();
-    assert_eq!(s.tag_create("v0.1", "main").unwrap_err().code, ErrorCode::InvalidName);
+    s.tag_create("v0.1", "main~1", None, false).unwrap();
+    assert_eq!(s.tag_create("v0.1", "main", None, false).unwrap_err().code, ErrorCode::InvalidName);
     s.checkout_detached("v0.1").unwrap();
     assert_eq!(s.state().unwrap().head.kind, strand_core::model::HeadKind::Detached);
     assert_eq!(s.checkout_detached("nope").unwrap_err().code, ErrorCode::NotFound);

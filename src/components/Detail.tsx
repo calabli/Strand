@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Splitter, sizeVars } from "./Splitter";
 import { ApiError, api, openUrl, wholeFile } from "../api/commands";
-import type { Cap, ChangeMatch, Commit, CommitCaps, FileChange, FileDiff } from "../api/types";
+import type { Cap, ChangeMatch, Commit, CommitCaps, FileChange, FileDiff, Signature, SigStatus } from "../api/types";
 import { DiffView } from "./DiffView";
 import { COMMIT_ICONS as ICON, type CommitOps } from "./commitOps";
 import { FileRow, FileTree } from "./FileRow";
@@ -16,7 +16,19 @@ import { Found } from "./inlineDiff";
 import { setSettings, settings, useSettings } from "../settings";
 import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { FILTER_ICONS } from "./LogFilterBar";
-import { t, tr } from "../i18n";
+import { lazy, t, tr } from "../i18n";
+
+/** 签名状态的说明 */
+const SIG_TEXT = lazy<Record<SigStatus, string>>(() => ({
+  good: t("✓ 签名有效"),
+  untrusted: t("✓ 签名有效（密钥未受信任）"),
+  bad: t("✕ 签名无效"),
+  expired: t("签名已过期"),
+  expired_key: t("密钥已过期"),
+  revoked: t("密钥已吊销"),
+  unknown: t("已签名（本机无法验证）"),
+  none: "",
+}));
 
 
 function Act({ icon, label, cap, danger, onClick }: { icon: string; label: string; cap?: Cap | null; danger?: boolean; onClick: () => void }) {
@@ -91,6 +103,21 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   /** 下面差异框里显示的文件；换提交后这个文件还在就接着显示 */
   const [shown, setShown] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null });
+
+  // 签名状态：单独查（git 验证签名要一点时间），不挡着文件列表
+  const [sig, setSig] = useState<{ id: string; s: Signature } | null>(null);
+  useEffect(() => {
+    if (!commit) return;
+    let live = true;
+    api.commitSignature(commit.id).then(
+      (s) => live && setSig({ id: commit.id, s }),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [commit]);
+  const signature = sig && commit && sig.id === commit.id && sig.s.status !== "none" ? sig.s : null;
 
   useEffect(() => {
     if (!commit) return;
@@ -341,6 +368,17 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
               {commit.id}
             </button>
           </dd>
+          {signature && (
+            <>
+              <dt>{t("签名")}</dt>
+              <dd>
+                <span className={"sig sig-" + signature.status} title={[signature.signer, signature.key].filter(Boolean).join("\n")}>
+                  {SIG_TEXT[signature.status]}
+                </span>
+                {signature.signer && <span className="dim small"> {signature.signer}</span>}
+              </dd>
+            </>
+          )}
           <dt>{t("父提交")}</dt>
           <dd className="mono">
             {commit.parents.length

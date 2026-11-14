@@ -6,6 +6,10 @@ import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileDiff, GitIn
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
 import { useRebase } from "./components/RebaseWindow";
 import { CompareView, PatchWindow, TreeWindow } from "./components/compareTools";
+import { ApplyPatch } from "./components/ApplyPatch";
+import { ReflogWindow } from "./components/ReflogWindow";
+import { RemotesWindow } from "./components/RemotesWindow";
+import { BisectBar, useBisect } from "./components/BisectBar";
 import { BlameWindow } from "./components/BlameWindow";
 import { RepoList, RepoPopup, SettingsWindow } from "./components/RepoAndSettings";
 import { rememberRepo, settings, useRecentRepos } from "./settings";
@@ -412,7 +416,8 @@ export default function App() {
   });
   const oplogRefresh = useRef(oplog.refresh);
   oplogRefresh.current = oplog.refresh;
-  const undoBlocked = repo?.state !== "normal";
+  // 二分查找进行中也不能撤销（撤销会改 HEAD，和 Git 记的二分查找状态对不上）
+  const undoBlocked = repo?.state !== "normal" || !!repo?.bisecting;
   const cur = refs?.branches.find((b) => b.is_current);
 
   const repoMode = repo?.state ?? "normal";
@@ -492,6 +497,49 @@ export default function App() {
   // 比较、补丁、查看某个版本的仓库（说明书 10.3–10.5）
   const [compareBase, setCompareBase] = useState<string | null>(null);
   const [patch, setPatch] = useState<{ title: string; text: string | null; name: string } | null>(null);
+  /** 应用补丁对话框：带着拖进来的补丁，或空着打开 */
+  const [applying, setApplying] = useState<{ text: string; name?: string } | null>(null);
+  const [reflogOpen, setReflogOpen] = useState(false);
+  const [remotesOpen, setRemotesOpen] = useState(false);
+  // 把 .patch / .diff 文件拖进窗口：打开应用补丁对话框（桌面应用里由系统送来文件路径，浏览器预览里读拖进来的文件）
+  const canApplyPatch = !!repo && repo.state === "normal";
+  useEffect(() => {
+    if (!canApplyPatch) return;
+    const isPatch = (n: string) => /\.(patch|diff)$/i.test(n);
+    const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+    if (inTauri) {
+      let off: (() => void) | undefined;
+      let dead = false;
+      import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
+        getCurrentWebview()
+          .onDragDropEvent((e) => {
+            if (e.payload.type !== "drop") return;
+            const p = e.payload.paths.find(isPatch);
+            if (p) api.fileReadText(p).then((text) => setApplying({ text, name: base(p) }), (err) => setError(msgOf(err)));
+          })
+          .then((u) => (dead ? u() : (off = u))),
+      );
+      return () => {
+        dead = true;
+        off?.();
+      };
+    }
+    const over = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    const drop = (e: DragEvent) => {
+      const f = [...(e.dataTransfer?.files ?? [])].find((x) => isPatch(x.name));
+      if (!f) return;
+      e.preventDefault();
+      f.text().then((text) => setApplying({ text, name: f.name }));
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, [canApplyPatch]);
   const [treeOf, setTreeOf] = useState<{ id: string; title: string } | null>(null);
   // 逐行追溯（说明书 10.2）
   const [blame, setBlame] = useState<{ path: string; rev: string | null } | null>(null);
@@ -556,6 +604,7 @@ export default function App() {
 
   // 整理提交（说明书第 9 节）
   const rebase = useRebase({ ask, done: doneCb, failed: failedCb, say });
+  const bisect = useBisect({ refreshKey: `${logKey}|${repo?.bisecting ? 1 : 0}|${repo?.head.commit ?? ""}`, done: doneCb, failed: failedCb, say });
   const [panelSel, setPanelSel] = useState<Selection>({ files: [] });
   const extra = {
     checkout: (c: Commit) => ops.checkoutRev(c.id),
@@ -597,6 +646,7 @@ export default function App() {
       })(),
       jump: jumpToCommit,
       openWeb: (url: string) => openUrl(url).catch((e) => setError(errOf(e).message)),
+      bisect: repo?.state === "normal" || bisect.active ? { active: bisect.active, mark: (m) => bisect.mark(m, c.id) } : undefined,
     });
 
   // 选中提交的可用条件；多选时算“能不能全部拣选”
@@ -914,6 +964,7 @@ export default function App() {
       { id: "push", section: o, icon: COMMIT_ICONS.push, label: t("推送"), run: () => remote.openPush(), disabled: repo.head.kind !== "branch", why: t("现在不在任何分支上") },
       { id: "undo", section: o, icon: COMMIT_ICONS.undo, label: t("撤销上一步"), hint: keys("⌘Z"), run: () => oplog.undo(), disabled: !oplog.list.can_undo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以撤销的操作") },
       { id: "redo", section: o, icon: COMMIT_ICONS.redo, label: t("重做"), hint: keys("⇧⌘Z"), run: oplog.redo, disabled: !oplog.list.can_redo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以重做的操作") },
+      { id: "apply-patch", section: o, icon: COMMIT_ICONS.applyPatch, label: t("应用补丁…"), run: () => setApplying({ text: "" }), disabled: !normal, why: busyWhy },
       { id: "new-branch", section: b, icon: COMMIT_ICONS.branch, label: t("新建分支…"), run: () => ops.create() },
       { id: "checkout-rev", section: b, icon: COMMIT_ICONS.checkout, label: t("检出标签或指定版本…"), run: () => ops.checkoutRev(), disabled: !normal, why: busyWhy },
       ...(refs?.branches ?? [])
@@ -950,6 +1001,8 @@ export default function App() {
     }
     const m = t("其他");
     list.push(
+      { id: "remotes", section: o, icon: COMMIT_ICONS.fetch, label: t("管理远程…"), run: () => setRemotesOpen(true) },
+      { id: "reflog", section: m, icon: COMMIT_ICONS.history, label: t("查看操作记录（reflog）…"), run: () => setReflogOpen(true) },
       { id: "jump", section: m, icon: COMMIT_ICONS.jump, label: t("跳到提交…"), run: jumpTo },
       { id: "search", section: m, icon: COMMIT_ICONS.search, label: t("搜索日志"), hint: keys("⌘F"), run: () => {
         setTab("log");
@@ -1145,6 +1198,7 @@ export default function App() {
             onUntracked={onUntracked}
             onBlame={(path) => setBlame({ path, rev: null })}
             onFileMenu={fileMenu}
+            onApplyPatch={() => setApplying({ text: "" })}
             onPatch={(sel) => openPatch(t("{0} 个文件的补丁", sel.files.length), api.patchWorktree(sel), "changes.patch")}
             onStash={ss.stash}
             status={status}
@@ -1198,6 +1252,7 @@ export default function App() {
                 onLocate={locate}
                 onMenu={(x, y, items) => setMenu({ x, y, items })}
                 onPushTag={remote.pushTag}
+                onRemotes={() => setRemotesOpen(true)}
                 remote={{
                   fetch: () => remote.fetch(),
                   pull: () => remote.pull(),
@@ -1231,6 +1286,7 @@ export default function App() {
               badRegex={log.error?.code === "INVALID_REGEX" && log.error.message === "正则表达式写得不对"}
               focus={focusSearch}
             />
+            <BisectBar b={bisect} onLocate={(id) => locate(id)} />
             <LogView
               log={log}
               filtered={isFiltered(ui)}
@@ -1269,7 +1325,7 @@ export default function App() {
                 );
               }}
             />
-            <Timeline oplog={oplog} disabled={undoBlocked} />
+            <Timeline oplog={oplog} disabled={undoBlocked} onReflog={() => setReflogOpen(true)} />
             </div>
           </div>
           {tab === "console" && <ConsoleView onToast={say} />}
@@ -1413,6 +1469,32 @@ export default function App() {
         />
       )}
       {rebase.window}
+      {remotesOpen && (
+        <RemotesWindow
+          onClose={() => setRemotesOpen(false)}
+          done={doneCb}
+          confirmRemove={(name, go) =>
+            ask({
+              title: t("删除远程 {0}", name),
+              message: t("只删掉本地记下的这个远程和它的远程分支，远程仓库本身不受影响；跟踪它的本地分支不再有跟踪分支。之后可以重新添加。"),
+              confirm: t("删除"),
+              danger: true,
+              onSubmit: () => go(),
+            })
+          }
+        />
+      )}
+      {reflogOpen && (
+        <ReflogWindow
+          onClose={() => setReflogOpen(false)}
+          onLocate={(id) => locate(id)}
+          onBranch={(id) => ops.create({ rev: id, label: shortId(id) })}
+          onCheckout={(id) => runWrite(api.checkoutDetached(id), t("已检出 {0}，现在不在任何分支上", shortId(id)))}
+          say={say}
+          busy={repo?.state !== "normal"}
+        />
+      )}
+      {applying && <ApplyPatch initial={applying} onClose={() => setApplying(null)} done={doneCb} failed={failedCb} say={say} />}
       {patch && <PatchWindow title={patch.title} text={patch.text} name={patch.name} onClose={() => setPatch(null)} say={say} />}
       {repoPop && <RepoPopup x={repoPop.x} y={repoPop.y} current={repo.path} onOpen={open} onBrowse={choose} onClone={() => setCloneOpen(true)} onClose={() => setRepoPop(null)} />}
       {cloneDialog}
@@ -1429,12 +1511,12 @@ export default function App() {
           }}
         />
       )}
-      {settingsOpen && <SettingsWindow git={git} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsWindow git={git} repoOpen={!!repo} onClose={() => setSettingsOpen(false)} onRemotes={() => (setSettingsOpen(false), setRemotesOpen(true))} />}
       {palette && <CommandPalette commands={paletteCommands()} onPickCommit={(id) => locate(id)} onClose={() => setPalette(false)} />}
       {blame && <BlameWindow path={blame.path} rev={blame.rev} onClose={() => setBlame(null)} onJump={(id) => locate(id)} />}
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
       {dialog}
-      {remote.push && <PushDialog p={remote.push} onPush={remote.doPush} onClose={remote.closePush} />}
+      {remote.push && <PushDialog p={remote.push} onPush={remote.doPush} onClose={remote.closePush} onRemote={remote.pickPushRemote} />}
       {remote.pullPanel && <PullPanel p={remote.pullPanel} onMode={remote.previewMode} onStart={remote.startPull} onAbort={remote.abortPull} />}
       {toast && (
         <div className="toast" role="status">

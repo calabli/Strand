@@ -2,7 +2,7 @@
 //!
 //! 全部调用系统 git，认证交给用户已有的 SSH 密钥、凭据助手和系统钥匙串。
 //! 这些函数只需要仓库路径，不持有 `Session`，所以网络操作进行时界面仍然可以读日志、看差异。
-//! 1.0 只处理名为 `origin` 的远程。
+//! 支持多个远程：默认用当前分支跟踪的远程，没有时用 origin，再没有就用第一个；抓取时抓全部远程。
 
 use std::io::Read;
 use std::path::Path;
@@ -97,6 +97,10 @@ pub struct PushPreview {
     pub behind: u32,
     /// 远程那些提交在本地都有内容相同的版本：本地改写了已推送的历史，需要强制推送
     pub needs_force: bool,
+    /// 推送到哪个远程（已有跟踪分支时是它的远程，否则是选的或默认的）
+    pub remote: String,
+    /// 仓库里所有的远程（多个时还没有跟踪分支的分支可以选推送到哪个）
+    pub remotes: Vec<String>,
     /// 只推送到这个提交为止（说明书 5.6），`commits` 只含它和它之前的；它之后的提交仍为未推送
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
@@ -117,17 +121,24 @@ pub struct PushOptions {
     /// 只推送到这个提交为止（完整哈希或能解析的版本号）
     #[serde(default)]
     pub to: Option<String>,
+    /// 还没有跟踪分支时推送到哪个远程；空着用默认的（origin，没有 origin 时第一个）
+    #[serde(default)]
+    pub remote: Option<String>,
 }
 
-/// 抓取 origin。
+/// 抓取全部远程（只有一个时就抓它）。
 pub fn fetch(dir: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<FetchResult> {
-    require_origin(dir)?;
+    let main = default_remote(dir)?;
     let before = behind_upstream(dir);
     let refs_before = ref_list(dir);
-    run_net(dir, &["fetch", "--progress", REMOTE], cancel, progress)?;
+    if remotes(dir).len() > 1 {
+        run_net(dir, &["fetch", "--progress", "--all"], cancel, progress)?;
+    } else {
+        run_net(dir, &["fetch", "--progress", &main], cancel, progress)?;
+    }
     let refs_changed = ref_list(dir) != refs_before;
     // 顺便记下远程有哪些标签（说明书 6.5：未推送的标签要标出来）；失败不影响抓取结果
-    if let Ok(out) = run_net(dir, &["ls-remote", "--tags", "--refs", REMOTE], cancel, progress) {
+    if let Ok(out) = run_net(dir, &["ls-remote", "--tags", "--refs", &main], cancel, progress) {
         let tags = out
             .lines()
             .filter_map(|l| l.split_once('\t'))
@@ -198,7 +209,7 @@ pub fn pull(dir: &Path, mode: PullMode, cancel: &Cancel, progress: &dyn Fn(Progr
 
 /// 同 [`pull`]；`fetch` 为假时不再抓取，直接合并或变基到上次抓取的跟踪分支（拉取摘要面板确认之后，说明书 7.2）
 pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<PullResult> {
-    require_origin(dir)?;
+    default_remote(dir)?;
     require_normal(dir)?;
     let branch = current_branch(dir)?.ok_or_else(|| {
         CoreError::new(ErrorCode::InvalidRange, "现在不在任何分支上，先切换到一个分支再拉取")
@@ -207,7 +218,8 @@ pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progr
         return Err(CoreError::new(ErrorCode::InvalidRange, format!("分支 {branch} 没有跟踪的远程分支，没有可拉取的内容")));
     }
     if fetch {
-        run_net(dir, &["fetch", "--progress", REMOTE], cancel, progress)?;
+        let r = upstream_remote(dir).map(Ok).unwrap_or_else(|| default_remote(dir))?;
+        run_net(dir, &["fetch", "--progress", &r], cancel, progress)?;
     }
     let incoming = behind_upstream(dir);
     if incoming == 0 {
@@ -277,7 +289,7 @@ pub struct PullPreview {
 
 /// 预演拉取：只读本地数据，不连网、不改仓库。远程状态按上次抓取的结果（界面先抓取再调用）。
 pub fn pull_preview(dir: &Path, mode: PullMode) -> Result<PullPreview> {
-    require_origin(dir)?;
+    default_remote(dir)?;
     require_normal(dir)?;
     let branch = current_branch(dir)?.ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "现在不在任何分支上，先切换到一个分支再拉取"))?;
     let up = upstream(dir).ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, format!("分支 {branch} 没有跟踪的远程分支，没有可拉取的内容")))?;
@@ -359,7 +371,12 @@ fn take_theirs(idx: &mut git2::Index) -> std::result::Result<(), git2::Error> {
 /// 推送对话框需要的信息。只读本地数据（远程状态按上次抓取的结果），不连网。
 /// `to` 不为空时是“推送到这里为止”：只列出它和它之前要推送的提交；它必须是还没推送的提交。
 pub fn push_preview(dir: &Path, to: Option<&str>) -> Result<PushPreview> {
-    let mut p = push_preview_all(dir)?;
+    push_preview_on(dir, to, None)
+}
+
+/// 同 [`push_preview`]；`remote` 是还没有跟踪分支时要推送到的远程（空着用默认的）
+pub fn push_preview_on(dir: &Path, to: Option<&str>, remote: Option<&str>) -> Result<PushPreview> {
+    let mut p = push_preview_all(dir, remote)?;
     let Some(to) = to else { return Ok(p) };
     let full = git_cli::run(dir, &["rev-parse", "--verify", "--quiet", &format!("{to}^{{commit}}")], None)
         .map_err(|_| CoreError::new(ErrorCode::NotFound, format!("找不到 {to}")))?
@@ -381,14 +398,21 @@ pub fn push_preview(dir: &Path, to: Option<&str>) -> Result<PushPreview> {
     Ok(p)
 }
 
-fn push_preview_all(dir: &Path) -> Result<PushPreview> {
-    require_origin(dir)?;
+fn push_preview_all(dir: &Path, want: Option<&str>) -> Result<PushPreview> {
+    let all = remotes(dir);
+    let def = default_remote(dir)?;
     let branch = current_branch(dir)?
         .ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "现在不在任何分支上，先切换到一个分支再推送"))?;
     let up = upstream(dir);
+    let remote = match (&up, want) {
+        (Some(_), _) => upstream_remote(dir).unwrap_or(def),
+        (None, Some(w)) if all.iter().any(|r| r == w) => w.to_string(),
+        (None, Some(w)) => return Err(CoreError::new(ErrorCode::NotFound, format!("没有叫 {w} 的远程"))),
+        (None, None) => def,
+    };
     let (target, new_branch, range) = match &up {
         Some(u) => (u.clone(), false, format!("{u}..HEAD")),
-        None => (format!("{REMOTE}/{branch}"), true, String::new()),
+        None => (format!("{remote}/{branch}"), true, String::new()),
     };
     let log_args: Vec<&str> = if new_branch {
         // 远程还没有这个分支：要推送的是所有远程分支上都没有的提交
@@ -409,7 +433,7 @@ fn push_preview_all(dir: &Path) -> Result<PushPreview> {
         Some(v) => (v, false),
         None => (Vec::new(), true),
     };
-    Ok(PushPreview { branch, target, new_branch, commits, behind, needs_force, to: None, left: 0, unpushed_tags, tags_unknown })
+    Ok(PushPreview { branch, target, new_branch, commits, behind, needs_force, remote, remotes: all, to: None, left: 0, unpushed_tags, tags_unknown })
 }
 
 /// 推送当前分支。强制推送一律用 `--force-with-lease`（说明书 7.3）。
@@ -417,14 +441,14 @@ fn push_preview_all(dir: &Path) -> Result<PushPreview> {
 /// `to` 不为空时只推送到这个提交为止（说明书 5.6）：不能和强制推送一起用，远程有新提交时也不行。
 pub fn push(dir: &Path, opts: &PushOptions, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
     if let Some(to) = opts.to.as_deref() {
-        return push_to(dir, to, cancel, progress);
+        return push_to(dir, to, opts.remote.as_deref(), cancel, progress);
     }
-    let p = push_preview(dir, None)?;
+    let p = push_preview_on(dir, None, opts.remote.as_deref())?;
     if !opts.force && p.behind > 0 {
         let reason = if p.needs_force { "needs_force" } else { "behind" };
         return Err(rejected(reason));
     }
-    let refspec = format!("HEAD:refs/heads/{}", p.target.strip_prefix(&format!("{REMOTE}/")).unwrap_or(&p.branch));
+    let refspec = format!("HEAD:refs/heads/{}", p.target.strip_prefix(&format!("{}/", p.remote)).unwrap_or(&p.branch));
     let mut args = vec!["push", "--progress", "--porcelain"];
     if opts.force {
         args.push("--force-with-lease");
@@ -432,7 +456,7 @@ pub fn push(dir: &Path, opts: &PushOptions, cancel: &Cancel, progress: &dyn Fn(P
     if p.new_branch {
         args.push("--set-upstream");
     }
-    args.push(REMOTE);
+    args.push(&p.remote);
     args.push(&refspec);
     run_net(dir, &args, cancel, progress).map_err(classify_push_error)?;
     if opts.tags {
@@ -445,7 +469,7 @@ pub fn push(dir: &Path, opts: &PushOptions, cancel: &Cancel, progress: &dyn Fn(P
 
 /// 推送一个标签（说明书 6.5、7.4）。远程已经有同名标签而且指向别处时返回 `PUSH_REJECTED`（reason `tag_exists`）。
 pub fn tag_push(dir: &Path, name: &str, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
-    require_origin(dir)?;
+    default_remote(dir)?;
     if !local_tags(dir).contains_key(name) {
         return Err(CoreError::new(ErrorCode::NotFound, format!("找不到标签 {name}")));
     }
@@ -457,7 +481,8 @@ fn push_tags(dir: &Path, names: &[String], cancel: &Cancel, progress: &dyn Fn(Pr
         return Ok(());
     }
     let specs: Vec<String> = names.iter().map(|n| format!("refs/tags/{n}:refs/tags/{n}")).collect();
-    let mut args = vec!["push", "--progress", "--porcelain", REMOTE];
+    let main = default_remote(dir)?;
+    let mut args = vec!["push", "--progress", "--porcelain", &main];
     args.extend(specs.iter().map(String::as_str));
     run_net(dir, &args, cancel, progress).map_err(|e| {
         if e.code == ErrorCode::GitFailed && detail_text(&e).contains("already exists") {
@@ -523,18 +548,18 @@ fn save_remote_tags(dir: &Path, tags: &std::collections::HashMap<String, String>
     let _ = std::fs::write(&f, lines.join("\n") + "\n");
 }
 
-fn push_to(dir: &Path, to: &str, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
-    let p = push_preview(dir, Some(to))?;
+fn push_to(dir: &Path, to: &str, remote: Option<&str>, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
+    let p = push_preview_on(dir, Some(to), remote)?;
     if p.behind > 0 {
         return Err(rejected(if p.needs_force { "needs_force" } else { "behind" }));
     }
     let id = p.to.clone().unwrap_or_default();
-    let remote_branch = p.target.strip_prefix(&format!("{REMOTE}/")).unwrap_or(&p.branch).to_string();
+    let remote_branch = p.target.strip_prefix(&format!("{}/", p.remote)).unwrap_or(&p.branch).to_string();
     let refspec = format!("{id}:refs/heads/{remote_branch}");
-    run_net(dir, &["push", "--progress", "--porcelain", REMOTE, &refspec], cancel, progress).map_err(classify_push_error)?;
+    run_net(dir, &["push", "--progress", "--porcelain", &p.remote, &refspec], cancel, progress).map_err(classify_push_error)?;
     if p.new_branch {
         // 用提交号推送不会设跟踪分支，推送成功后补上（远程跟踪分支 push 时已经更新）
-        let _ = git_cli::run(dir, &["branch", "--set-upstream-to", &format!("{REMOTE}/{remote_branch}"), &p.branch], None);
+        let _ = git_cli::run(dir, &["branch", "--set-upstream-to", &format!("{}/{remote_branch}", p.remote), &p.branch], None);
     }
     Ok(())
 }
@@ -740,13 +765,27 @@ fn parse_progress(line: &str) -> Progress {
     Progress { text, percent }
 }
 
-fn require_origin(dir: &Path) -> Result<()> {
-    let remotes = git_cli::run(dir, &["remote"], None)?;
-    if remotes.lines().any(|r| r.trim() == REMOTE) {
-        Ok(())
-    } else {
-        Err(CoreError::new(ErrorCode::NotFound, "这个仓库没有名为 origin 的远程"))
+/// 仓库里的远程，按 git remote 的顺序
+pub fn remotes(dir: &Path) -> Vec<String> {
+    git_cli::run(dir, &["remote"], None).map(|o| o.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
+}
+
+/// 当前分支跟踪的远程
+fn upstream_remote(dir: &Path) -> Option<String> {
+    let b = current_branch(dir).ok().flatten()?;
+    git_cli::run(dir, &["config", "--get", &format!("branch.{b}.remote")], None).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s != ".")
+}
+
+/// 默认的远程：当前分支跟踪的远程，否则 origin，再没有就第一个；一个远程都没有时返回 NOT_FOUND
+pub fn default_remote(dir: &Path) -> Result<String> {
+    let all = remotes(dir);
+    if let Some(u) = upstream_remote(dir).filter(|u| all.contains(u)) {
+        return Ok(u);
     }
+    if all.iter().any(|r| r == REMOTE) {
+        return Ok(REMOTE.to_string());
+    }
+    all.into_iter().next().ok_or_else(|| CoreError::new(ErrorCode::NotFound, "这个仓库还没有远程，先添加一个"))
 }
 
 fn require_normal(dir: &Path) -> Result<()> {
@@ -801,4 +840,88 @@ fn conflicted_files(dir: &Path) -> Vec<String> {
     git_cli::run(dir, &["diff", "--name-only", "--diff-filter=U"], None)
         .map(|s| s.lines().map(str::to_string).collect())
         .unwrap_or_default()
+}
+
+// ---------- 管理远程 ----------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteInfo {
+    pub name: String,
+    /// 抓取地址
+    pub url: String,
+    /// 单独设置的推送地址
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_url: Option<String>,
+}
+
+pub fn remote_list(dir: &Path) -> Result<Vec<RemoteInfo>> {
+    Ok(remotes(dir)
+        .into_iter()
+        .map(|name| {
+            let get = |k: &str| git_cli::run(dir, &["config", "--get", &format!("remote.{name}.{k}")], None).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            RemoteInfo { url: get("url").unwrap_or_default(), push_url: get("pushurl"), name }
+        })
+        .collect())
+}
+
+fn check_remote_name(dir: &Path, name: &str) -> Result<()> {
+    if name.is_empty() || name.contains(char::is_whitespace) || name.contains('/') {
+        return Err(CoreError::new(ErrorCode::InvalidName, "远程的名字不能为空，也不能有空格或斜杠"));
+    }
+    if git_cli::run(dir, &["check-ref-format", &format!("refs/remotes/{name}/x")], None).is_err() {
+        return Err(CoreError::new(ErrorCode::InvalidName, "远程的名字不符合 Git 的命名规则"));
+    }
+    if remotes(dir).iter().any(|r| r == name) {
+        return Err(CoreError::new(ErrorCode::InvalidName, format!("已经有叫 {name} 的远程了")));
+    }
+    Ok(())
+}
+
+fn check_url(url: &str) -> Result<()> {
+    if url.trim().is_empty() || url.contains(char::is_whitespace) {
+        return Err(CoreError::new(ErrorCode::InvalidName, "地址不能为空，也不能有空格"));
+    }
+    Ok(())
+}
+
+fn require_remote(dir: &Path, name: &str) -> Result<()> {
+    if remotes(dir).iter().any(|r| r == name) {
+        Ok(())
+    } else {
+        Err(CoreError::new(ErrorCode::NotFound, format!("没有叫 {name} 的远程")))
+    }
+}
+
+/// 添加远程（不自动抓取）
+pub fn remote_add(dir: &Path, name: &str, url: &str) -> Result<()> {
+    let name = name.trim();
+    check_remote_name(dir, name)?;
+    check_url(url)?;
+    git_cli::run(dir, &["remote", "add", name, url.trim()], None).map(|_| ())
+}
+
+/// 删除远程：它的远程分支一起从本地删掉，跟踪它的本地分支不再有跟踪分支
+pub fn remote_remove(dir: &Path, name: &str) -> Result<()> {
+    require_remote(dir, name)?;
+    git_cli::run(dir, &["remote", "remove", name], None).map(|_| ())
+}
+
+/// 重命名远程：远程分支和跟踪关系跟着改名
+pub fn remote_rename(dir: &Path, old: &str, new: &str) -> Result<()> {
+    require_remote(dir, old)?;
+    let new = new.trim();
+    if new == old {
+        return Ok(());
+    }
+    check_remote_name(dir, new)?;
+    git_cli::run(dir, &["remote", "rename", old, new], None).map(|_| ())
+}
+
+/// 改远程的地址（抓取和推送都用它；单独设过的推送地址一起换掉）
+pub fn remote_set_url(dir: &Path, name: &str, url: &str) -> Result<()> {
+    require_remote(dir, name)?;
+    check_url(url)?;
+    git_cli::run(dir, &["remote", "set-url", name, url.trim()], None)?;
+    let _ = git_cli::run(dir, &["config", "--unset-all", &format!("remote.{name}.pushurl")], None);
+    Ok(())
 }

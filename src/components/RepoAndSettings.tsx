@@ -4,8 +4,9 @@
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { GitInfo } from "../api/types";
-import { lang, langSetting, setLang, t, type LangSetting } from "../i18n";
+import type { GitInfo, SigningConfig } from "../api/types";
+import { api, errOf } from "../api/commands";
+import { lang, langSetting, setLang, t, tr, type LangSetting } from "../i18n";
 import { forgetRepo, setSettings, togglePin, useRecentRepos, useSettings, type RecentRepo, type Settings } from "../settings";
 import { formatTime } from "./format";
 
@@ -135,9 +136,15 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 }
 
 /** 设置窗口 */
-export function SettingsWindow({ git, onClose }: { git: GitInfo | null; onClose: () => void }) {
+export function SettingsWindow({ git, onClose, repoOpen, onRemotes }: { git: GitInfo | null; onClose: () => void; repoOpen?: boolean; onRemotes?: () => void }) {
   useReturnFocus();
   const s = useSettings();
+  // 这个仓库的提交签名（git config --local commit.gpgSign）；没打开仓库时不显示
+  const [signing, setSigning] = useState<SigningConfig | null>(null);
+  const [signErr, setSignErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (repoOpen) api.signingConfig().then(setSigning, () => setSigning(null));
+  }, [repoOpen]);
   const set = (p: Partial<Settings>) => setSettings(p);
   const [langV, setLangV] = useState<LangSetting>(langSetting());
   const row = (label: string, control: React.ReactNode, hint?: string) => (
@@ -184,6 +191,15 @@ export function SettingsWindow({ git, onClose }: { git: GitInfo | null; onClose:
         )}
         {row(t("显示精确日期"), <Toggle on={s.exactDates} label={t("显示精确日期")} onChange={(v) => set({ exactDates: v })} />, t("关闭后日志里显示“3 小时前”这样的相对时间"))}
         <div className="set-sec dim">{t("远程")}</div>
+        {repoOpen &&
+          onRemotes &&
+          row(
+            t("这个仓库的远程"),
+            <button type="button" className="btn" onClick={onRemotes}>
+              {t("管理远程…")}
+            </button>,
+            t("添加、改地址、重命名、删除远程"),
+          )}
         {row(t("自动抓取"), <Toggle on={s.autoFetch} label={t("自动抓取")} onChange={(v) => set({ autoFetch: v })} />, t("打开仓库时和窗口重新获得焦点时抓取，更新领先落后数"))}
         {s.autoFetch &&
           row(
@@ -200,6 +216,23 @@ export function SettingsWindow({ git, onClose }: { git: GitInfo | null; onClose:
           )}
         <div className="set-sec dim">{t("提交")}</div>
         {row(t("加签名行"), <Toggle on={s.signOff} label={t("加签名行")} onChange={(v) => set({ signOff: v })} />, t("在提交说明末尾加 Signed-off-by"))}
+        {signing &&
+          row(
+            t("签名提交（这个仓库）"),
+            <Toggle
+              on={signing.commit}
+              label={t("签名提交（这个仓库）")}
+              onChange={(v) => {
+                setSignErr(null);
+                api.signingSet(v).then(setSigning, (e) => setSignErr(errOf(e).message));
+              }}
+            />,
+            signErr
+              ? tr(signErr)
+              : signing.key
+                ? t("提交、合并、变基时用 {0} 密钥 {1} 签名（Git 的 commit.gpgSign，只改这个仓库）", signing.format === "ssh" ? "SSH" : "GPG", signing.key)
+                : t("还没有配置签名密钥（user.signingKey），打开后由 Git 用默认的 GPG 密钥签名"),
+          )}
         <div className="set-sec dim">{t("启动")}</div>
         {row(t("启动时打开上次的仓库"), <Toggle on={s.reopenLast} label={t("启动时打开上次的仓库")} onChange={(v) => set({ reopenLast: v })} />)}
         <div className="set-sec dim">Git</div>

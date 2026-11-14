@@ -5,6 +5,13 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  PatchPreview,
+  BisectMark,
+  BisectStatus,
+  RemoteInfo,
+  Signature,
+  SigningConfig,
+  ReflogEntry,
   ChangeMatch,
   ProjectSearch,
   FileHistory,
@@ -165,8 +172,11 @@ export const api = {
     inTauri ? call("branch_checkout_remote", { remoteBranch }) : mock.branchCheckoutRemote(remoteBranch),
   checkoutDetached: (rev: string): Promise<Written<null>> =>
     inTauri ? call("checkout_detached", { rev }) : mock.ok(null),
-  tagCreate: (name: string, at: string): Promise<Written<null>> =>
-    inTauri ? call("tag_create", { name, at }) : mock.tagCreate(name, at),
+  tagCreate: (name: string, at: string, message: string | null = null, sign = false): Promise<Written<null>> =>
+    inTauri ? call("tag_create", { name, at, message, sign }) : mock.tagCreate(name, at),
+  commitSignature: (id: string): Promise<Signature> => (inTauri ? call("commit_signature", { id }) : mock.commitSignature(id)),
+  signingConfig: (): Promise<SigningConfig> => (inTauri ? call("signing_config") : Promise.resolve({ ...mock.signing })),
+  signingSet: (commit: boolean): Promise<SigningConfig> => (inTauri ? call("signing_set", { commit }) : Promise.resolve(Object.assign(mock.signing, { commit }))),
   tagDelete: (name: string): Promise<Written<null>> => (inTauri ? call("tag_delete", { name }) : mock.tagDelete(name)),
 
   // 远程操作（说明书第 7 节）。taskId 由前端生成，用于进度事件和取消
@@ -183,9 +193,16 @@ export const api = {
   consoleTail: (limit?: number): Promise<ConsoleEntry[]> => (inTauri ? call("console_tail", { limit }) : mock.consoleTail()),
   consoleClear: (): Promise<null> => (inTauri ? call("console_clear") : mock.consoleClear()),
   authReply: (requestId: string, secret: string | null): Promise<null> => (inTauri ? call("auth_reply", { requestId, secret }) : Promise.resolve(null)),
-  remotePushPreview: (to: string | null = null): Promise<PushPreview> => (inTauri ? call("remote_push_preview", { to }) : mock.pushPreview(to)),
-  remotePush: (taskId: string, force: boolean, tags: boolean, to: string | null = null): Promise<Written<null>> =>
-    inTauri ? call("remote_push", { taskId, force, tags, to }) : mock.slow(null),
+  remotePushPreview: (to: string | null = null, remote: string | null = null): Promise<PushPreview> =>
+    inTauri ? call("remote_push_preview", { to, remote }) : mock.pushPreview(to, remote),
+  remoteList: (): Promise<RemoteInfo[]> => (inTauri ? call("remote_list") : mock.remoteList()),
+  remoteAdd: (name: string, url: string): Promise<Written<null>> => (inTauri ? call("remote_add", { name, url }) : mock.remoteEdit(() => mock.remoteAddMock(name, url))),
+  remoteRemove: (name: string): Promise<Written<null>> => (inTauri ? call("remote_remove", { name }) : mock.remoteEdit(() => mock.remoteRemoveMock(name))),
+  remoteRename: (name: string, newName: string): Promise<Written<null>> =>
+    inTauri ? call("remote_rename", { name, newName }) : mock.remoteEdit(() => mock.remoteRenameMock(name, newName)),
+  remoteSetUrl: (name: string, url: string): Promise<Written<null>> => (inTauri ? call("remote_set_url", { name, url }) : mock.remoteEdit(() => mock.remoteSetUrlMock(name, url))),
+  remotePush: (taskId: string, force: boolean, tags: boolean, to: string | null = null, remote: string | null = null): Promise<Written<null>> =>
+    inTauri ? call("remote_push", { taskId, force, tags, to, remote }) : mock.slow(null),
   // 工作目录（说明书 6.6）和克隆
   worktreeAdd: (path: string, branch: string, newBranch: boolean, base: string | null): Promise<Written<null>> =>
     inTauri ? call("worktree_add", { path, branch, newBranch, base }) : mock.worktreeAdd(path, branch, newBranch),
@@ -232,6 +249,15 @@ export const api = {
   patchCommit: (id: string): Promise<string> => (inTauri ? call("patch_commit", { id }) : mock.patchCommit(id)),
   patchWorktree: (selection: Selection): Promise<string> => (inTauri ? call("patch_worktree", { selection }) : mock.patchWorktree(selection)),
   /** 把文字写到保存对话框选的路径 */
+  fileReadText: (path: string): Promise<string> => (inTauri ? call("file_read_text", { path }) : Promise.resolve(mock.SAMPLE_PATCH)),
+  bisectStatus: (): Promise<BisectStatus> => (inTauri ? call("bisect_status") : mock.bisectStatus()),
+  bisectMark: (mark: BisectMark, rev: string | null = null): Promise<Written<BisectStatus>> => (inTauri ? call("bisect_mark", { mark, rev }) : mock.bisectMark(mark, rev)),
+  bisectReset: (): Promise<Written<null>> => (inTauri ? call("bisect_reset") : mock.bisectReset()),
+  reflogRefs: (): Promise<string[]> => (inTauri ? call("reflog_refs") : Promise.resolve(["HEAD", "main", "feature/commit-graph"])),
+  reflog: (name: string): Promise<ReflogEntry[]> => (inTauri ? call("reflog", { name }) : mock.reflog(name)),
+  patchPreview: (text: string): Promise<PatchPreview> => (inTauri ? call("patch_preview", { text }) : mock.patchPreview(text)),
+  patchApply: (text: string, commit: boolean): Promise<Written<number>> =>
+    inTauri ? call("patch_apply", { text, commit }) : mock.patchApply(text, commit),
   fileSave: (path: string, text: string): Promise<null> => (inTauri ? call("file_save", { path, text }) : Promise.resolve(null)),
   commitTree: (id: string): Promise<string[]> => (inTauri ? call("commit_tree", { id }) : mock.commitTree()),
   // 项目文件和文件修改链

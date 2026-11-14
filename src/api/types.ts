@@ -15,6 +15,8 @@ export interface RepoState {
   name: string;
   head: Head;
   state: RepoMode;
+  /** 二分查找进行中 */
+  bisecting?: boolean;
 }
 
 export type RefKind = "head" | "branch" | "remote" | "tag";
@@ -335,6 +337,8 @@ export interface RemoteBranch {
 export interface Tag {
   name: string;
   at: string;
+  /** 带说明的标签的说明；轻量标签没有 */
+  message?: string;
   /** 还没推送到 origin（按上次抓取时记下的远程标签）；从没抓取过时为 false */
   unpushed: boolean;
 }
@@ -467,6 +471,10 @@ export interface PushPreview {
   commits: { id: string; title: string }[];
   behind: number;
   needs_force: boolean;
+  /** 推送到哪个远程 */
+  remote: string;
+  /** 仓库里所有的远程 */
+  remotes: string[];
   /** 推送到这个提交为止（说明书 5.6）：commits 只含它和它之前的 */
   to?: string;
   /** 推送到某个提交为止时，它之后留在本地的提交数 */
@@ -665,4 +673,81 @@ export interface ProjectSearch {
   files: SearchFile[];
   total: number;
   truncated: boolean;
+}
+
+/** 应用补丁：补丁里的文件 */
+export interface PatchFile {
+  path: string;
+  old_path?: string;
+  status: FileStatus;
+  added: number;
+  deleted: number;
+  binary: boolean;
+}
+/** 补丁能不能应用：直接能、要按三方合并（可能有冲突）、应用不了 */
+export type PatchFit = "clean" | "three_way" | "fails";
+export interface PatchPreview {
+  files: PatchFile[];
+  /** 邮件格式（git format-patch）时的提交 */
+  commits: { title: string; author: string }[];
+  fit: PatchFit;
+  reason?: string;
+}
+
+/** 操作记录（reflog）的一条，从新到旧 */
+export interface ReflogEntry {
+  index: number;
+  id: string;
+  old_id: string;
+  /** 如 commit、checkout、reset、merge origin/main */
+  action: string;
+  message: string;
+  time: number;
+  title: string;
+  /** 提交还在仓库里 */
+  exists: boolean;
+  /** 提交在日志里 */
+  in_log: boolean;
+}
+
+/** 提交的签名状态 */
+export type SigStatus = "good" | "untrusted" | "bad" | "expired" | "expired_key" | "revoked" | "unknown" | "none";
+export interface Signature {
+  status: SigStatus;
+  signer: string;
+  key: string;
+}
+/** 这个仓库的签名设置（git config 的生效值） */
+export interface SigningConfig {
+  commit: boolean;
+  tag: boolean;
+  key?: string;
+  format: string;
+}
+
+/** 一个远程 */
+export interface RemoteInfo {
+  name: string;
+  url: string;
+  push_url?: string;
+}
+
+/** 二分查找的标记 */
+export type BisectMark = "good" | "bad" | "skip";
+/** 二分查找的状态 */
+export interface BisectStatus {
+  active: boolean;
+  /** 开始前在哪个分支，结束时回到这里 */
+  start: string;
+  bad?: string | null;
+  good: string[];
+  skipped: string[];
+  /** 现在检出的、等着测试的提交 */
+  current?: string | null;
+  /** 测完这个之后还剩多少个可能 */
+  remaining?: number | null;
+  /** 大约还要几步 */
+  steps?: number | null;
+  first_bad?: string | null;
+  first_bad_title?: string | null;
 }

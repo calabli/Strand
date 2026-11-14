@@ -33,6 +33,8 @@ interface Props {
   onStash: () => void;
   /** 为勾选的文件创建补丁 */
   onPatch: (sel: Selection) => void;
+  /** 应用补丁（打开对话框） */
+  onApplyPatch: () => void;
   /** 勾选变化时告诉外面（Fixup / Squash Into 用） */
   onPickedChange: (sel: Selection) => void;
   /** 行级勾选：路径 → 没勾的行和全部改动行（键是“块:行”） */
@@ -62,6 +64,7 @@ const BoxIcon = ({ d }: { d: string }) => (
 const SHELF_ICON = "M1.5 3.5h11M1.5 7h11M1.5 10.5h11M3 3.5v7M11 3.5v7";
 const STASH_ICON = "M1.5 4.5h11v3h-11zM2.5 7.5v5h9v-5M5.5 10h3";
 const PATCH_ICON = "M3.5 1.5h5l2.5 2.5v8.5h-7.5zM5.5 7h3M5.5 9.5h3";
+const APPLY_PATCH_ICON = "M3.5 1.5h5l2.5 2.5v8.5h-7.5zM7 5.5v4.5M5 8l2 2 2-2";
 const HISTORY_ICON = "M2.5 7a4.5 4.5 0 1 0 1.3-3.2M2.5 1.5v3h3M7 4.5V7l1.8 1.2";
 const GENERATE_ICON = "M7 1.5l1.2 3.3L11.5 6 8.2 7.2 7 10.5 5.8 7.2 2.5 6l3.3-1.2zM11 9.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z";
 const OPTIONS_ICON = "M2 3.5h6M11 3.5h1M2 7h1M6 7h6M2 10.5h5M10 10.5h2M9.5 2v3M4.5 5.5v3M8.5 9v3";
@@ -70,7 +73,7 @@ const DIFF_ICON = "M3.5 1.5h7v11h-7zM5.5 5h3M7 3.5v3M5.5 9.5h3";
 const GROUP_ICON = "M1.5 3h4l1 1.5h6V12h-11zM4 7.5h6M4 9.5h4";
 const QUICK_SHELF_ICON = "M1.5 7h11M1.5 10.5h11M3 7v3.5M11 7v3.5M7 1v4M5 3l2 2 2-2";
 
-export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onRefresh }: Props) {
+export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onRefresh }: Props) {
   const groupDir = useSettings().groupByDir;
   // “改动”节点展开还是折叠（说明书 4.1）
   const [changesOpen, setChangesOpen] = useState(true);
@@ -470,6 +473,16 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           onClick={() => onPatch(selectionOf(picked))}
         >
           <BoxIcon d={PATCH_ICON} />
+        </button>
+        <button
+          type="button"
+          className="ib sm"
+          title={t("应用补丁…（也可以把 .patch 文件拖进窗口）")}
+          aria-label={t("应用补丁")}
+          disabled={disabled}
+          onClick={onApplyPatch}
+        >
+          <BoxIcon d={APPLY_PATCH_ICON} />
         </button>
         <button
           type="button"

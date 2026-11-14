@@ -204,11 +204,19 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       setPush(null);
       return runTask(
         "push",
-        (t) => api.remotePush(t, force, tags, p?.to ?? null),
+        (t) => api.remotePush(t, force, tags, p?.to ?? null, p?.new_branch ? p.remote : null),
         () => (p?.to ? t("已推送到 {0}，到 {1} 为止", p.target, p.to.slice(0, 7)) : t("已推送到 {0}", p?.target ?? t("远程"))),
       );
     },
     [push, runTask],
+  );
+
+  /** 新分支：换推送到的远程，重新预览 */
+  const pickPushRemote = useCallback(
+    (r: string) => {
+      api.remotePushPreview(push?.to ?? null, r).then(setPush, (e) => failed(errOf(e).message));
+    },
+    [push, failed],
   );
 
   /** 推送一个标签（说明书 6.5、7.4） */
@@ -254,13 +262,13 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     return () => window.removeEventListener("focus", onFocus);
   }, [canAuto, fetch]);
 
-  return { running, fetch, pull, pullPanel, previewMode, startPull, abortPull, pullMode, setPullMode, openPush, doPush, pushTag, pushAfterCommit, cancel, push, closePush: () => setPush(null) };
+  return { running, fetch, pull, pullPanel, previewMode, startPull, abortPull, pullMode, setPullMode, openPush, doPush, pickPushRemote, pushTag, pushAfterCommit, cancel, push, closePush: () => setPush(null) };
 }
 
 export type RemoteOps = ReturnType<typeof useRemoteOps>;
 
 /** 推送对话框（说明书 7.3） */
-export function PushDialog({ p, onPush, onClose }: { p: PushPreview; onPush: (force: boolean, tags: boolean) => void; onClose: () => void }) {
+export function PushDialog({ p, onPush, onClose, onRemote }: { p: PushPreview; onPush: (force: boolean, tags: boolean) => void; onClose: () => void; onRemote?: (r: string) => void }) {
   useReturnFocus();
   const [force, setForce] = useState(false);
   const [tags, setTags] = useState(false);
@@ -291,6 +299,18 @@ export function PushDialog({ p, onPush, onClose }: { p: PushPreview; onPush: (fo
         <h2>{p.to ? t("推送到 {0}（到 {1} 为止）", p.target, p.to.slice(0, 7)) : t("推送到 {0}", p.target)}</h2>
         {p.to && p.left > 0 && <p className="modal-msg">{t("它之后的 {0} 个提交留在本地，仍为未推送。", p.left)}</p>}
         {p.new_branch && <p className="modal-msg">{t("远程还没有这个分支，推送时会新建，并设为 {0} 的跟踪分支。", p.branch)}</p>}
+        {p.new_branch && p.remotes.length > 1 && onRemote && (
+          <label className="modal-field push-remote">
+            <span className="dim">{t("推送到哪个远程")}</span>
+            <select value={p.remote} onChange={(e) => onRemote(e.target.value)}>
+              {p.remotes.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="modal-sub dim">{t("要推送的提交")} {p.commits.length}</div>
         <ul className="modal-items push-list">
           {p.commits.slice(0, 50).map((c) => (

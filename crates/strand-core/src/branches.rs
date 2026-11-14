@@ -80,7 +80,8 @@ impl Session {
             for n in names.iter().flatten().flatten() {
                 let Ok(r) = repo.find_reference(&format!("refs/tags/{n}")) else { continue };
                 let Ok(c) = r.peel_to_commit() else { continue };
-                tags.push(Tag { name: n.to_string(), at: c.id().to_string(), unpushed: false });
+                let message = r.peel_to_tag().ok().and_then(|t| t.message().ok().flatten().map(|m| m.trim().to_string()));
+                tags.push(Tag { name: n.to_string(), at: c.id().to_string(), unpushed: false, message });
             }
         }
         tags.sort_by(|a, b| a.name.cmp(&b.name));
@@ -438,7 +439,8 @@ impl Session {
         self.git(&["switch", "--detach", rev]).map_err(|e| worktree_conflict(e, rev))
     }
 
-    pub fn tag_create(&self, name: &str, at: &str) -> Result<()> {
+    /// 新建标签。`message` 不为空时是带说明的标签（git tag -a）；`sign` 为真时签名（git tag -s，没写说明时用标签名做说明）。
+    pub fn tag_create(&self, name: &str, at: &str, message: Option<&str>, sign: bool) -> Result<()> {
         let n = name.trim();
         if n.is_empty() || n.contains(char::is_whitespace) {
             return Err(CoreError::new(ErrorCode::InvalidName, "标签名不能为空，也不能有空格"));
@@ -449,7 +451,12 @@ impl Session {
         if self.refs_list()?.tags.iter().any(|t| t.name == n) {
             return Err(CoreError::new(ErrorCode::InvalidName, format!("已经有叫 {n} 的标签了")));
         }
-        self.git(&["tag", n, at])
+        let msg = message.map(str::trim).filter(|m| !m.is_empty());
+        match (msg, sign) {
+            (None, false) => self.git(&["tag", "--no-sign", n, at]),
+            (Some(m), false) => self.git(&["tag", "-a", "--no-sign", n, "-m", m, at]),
+            (m, true) => self.git(&["tag", "-s", n, "-m", m.unwrap_or(n), at]).map_err(sign_error),
+        }
     }
 
     pub fn tag_delete(&self, name: &str) -> Result<()> {
@@ -558,4 +565,13 @@ fn rebase_block(repo: &git2::Repository, head: git2::Oid, onto: git2::Oid, cur: 
         }
     }
     None
+}
+
+/// 签名失败（没配置密钥、gpg 不在、取消输入口令）时给一句看得懂的说明，原文放在 detail 里
+pub(crate) fn sign_error(e: CoreError) -> CoreError {
+    let text = e.detail.as_ref().map(|d| d.to_string()).unwrap_or_default();
+    if text.contains("gpg") || text.contains("sign") || text.contains("secret key") || text.contains("ssh-keygen") {
+        return CoreError::new(ErrorCode::GitFailed, "签名失败：检查 Git 的签名设置（user.signingkey、gpg.format）和 gpg 或 ssh-keygen 能不能用").with_detail(e.detail.unwrap_or_default());
+    }
+    e
 }

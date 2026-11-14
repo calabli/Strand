@@ -36,6 +36,8 @@ export const COMMIT_ICONS = {
   child: "M7 12V2M3.5 5.5 7 2l3.5 3.5",
   rebase: "M3 2v10M3 4.5h5a2 2 0 0 1 0 4H5M7 6.5 5 8.5l2 2M11 2v3M11 9v3",
   patch: "M3.5 1.5h5l2.5 2.5v8.5h-7.5zM5.5 7h3M5.5 9.5h3",
+  bisect: "M7 1.5v11M2 4l2.5 3L2 10M12 4 9.5 7 12 10",
+  applyPatch: "M3.5 1.5h5l2.5 2.5v8.5h-7.5zM7 5.5v4.5M5 8l2 2 2-2",
   tree: "M2 2.5h4l1 1.5h5v8h-10zM4.5 7h5M4.5 9.5h3",
   compare: "M4 1.5v11M10 1.5v11M1.5 4h5M7.5 10h5",
   base: "M3 12.5v-11M3 2h7.5l-2 2.5 2 2.5H3",
@@ -193,6 +195,8 @@ export function commitActions(
     branches: { name: string; items: MenuEntry[] }[];
     jump: (id: string) => void;
     openWeb: (url: string) => void;
+    /** 二分查找：标好、坏、跳过；active 为真时已经开始 */
+    bisect?: { active: boolean; mark: (m: "good" | "bad" | "skip") => void };
   },
 ): MenuEntry[] {
   const cap = (k: keyof Omit<CommitCaps, "parent" | "child" | "web_url">) => ({ disabled: !caps?.[k].ok, why: caps ? caps[k].why : t("正在读取…") });
@@ -229,6 +233,21 @@ export function commitActions(
     { label: t("从这里新建分支…"), icon: I.branch, run: extra.newBranch },
     { label: t("在这里新建标签…"), icon: I.tag, run: extra.newTag },
     "-",
+    // 二分查找
+    ...(extra.bisect
+      ? ([
+          {
+            label: extra.bisect.active ? t("二分查找") : t("用二分查找找出问题提交"),
+            icon: I.bisect,
+            sub: [
+              { label: t("标为坏的（有问题）"), run: () => extra.bisect!.mark("bad") },
+              { label: t("标为好的（没问题）"), run: () => extra.bisect!.mark("good") },
+              ...(extra.bisect.active ? [{ label: t("跳过这个"), run: () => extra.bisect!.mark("skip") }] : []),
+            ],
+          },
+          "-",
+        ] as MenuEntry[])
+      : []),
     // 跳转
     { label: t("跳到父提交"), icon: I.parent, hint: "→", ...jump(caps?.parent, t("没有父提交")) },
     { label: t("跳到子提交"), icon: I.child, hint: "←", ...jump(caps?.child, t("没有子提交")) },

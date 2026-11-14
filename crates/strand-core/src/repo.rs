@@ -260,9 +260,11 @@ impl Session {
             let kind = if commit.is_some() { HeadKind::Branch } else { HeadKind::Unborn };
             Head { kind, branch, commit }
         };
-        let state = match repo.state() {
-            None if self.unstash_in_progress() => RepoMode::Unstashing,
-            None => RepoMode::Normal,
+        let in_progress = repo.state();
+        let bisecting = matches!(in_progress, Some(gix::state::InProgress::Bisect)) || repo.git_dir().join("BISECT_START").exists();
+        let state = match in_progress {
+            None | Some(gix::state::InProgress::Bisect) if self.unstash_in_progress() => RepoMode::Unstashing,
+            None | Some(gix::state::InProgress::Bisect) => RepoMode::Normal,
             Some(s) => {
                 use gix::state::InProgress as P;
                 match s {
@@ -278,7 +280,7 @@ impl Session {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.path.display().to_string());
-        Ok(RepoState { path: self.path.display().to_string(), name, head, state })
+        Ok(RepoState { path: self.path.display().to_string(), name, head, state, bisecting })
     }
 
     /// 某个提交（完整哈希、哈希前缀、分支名或标签名）在日志里的行号，用来跳转和定位。

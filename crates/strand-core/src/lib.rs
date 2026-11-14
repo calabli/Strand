@@ -4,6 +4,7 @@
 //! 说明书第 2 节规定了分工：前端不推算 Git 状态，所有状态由这里计算后返回。
 
 pub mod askpass;
+pub mod bisect;
 pub mod blame;
 pub mod checks;
 mod branches;
@@ -20,12 +21,15 @@ mod history;
 pub mod log_filter;
 pub mod model;
 pub mod oplog;
+pub mod patch;
+pub mod reflog;
 pub mod rebase;
 pub mod remote;
 pub mod stash;
 pub mod repo;
 pub mod search;
 pub mod shell_path;
+pub mod sign;
 pub mod watch;
 mod worktree;
 pub mod worktrees;

@@ -43,6 +43,8 @@ export function TooltipLayer() {
     let visible = false;
     let addedLabel = false;
     let watch: MutationObserver | null = null;
+    /** 显示期间检查元素还在不在（对话框被代码关掉、按钮被换掉时，提示跟着消失） */
+    let alive = 0;
 
     /** 把 title 拿掉（放到 data-tip-title），离开时再放回 */
     const stash = (el: HTMLElement) => {
@@ -66,6 +68,7 @@ export function TooltipLayer() {
     };
     const hide = () => {
       window.clearTimeout(timer);
+      window.clearInterval(alive);
       watch?.disconnect();
       watch = null;
       if (cur) restore(cur);
@@ -78,6 +81,9 @@ export function TooltipLayer() {
       if (document.body.classList.contains("resizing")) return;
       visible = true;
       setTip({ text, rect: el.getBoundingClientRect() });
+      alive = window.setInterval(() => {
+        if (!el.isConnected) hide();
+      }, 250);
       // 显示期间界面又把 title 写回来（比如按钮状态变了）：换成新文字，再拿掉
       watch = new MutationObserver(() => {
         const t = el.getAttribute("title");

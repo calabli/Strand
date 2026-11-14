@@ -121,7 +121,7 @@ fn switch_create_delete_and_multi_step_undo() {
 
     // 撤销后做新操作，重做列表清空
     s.oplog_undo(None, false).unwrap();
-    s.run_op("新建标签 v1", OpKind::Tag, |s| s.tag_create("v1", "HEAD")).unwrap();
+    s.run_op("新建标签 v1", OpKind::Tag, |s| s.tag_create("v1", "HEAD", None, false)).unwrap();
     assert!(!s.oplog_list(10).unwrap().can_redo);
 }
 
@@ -232,7 +232,7 @@ fn external_changes_mark_affected_steps() {
     };
 
     // 新建标签：之后在命令行里提交，标签没动，仍然可以撤销
-    s.run_op("新建标签 v1", OpKind::Tag, |s| s.tag_create("v1", "HEAD")).unwrap();
+    s.run_op("新建标签 v1", OpKind::Tag, |s| s.tag_create("v1", "HEAD", None, false)).unwrap();
     write(p, "b.txt", "b2\n");
     git(p, &["commit", "-qam", "命令行提交"]);
     assert_eq!(top(&mut s), (true, true, None), "没碰到这一步改过的东西");

@@ -11,6 +11,8 @@ export interface DialogSpec {
   /** 列表形式的补充信息，如冲突的文件 */
   items?: string[];
   input?: { initial: string; placeholder?: string; label?: string; mono?: boolean; multiline?: boolean };
+  /** 第二个输入框（多行，可以空着），如带说明的标签的说明；内容作为 onSubmit 第三个参数的 note */
+  note?: { label: string; placeholder?: string };
   /** 单选项（如重置方式）；选中的 value 作为 onSubmit 的第一个参数 */
   choices?: { value: string; label: string; hint?: string }[];
   initialChoice?: string;
@@ -24,7 +26,7 @@ export interface DialogSpec {
    * 点确认（或第二个按钮）时执行。返回字符串表示出错，对话框不关闭并显示这段文字；
    * 返回 undefined 表示完成，对话框关闭。
    */
-  onSubmit: (value: string, alt: boolean) => Promise<string | void> | string | void;
+  onSubmit: (value: string, alt: boolean, extra: { note: string; choice: string }) => Promise<string | void> | string | void;
 }
 
 export function useDialog() {
@@ -37,6 +39,25 @@ export function useDialog() {
 function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: () => void }) {
   useReturnFocus();
   const [value, setValue] = useState(spec.input?.initial ?? spec.initialChoice ?? spec.choices?.[0]?.value ?? "");
+  // 同时有输入框和单选项时，单选项单独记
+  const [choice, setChoice] = useState(spec.initialChoice ?? spec.choices?.[0]?.value ?? "");
+  const [note, setNote] = useState("");
+  const both = !!spec.input && !!spec.choices;
+  const picked = both ? choice : value;
+  const pick = both ? setChoice : setValue;
+  const choicesEl = spec.choices && (
+          <div className="modal-choices" role="radiogroup">
+            {spec.choices.map((c) => (
+              <label key={c.value} className={"modal-choice" + (picked === c.value ? " on" : "")}>
+                <input type="radio" name="dialog-choice" checked={picked === c.value} onChange={() => pick(c.value)} />
+                <span>
+                  {c.label}
+                  {c.hint && <span className="dim small modal-hint">{c.hint}</span>}
+                </span>
+              </label>
+            ))}
+          </div>
+        );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
@@ -56,7 +77,7 @@ function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await spec.onSubmit(spec.input?.multiline ? value.trimEnd() : value.trim(), alt);
+      const r = await spec.onSubmit(spec.input?.multiline ? value.trimEnd() : value.trim(), alt, { note: note.trim(), choice: picked });
       if (typeof r === "string") setError(r);
       else onClose();
     } finally {
@@ -95,19 +116,7 @@ function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: () => void }) {
             {spec.items.length > 12 && <li className="dim">{t("还有 {0} 个", spec.items.length - 12)}</li>}
           </ul>
         )}
-        {spec.choices && (
-          <div className="modal-choices" role="radiogroup">
-            {spec.choices.map((c) => (
-              <label key={c.value} className={"modal-choice" + (value === c.value ? " on" : "")}>
-                <input type="radio" name="dialog-choice" checked={value === c.value} onChange={() => setValue(c.value)} />
-                <span>
-                  {c.label}
-                  {c.hint && <span className="dim small modal-hint">{c.hint}</span>}
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
+        {spec.choices && !both && choicesEl}
         {spec.input?.multiline && (
           <label className="modal-field">
             {spec.input.label && <span className="dim">{spec.input.label}</span>}
@@ -145,6 +154,13 @@ function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: () => void }) {
             />
           </label>
         )}
+        {spec.note && (
+          <label className="modal-field">
+            <span className="dim">{spec.note.label}</span>
+            <textarea rows={3} value={note} placeholder={spec.note.placeholder} spellCheck={false} onChange={(e) => setNote(e.target.value)} />
+          </label>
+        )}
+        {spec.choices && both && choicesEl}
         {error && (
           <p className="err modal-err" role="alert">
             {tr(error)}
@@ -162,7 +178,7 @@ function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: () => void }) {
           <button
             ref={okBtn}
             type="button"
-            className={"btn " + (spec.danger || spec.dangerWhen?.(value) ? "danger" : "primary")}
+            className={"btn " + (spec.danger || spec.dangerWhen?.(picked) ? "danger" : "primary")}
             onClick={() => submit(false)}
             disabled={busy || (!!spec.input && !value.trim())}
           >

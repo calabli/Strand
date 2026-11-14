@@ -178,7 +178,7 @@ fn push_rejections_and_force() {
     assert_eq!((p.behind, p.needs_force), (1, true));
     let e = remote::push(&w.me, &PushOptions::default(), &Cancel::default(), &none).unwrap_err();
     assert_eq!(e.detail.unwrap()["reason"], "needs_force");
-    remote::push(&w.me, &PushOptions { force: true, tags: false, to: None }, &Cancel::default(), &none).unwrap();
+    remote::push(&w.me, &PushOptions { force: true, ..Default::default() }, &Cancel::default(), &none).unwrap();
     git(&w.other, &["fetch", "-q"]);
     assert_eq!(git(&w.other, &["log", "-1", "--format=%s", "origin/main"]), "我的提交（改了说明）");
 
@@ -187,7 +187,7 @@ fn push_rejections_and_force() {
     commit(&w.other, "x.txt", "别人又推\n", "别人又推");
     git(&w.other, &["push", "-q"]);
     git(&w.me, &["commit", "-q", "--amend", "-m", "我又改了说明"]);
-    let e = remote::push(&w.me, &PushOptions { force: true, tags: false, to: None }, &Cancel::default(), &none).unwrap_err();
+    let e = remote::push(&w.me, &PushOptions { force: true, ..Default::default() }, &Cancel::default(), &none).unwrap_err();
     assert_eq!(e.detail.unwrap()["reason"], "lease_stale");
 }
 
@@ -546,4 +546,58 @@ fn undo_abort_of_pull_reshelves_changes() {
     assert_eq!(std::fs::read_to_string(w.me.join("b.txt")).unwrap(), "没提交的改动（又改了）\n");
     assert!(s.shelf_list().unwrap().is_empty());
     assert_eq!(git(&w.me, &["log", "-1", "--format=%s"]), "加 b");
+}
+
+#[test]
+fn manage_remotes_and_push_new_branch_to_chosen_remote() {
+    let w = world();
+    let up = tempfile::tempdir().unwrap();
+    git(up.path(), &["init", "-q", "--bare", "-b", "main"]);
+    let url = up.path().to_str().unwrap();
+
+    // 添加：名字和地址校验
+    assert_eq!(remote::remote_add(&w.me, "origin", url).unwrap_err().code, ErrorCode::InvalidName);
+    assert_eq!(remote::remote_add(&w.me, "a b", url).unwrap_err().code, ErrorCode::InvalidName);
+    assert_eq!(remote::remote_add(&w.me, "up", "").unwrap_err().code, ErrorCode::InvalidName);
+    remote::remote_add(&w.me, "up", url).unwrap();
+    let list = remote::remote_list(&w.me).unwrap();
+    assert_eq!(list.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["origin", "up"]);
+    assert_eq!(list[1].url, url);
+
+    // 新分支：预览列出全部远程，默认 origin，可以选 up
+    git(&w.me, &["switch", "-q", "-c", "feat"]);
+    commit(&w.me, "f.txt", "新\n", "新功能");
+    let p = remote::push_preview(&w.me, None).unwrap();
+    assert_eq!((p.remote.as_str(), p.remotes.len(), p.target.as_str()), ("origin", 2, "origin/feat"));
+    assert_eq!(remote::push_preview_on(&w.me, None, Some("up")).unwrap().target, "up/feat");
+    remote::push(&w.me, &PushOptions { remote: Some("up".into()), ..Default::default() }, &Cancel::default(), &none).unwrap();
+    assert_eq!(git(&w.me, &["rev-parse", "--abbrev-ref", "feat@{upstream}"]), "up/feat");
+    assert_eq!(git(up.path(), &["log", "-1", "--format=%s", "feat"]), "新功能");
+    // 之后默认就是它跟踪的远程
+    assert_eq!(remote::default_remote(&w.me).unwrap(), "up");
+    assert_eq!(remote::push_preview(&w.me, None).unwrap().remote, "up");
+
+    // 抓取全部远程
+    commit(&w.other, "b.txt", "别人的\n", "别人的提交");
+    git(&w.other, &["push", "-q"]);
+    remote::fetch(&w.me, &Cancel::default(), &none).unwrap();
+    assert_eq!(git(&w.me, &["log", "-1", "--format=%s", "origin/main"]), "别人的提交");
+
+    // 重命名：跟踪关系跟着改；改地址；删除
+    remote::remote_rename(&w.me, "up", "mirror").unwrap();
+    assert_eq!(git(&w.me, &["rev-parse", "--abbrev-ref", "feat@{upstream}"]), "mirror/feat");
+    remote::remote_set_url(&w.me, "mirror", "https://example.com/x.git").unwrap();
+    assert_eq!(remote::remote_list(&w.me).unwrap().iter().find(|r| r.name == "mirror").unwrap().url, "https://example.com/x.git");
+    assert_eq!(remote::remote_rename(&w.me, "mirror", "origin").unwrap_err().code, ErrorCode::InvalidName);
+    remote::remote_remove(&w.me, "mirror").unwrap();
+    assert_eq!(remote::remotes(&w.me), ["origin"]);
+    assert_eq!(remote::remote_remove(&w.me, "nope").unwrap_err().code, ErrorCode::NotFound);
+}
+
+#[test]
+fn repo_without_remotes_says_so() {
+    let d = tempfile::tempdir().unwrap();
+    git(d.path(), &["init", "-q", "-b", "main"]);
+    let e = remote::fetch(d.path(), &Cancel::default(), &none).unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
 }

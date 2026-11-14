@@ -41,6 +41,9 @@ pub struct RepoState {
     pub name: String,
     pub head: Head,
     pub state: RepoMode,
+    /// 二分查找进行中（git bisect）；这时 HEAD 停在要测试的提交上，其余操作照常
+    #[serde(default)]
+    pub bisecting: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -306,6 +309,9 @@ pub struct Tag {
     pub at: String,
     /// 还没推送到 origin（按上次抓取时记下的远程标签）；从没抓取过时为 false
     pub unpushed: bool,
+    /// 带说明的标签（git tag -a）的说明；轻量标签没有
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

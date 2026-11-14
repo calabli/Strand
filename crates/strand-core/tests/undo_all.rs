@@ -191,7 +191,7 @@ fn every_undoable_operation_round_trips() {
     s.reload().unwrap();
 
     // ---------- 标签和工作目录 ----------
-    check(&mut s, "新建标签", |s| op(s, "新建标签", OpKind::Tag, |s| s.tag_create("v1", "HEAD")));
+    check(&mut s, "新建标签", |s| op(s, "新建标签", OpKind::Tag, |s| s.tag_create("v1", "HEAD", None, false)));
     git(p, &["tag", "v2"]);
     s.reload().unwrap();
     check(&mut s, "删除标签", |s| op(s, "删除标签", OpKind::Tag, |s| s.tag_delete("v2")));

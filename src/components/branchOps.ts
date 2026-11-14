@@ -287,14 +287,28 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
     [ask, done, failed],
   );
 
+  // 写了说明就是带说明的标签（git tag -a）；配置了签名密钥时可以选签名（git tag -s），默认跟 tag.gpgSign 走
   const createTag = useCallback(
-    (at: string) =>
+    async (at: string) => {
+      const cfg = await api.signingConfig().catch(() => null);
       ask({
         title: t("在 {0} 上新建标签", shortId(at)),
-        input: { initial: "", placeholder: t("如 v0.5.0"), mono: true },
+        input: { initial: "", placeholder: t("如 v0.5.0"), mono: true, label: t("标签名") },
+        note: { label: t("说明（可选；写了就是带说明的标签）"), placeholder: t("如这个版本改了什么") },
+        ...(cfg?.key
+          ? {
+              choices: [
+                { value: "plain", label: t("不签名") },
+                { value: "sign", label: t("签名这个标签"), hint: t("用 {0} 密钥 {1} 签名", cfg.format === "ssh" ? "SSH" : "GPG", cfg.key) },
+              ],
+              initialChoice: cfg.tag ? "sign" : "plain",
+            }
+          : {}),
         confirm: t("新建标签"),
-        onSubmit: (name) => run(api.tagCreate(name, at), () => t("已新建标签 {0}", name), true),
-      }),
+        onSubmit: (name, _alt, { note, choice }) =>
+          run(api.tagCreate(name, at, note || null, choice === "sign"), () => (choice === "sign" ? t("已新建签名标签 {0}", name) : t("已新建标签 {0}", name)), true),
+      });
+    },
     [ask, run],
   );
 
