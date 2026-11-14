@@ -3,7 +3,7 @@
 import type { RepoState } from "../api/types";
 import type { RemoteKind, RemoteOps } from "./remoteOps";
 import { keys, shortId } from "./format";
-import { lang, setLang, t } from "../i18n";
+import { lang, setLang, t, lazy } from "../i18n";
 
 const Icon = ({ d }: { d: string }) => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -23,14 +23,14 @@ const ICONS = {
   redo: "M9.5 2l3 3-3 3M12.5 5h-7a4 4 0 0 0 0 8H8",
 };
 
-const MODE_LABEL: Record<RepoState["state"], string | null> = {
+const MODE_LABEL: Record<RepoState["state"], string | null> = lazy(() => ({
   normal: null,
   merging: t("合并进行中"),
   rebasing: t("变基进行中"),
   cherry_picking: t("拣选进行中"),
   reverting: t("还原进行中"),
   unstashing: t("取回进行中"),
-};
+}));
 
 interface Props {
   repo: RepoState;
@@ -185,7 +185,7 @@ export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onSho
           <Icon d={ICONS.panel} />
           {panel.count > 0 && <span className="badge">{panel.count}</span>}
         </button>
-        {/* 中英文切换（说明书 15 语言）：切换后窗口重新加载，自动打开当前仓库 */}
+        {/* 中英文切换（说明书 15 语言）：就地切换，界面整个重画，不重新加载窗口 */}
         <button
           type="button"
           className="ib tb-lang"

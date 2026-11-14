@@ -181,6 +181,7 @@ export const en: Record<string, string> = {
   "输入文字后可以按规则过滤": "Type something to filter by a rule",
   "当前规则": "Current rule",
   "清除": "Clear",
+  "当前是{0}": "Currently {0}",
   "收起修改链": "Hide file history",
   "显示修改链：改过这个文件的提交，可以看每次的修改、某个版本的内容，或比较两个版本": "Show file history: the commits that changed this file; view each change, a version's content, or compare two versions",
   "语法高亮": "Syntax Highlighting",

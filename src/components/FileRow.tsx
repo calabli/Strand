@@ -2,15 +2,15 @@
 
 import { useState, type ReactNode } from "react";
 import type { FileChange } from "../api/types";
-import { t } from "../i18n";
+import { t, lazy } from "../i18n";
 
-const STATUS_LABEL: Record<FileChange["status"], string> = {
+const STATUS_LABEL: Record<FileChange["status"], string> = lazy(() => ({
   M: t("已修改"),
   A: t("新增"),
   D: t("已删除"),
   R: t("已重命名"),
   T: t("类型变化"),
-};
+}));
 
 export function StatusBadge({ s }: { s: FileChange["status"] | "?" }) {
   const letter = s === "T" ? "M" : s;

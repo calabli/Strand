@@ -7,9 +7,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AuthorMatch, LogAuthor, MatchKind } from "../api/types";
 import { authorRule } from "../api/authorRule";
 import { useReturnFocus } from "./focus";
-import { t } from "../i18n";
+import { t, lazy } from "../i18n";
 
-export const KIND_LABEL: Record<MatchKind, string> = { contains: t("包含"), prefix: t("前缀"), suffix: t("后缀"), regex: t("正则") };
+export const KIND_LABEL: Record<MatchKind, string> = lazy(() => ({ contains: t("包含"), prefix: t("前缀"), suffix: t("后缀"), regex: t("正则") }));
 
 interface Props {
   x: number;

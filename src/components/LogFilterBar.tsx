@@ -9,7 +9,7 @@ import { AuthorPicker, KIND_LABEL } from "./AuthorPicker";
 import { DateRangePicker } from "./DateRangePicker";
 import { Menu, type MenuState } from "./Menu";
 import { Picker, type PickItem } from "./Picker";
-import { t, tr } from "../i18n";
+import { t, tr, lazy } from "../i18n";
 import { setSettings, useSettings } from "../settings";
 
 export type DateRange = "all" | "today" | "3d" | "6d" | "custom";
@@ -42,7 +42,7 @@ export interface LogUi {
 
 export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, branch: null, authors: [], authorRule: null, date: "all", from: null, to: null, path: null, sort: "topo", searchIn: "message", firstParent: false, noMerges: false, collapse: false };
 
-const DATE_LABEL: Record<Exclude<DateRange, "custom">, string> = { all: t("所有日期"), today: t("今天"), "3d": t("最近 3 天"), "6d": t("最近 6 天") };
+const DATE_LABEL: Record<Exclude<DateRange, "custom">, string> = lazy(() => ({ all: t("所有日期"), today: t("今天"), "3d": t("最近 3 天"), "6d": t("最近 6 天") }));
 
 /** 本机时区某天 0 点（YYYY-MM-DD），加 days 天 */
 function dayStart(d: string, days = 0): number {

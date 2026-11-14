@@ -1,6 +1,6 @@
 // 仓库列表和设置。
 // - 仓库列表：工具栏的仓库名打开，列出最近打开的仓库（固定的在前），可以搜索、切换、固定、从列表移除、打开其他文件夹。
-// - 设置：工具栏的齿轮图标或 ⌘, 打开，改动立即生效（语言除外，语言切换后重新加载窗口）。
+// - 设置：工具栏的齿轮图标或 ⌘, 打开，改动立即生效（语言也是就地切换，不重新加载窗口）。
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -168,7 +168,7 @@ export function SettingsWindow({ git, onClose }: { git: GitInfo | null; onClose:
               if (v !== langSetting()) setLang(v);
             }}
           />,
-          t("切换后窗口会重新加载，当前是{0}", lang === "zh" ? "中文" : "English"),
+          t("当前是{0}", lang === "zh" ? "中文" : "English"),
         )}
         {row(
           t("主题"),

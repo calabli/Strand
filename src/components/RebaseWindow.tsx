@@ -7,7 +7,7 @@ import { api, errOf } from "../api/commands";
 import type { Commit, OpInfo, RangeCommit, RebaseStep, RepoState, Selection, StepAction, Written } from "../api/types";
 import type { DialogSpec } from "./Dialog";
 import { shortId } from "./format";
-import { t } from "../i18n";
+import { t, lazy } from "../i18n";
 
 interface Deps {
   ask: (d: DialogSpec) => void;
@@ -143,11 +143,11 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-const ACTIONS: { a: Row["action"]; label: string; icon: string }[] = [
-  { a: "pick", label: t("保留"), icon: I.pick },
-  { a: "squash", label: t("并入上一个"), icon: I.squash },
-  { a: "drop", label: t("丢弃"), icon: I.drop },
-];
+const ACTIONS: { a: Row["action"]; label: string; icon: string }[] = lazy(() => [
+  { a: "pick" as const, label: t("保留"), icon: I.pick },
+  { a: "squash" as const, label: t("并入上一个"), icon: I.squash },
+  { a: "drop" as const, label: t("丢弃"), icon: I.drop },
+]);
 
 /** 整理后剩下几个提交：第一个不是丢弃的“并入”按保留算 */
 function countAfter(rows: Row[]) {

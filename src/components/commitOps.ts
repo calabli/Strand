@@ -7,7 +7,7 @@ import type { Commit, CommitCaps, OpInfo, RepoState, ResetMode, Written } from "
 import type { DialogSpec } from "./Dialog";
 import { shortId } from "./format";
 import type { MenuEntry } from "./Menu";
-import { t } from "../i18n";
+import { t, lazy } from "../i18n";
 
 interface Deps {
   ask: (d: DialogSpec) => void;
@@ -69,11 +69,11 @@ export const COMMIT_ICONS = {
 };
 const I = COMMIT_ICONS;
 
-const RESET_CHOICES: { value: ResetMode; label: string; hint: string }[] = [
-  { value: "soft", label: t("软重置"), hint: t("被移除的提交里的改动放回工作区，可以直接重新提交") },
-  { value: "mixed", label: t("混合重置"), hint: t("被移除的提交里的改动放回工作区（默认）") },
-  { value: "hard", label: t("硬重置"), hint: t("丢弃被移除的提交里的改动，工作区里没提交的改动也会丢弃；可以撤销") },
-];
+const RESET_CHOICES: { value: ResetMode; label: string; hint: string }[] = lazy(() => [
+  { value: "soft" as const, label: t("软重置"), hint: t("被移除的提交里的改动放回工作区，可以直接重新提交") },
+  { value: "mixed" as const, label: t("混合重置"), hint: t("被移除的提交里的改动放回工作区（默认）") },
+  { value: "hard" as const, label: t("硬重置"), hint: t("丢弃被移除的提交里的改动，工作区里没提交的改动也会丢弃；可以撤销") },
+]);
 
 export function useCommitOps({ ask, done, failed, say, head }: Deps) {
   const run = useCallback(

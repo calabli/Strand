@@ -4,8 +4,10 @@
 // 核心层返回的文字（错误说明、操作日志的说明、冲突两边的名字）在显示时用 tr() 翻译：
 // 先整句查表，查不到再按带 {0} 占位的模板匹配，还是查不到就原样显示。
 //
-// 切换语言时重新加载窗口（会自动重新打开上次的仓库），所以模块顶层的常量也可以直接调用 t()。
+// 切换语言不重新加载窗口（重新加载会白屏闪一下）：lang 是活的变量，切换后通知最外层，整个界面就地重画；
+// 模块顶层要翻译的常量用 lazy() 包起来，每次读的时候才按当前语言翻译。
 
+import { useEffect, useState } from "react";
 import { en } from "./en";
 
 export type Lang = "zh" | "en";
@@ -27,20 +29,32 @@ function systemLang(): Lang {
   return l.toLowerCase().startsWith("zh") ? "zh" : "en";
 }
 
-const setting = readSetting();
-export const lang: Lang = setting === "auto" ? systemLang() : setting;
-if (typeof document !== "undefined") document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+let setting = readSetting();
+/** 当前语言（活的绑定：切换后别的模块读到的也是新的） */
+export let lang: Lang = setting === "auto" ? systemLang() : setting;
+const markDoc = () => {
+  if (typeof document !== "undefined") document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+};
+markDoc();
 
 export const langSetting = (): LangSetting => setting;
 
-/** 切换语言重新加载窗口之前要做的事（界面把当前看的东西存起来，加载后回到原处） */
-const beforeReload = new Set<() => void>();
-export function onBeforeLangReload(fn: () => void): () => void {
-  beforeReload.add(fn);
-  return () => beforeReload.delete(fn);
+const listeners = new Set<() => void>();
+
+/** 订阅语言变化：切换时这个组件重画（用在最外层，整个界面跟着重画） */
+export function useLang(): Lang {
+  const [, set] = useState(0);
+  useEffect(() => {
+    const f = () => set((n) => n + 1);
+    listeners.add(f);
+    return () => {
+      listeners.delete(f);
+    };
+  }, []);
+  return lang;
 }
 
-/** 保存语言设置并重新加载窗口（加载前先让界面存下当前看的东西） */
+/** 保存语言设置，就地切换（不重新加载窗口） */
 export function setLang(v: LangSetting) {
   try {
     if (v === "auto") localStorage.removeItem(KEY);
@@ -48,14 +62,31 @@ export function setLang(v: LangSetting) {
   } catch {
     /* 存不了就只在本次有效 */
   }
-  for (const fn of beforeReload) {
-    try {
-      fn();
-    } catch {
-      /* 存不了就回到默认的样子 */
-    }
-  }
-  location.reload();
+  setting = v;
+  lang = v === "auto" ? systemLang() : v;
+  markDoc();
+  listeners.forEach((f) => f());
+}
+
+/**
+ * 模块顶层要翻译的表（如状态名、选项列表）：每次读的时候才按当前语言翻译，切换语言后读到的就是新的。
+ * 用法和原来的对象、数组一样（X[key]、Object.keys(X)、X.map）。
+ */
+export function lazy<T extends object>(make: () => T): T {
+  const target = (Array.isArray(make()) ? [] : {}) as T;
+  return new Proxy(target, {
+    get: (_, k) => {
+      const v = make() as Record<PropertyKey, unknown>;
+      const x = v[k];
+      return typeof x === "function" ? (x as (...a: unknown[]) => unknown).bind(v) : x;
+    },
+    has: (_, k) => k in make(),
+    ownKeys: () => Reflect.ownKeys(make()),
+    getOwnPropertyDescriptor: (_, k) => {
+      const d = Reflect.getOwnPropertyDescriptor(make(), k);
+      return d ? { ...d, configurable: true } : undefined;
+    },
+  });
 }
 
 function fill(s: string, args: unknown[]): string {

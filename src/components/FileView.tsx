@@ -17,7 +17,7 @@ import { findRegExp, relTime, shortId } from "./format";
 import { Found } from "./inlineDiff";
 import { highlight, langOf, type Tok } from "../highlight";
 import { settings, useSettings } from "../settings";
-import { t, tr } from "../i18n";
+import { t, tr, lang } from "../i18n";
 
 const WORK = "work";
 const MAX_LINES = 20000;
@@ -113,7 +113,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
     if (mode === "text") return { kind: "text", rev: v.commit.id, path: v.path };
     return { kind: "diff", from: v.commit.parents[0] ?? null, fromPath: v.old_path ?? v.path, to: v.commit.id, toPath: v.path, label: t("提交 {0} 的修改", shortId(v.commit.id)) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel, mode, versions, path, head, jump]);
+  }, [sel, mode, versions, path, head, jump, lang]);
 
   const reqKey = JSON.stringify(req);
   useEffect(() => {

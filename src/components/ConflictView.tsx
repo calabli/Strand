@@ -9,12 +9,12 @@ import { api, errOf } from "../api/commands";
 import type { Change, ChangeMark, ConflictFile, MergeSession, OpInfo, RepoState, Side, SideChange } from "../api/types";
 import { formatTime, shortId } from "./format";
 import { Hi } from "./inlineDiff";
-import { t, tr, withNote } from "../i18n";
+import { t, tr, withNote, lazy } from "../i18n";
 
 type Marks = Record<string, Record<string, ChangeMark>>; // 文件 → 修改处编号 → 标记
 
-const CHANGE_TEXT: Record<SideChange, string> = { modified: t("已修改"), deleted: t("已删除"), added: t("已新增"), renamed: t("已重命名") };
-const KIND_TEXT = { merge: t("合并"), rebase: t("变基"), cherry_pick: t("拣选"), revert: t("还原"), unstash: t("取回") } as const;
+const CHANGE_TEXT: Record<SideChange, string> = lazy(() => ({ modified: t("已修改"), deleted: t("已删除"), added: t("已新增"), renamed: t("已重命名") }));
+const KIND_TEXT = lazy(() => ({ merge: t("合并"), rebase: t("变基"), cherry_pick: t("拣选"), revert: t("还原"), unstash: t("取回") }));
 /** 一处全部标记后，等多久自动跳到下一处（说明书 8.6） */
 const AUTO_NEXT_MS = 650;
 

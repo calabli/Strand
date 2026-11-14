@@ -11,7 +11,7 @@ import type { BranchOps } from "./branchOps";
 import { COMMIT_ICONS as I } from "./commitOps";
 import type { MenuEntry, MenuItem } from "./Menu";
 import { Palette, backRow, type PaletteRow } from "./Palette";
-import { t } from "../i18n";
+import { t, lang } from "../i18n";
 
 interface Props {
   refs: RefsList | null;
@@ -114,7 +114,7 @@ export function BranchPopup({ refs, ops, favs, toggleFav, merging, common, onSho
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, sub, refs, favs, merging, ops, toggleFav, common]);
+  }, [q, sub, refs, favs, merging, ops, toggleFav, common, lang]);
 
   return (
     <Palette

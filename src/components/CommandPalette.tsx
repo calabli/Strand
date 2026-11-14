@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/commands";
 import type { Commit } from "../api/types";
-import { t } from "../i18n";
+import { t, lang } from "../i18n";
 import { formatTime, shortId } from "./format";
 import { Palette, type PaletteRow } from "./Palette";
 
@@ -53,7 +53,7 @@ export function CommandPalette({ commands, onPickCommit, onClose }: { commands: 
       ...cmds.map((c) => ({ key: "c:" + c.id, section: c.section, label: c.label, icon: c.icon, hint: c.hint, disabled: c.disabled, why: c.why, run: c.run })),
       ...commits.map((c) => ({ key: "h:" + c.id, section: t("提交"), prefix: shortId(c.id), label: c.title, detail: formatTime(c.time), run: () => onPickCommit(c.id) })),
     ];
-  }, [q, commands, commits, onPickCommit]);
+  }, [q, commands, commits, onPickCommit, lang]);
 
   return (
     <Palette
