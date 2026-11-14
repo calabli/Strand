@@ -42,7 +42,11 @@ impl Session {
     ///
     /// 调用系统 `git commit --only`：只提交这些路径在工作区里的内容，不管暂存区里有什么，
     /// 也会照常运行钩子、签名和换行符转换。提交后需要调用 `reload` 刷新日志。
-    pub fn commit_create(&self, message: &str, selection: &Selection, sign_off: bool) -> Result<String> {
+    pub fn commit_create(&self, message: &str, selection: &Selection, sign_off: bool, author: Option<&str>) -> Result<String> {
+        let author = author.map(str::trim).filter(|a| !a.is_empty());
+        if let Some(a) = author {
+            crate::compose::check_ident(a)?;
+        }
         if self.state()?.state != RepoMode::Normal {
             return Err(CoreError::new(ErrorCode::MergeInProgress, "合并还没完成，先解决冲突或中止拉取"));
         }
@@ -50,7 +54,7 @@ impl Session {
             return Err(CoreError::new(ErrorCode::EmptyMessage, "先写一句提交说明"));
         }
         if selection.files.iter().any(|f| !f.whole) {
-            return self.commit_partial(Some(message), selection, sign_off, false);
+            return self.commit_partial(Some(message), selection, sign_off, author, false);
         }
         let mut paths: Vec<&str> = Vec::new();
         for f in &selection.files {
@@ -66,6 +70,10 @@ impl Session {
         if sign_off {
             args.push("--signoff");
         }
+        let author_arg = author.map(|a| format!("--author={a}"));
+        if let Some(a) = &author_arg {
+            args.push(a);
+        }
         args.push("--");
         args.extend(paths);
         git_cli::run(self.path(), &args, Some(message))?;
@@ -75,7 +83,11 @@ impl Session {
 
     /// 修订上一次提交（说明书 4.5）：勾选的改动并入它；`message` 不为空时替换原说明，为空时保留原说明。
     /// 上一次提交已经推送时返回 `ALREADY_PUSHED`。没勾选文件时只改说明。
-    pub fn commit_amend(&self, message: Option<&str>, selection: &Selection, sign_off: bool) -> Result<String> {
+    pub fn commit_amend(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>) -> Result<String> {
+        let author = author.map(str::trim).filter(|a| !a.is_empty());
+        if let Some(a) = author {
+            crate::compose::check_ident(a)?;
+        }
         if self.state()?.state != RepoMode::Normal {
             return Err(CoreError::new(ErrorCode::MergeInProgress, "合并还没完成，先解决冲突或中止拉取"));
         }
@@ -88,16 +100,20 @@ impl Session {
             return Err(CoreError::new(code, msg));
         }
         let msg = message.filter(|m| !m.lines().next().unwrap_or("").trim().is_empty());
-        if selection.files.is_empty() && msg.is_none() {
+        if selection.files.is_empty() && msg.is_none() && author.is_none() {
             return Err(CoreError::new(ErrorCode::NothingSelected, "勾选要并入的文件，或者写一段新的说明"));
         }
         if selection.files.iter().any(|f| !f.whole) {
-            return self.commit_partial(msg, selection, sign_off, true);
+            return self.commit_partial(msg, selection, sign_off, author, true);
         }
         let mut args = vec!["commit", "--amend", "--only", "--quiet"];
         args.push(if msg.is_some() { "--file=-" } else { "--no-edit" });
         if sign_off {
             args.push("--signoff");
+        }
+        let author_arg = author.map(|a| format!("--author={a}"));
+        if let Some(a) = &author_arg {
+            args.push(a);
         }
         args.push("--");
         for f in &selection.files {
@@ -116,7 +132,7 @@ impl Session {
     /// 有文件只提交一部分行：在一个临时索引里按 HEAD 搭好要提交的内容再提交，
     /// 真正的索引和工作区不动（只把提交过的路径在索引里同步到新 HEAD），没勾的行留在工作区。
     /// `amend` 为真时修订上一次提交；`message` 为空时保留原说明（只用于修订）。
-    fn commit_partial(&self, message: Option<&str>, selection: &Selection, sign_off: bool, amend: bool) -> Result<String> {
+    fn commit_partial(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>, amend: bool) -> Result<String> {
         let repo = self.git2()?;
         let dir = repo.path().join("strand");
         std::fs::create_dir_all(&dir).map_err(|e| CoreError::git("准备提交失败", e))?;
@@ -131,6 +147,10 @@ impl Session {
             args.push(if message.is_some() { "--file=-" } else { "--no-edit" });
             if sign_off {
                 args.push("--signoff");
+            }
+            let author_arg = author.map(|a| format!("--author={a}"));
+            if let Some(a) = &author_arg {
+                args.push(a);
             }
             git_cli::run_env(self.path(), &args, message, &[("GIT_INDEX_FILE", idx.as_str())])?;
             // 真正的索引里，提交过的路径对齐到新 HEAD；部分提交的文件剩下的改动留在工作区

@@ -9,6 +9,7 @@ pub mod blame;
 pub mod checks;
 mod branches;
 pub mod compare;
+pub mod compose;
 pub mod console;
 pub mod commits;
 pub mod conflict;

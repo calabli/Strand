@@ -7,10 +7,16 @@
 // 最上面一行工具图标（说明书 4.7）：刷新、回滚、查看差异、直接搁置、创建补丁、按目录分组、展开或折叠“改动”。
 // 提交选项（说明书 4.6）：提交前格式化、提交前运行检查（命令存在仓库的 Git 配置里）、签名行。提交时先格式化再检查，
 // 没通过时显示问题列表，用户选择仍然提交或取消；运行中点提交按钮取消。
+// 说明历史：本机记下的最近 10 条，加上自己在这个仓库里写过的说明（按 Git 配置的邮箱找），可以搜索。
+// 提交说明模板（Git 的 commit.template）：说明框是空的时候填进去，原样没改不能提交。
+// 作者选项：换作者提交、加共同作者（写成 Co-authored-by 行）。
+// 变更列表（对照 JetBrains 的 changelist）：把改动分成几组，新出现的改动进“活动”列表；只有一个列表时和原来一样只显示“改动”。
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api/commands";
-import type { CheckRun, ChecksInfo, CommitCreated, OpInfo, RangeCommit, RepoState, Selection, WorktreeStatus } from "../api/types";
+import type { Changelists, CheckRun, ChecksInfo, CommitCreated, ComposeInfo, OpInfo, RangeCommit, RepoState, Selection, WorktreeStatus } from "../api/types";
+import { Menu, type MenuState } from "./Menu";
+import { AuthorOptions, coAuthorsOf, identOk } from "./compose";
 import { FileRow, FileTree, StatusBadge, treeOrder } from "./FileRow";
 import { setSettings, settings, useSettings } from "../settings";
 import { t, tr } from "../i18n";
@@ -67,6 +73,11 @@ const PATCH_ICON = "M3.5 1.5h5l2.5 2.5v8.5h-7.5zM5.5 7h3M5.5 9.5h3";
 const APPLY_PATCH_ICON = "M3.5 1.5h5l2.5 2.5v8.5h-7.5zM7 5.5v4.5M5 8l2 2 2-2";
 const HISTORY_ICON = "M2.5 7a4.5 4.5 0 1 0 1.3-3.2M2.5 1.5v3h3M7 4.5V7l1.8 1.2";
 const GENERATE_ICON = "M7 1.5l1.2 3.3L11.5 6 8.2 7.2 7 10.5 5.8 7.2 2.5 6l3.3-1.2zM11 9.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z";
+const AUTHOR_ICON = "M7 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M2.5 12.5c.4-2.4 2.2-3.8 4.5-3.8s4.1 1.4 4.5 3.8";
+const NEW_LIST_ICON = "M1.5 3.5h7M1.5 7h5M1.5 10.5h4M10.5 8v5M8 10.5h5";
+const MOVE_ICON = "M1.5 4h7M1.5 7.5h4M8.5 9.5h4.5M11 7.5l2 2-2 2M1.5 11h4";
+const ACTIVE_ICON = "M7 1.5l1.6 3.4 3.7.4-2.8 2.5.8 3.7L7 9.6l-3.3 1.9.8-3.7L1.7 5.3l3.7-.4z";
+const RENAME_ICON = "M9.5 2.5l2 2-6.5 6.5H3V9zM8 4l2 2";
 const OPTIONS_ICON = "M2 3.5h6M11 3.5h1M2 7h1M6 7h6M2 10.5h5M10 10.5h2M9.5 2v3M4.5 5.5v3M8.5 9v3";
 const REFRESH_ICON = "M11.5 7A4.5 4.5 0 1 1 10 3.6M11.5 1.5v3h-3";
 const DIFF_ICON = "M3.5 1.5h7v11h-7zM5.5 5h3M7 3.5v3M5.5 9.5h3";
@@ -85,6 +96,36 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
   const [targets, setTargets] = useState<RangeCommit[] | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [history, setHistory] = useState(false);
+  const [histQ, setHistQ] = useState("");
+  const [compose, setCompose] = useState<ComposeInfo | null>(null);
+  const [author, setAuthor] = useState("");
+  const [showAuthor, setShowAuthor] = useState(false);
+  const template = compose?.template?.trim() ? compose.template : null;
+  useEffect(() => {
+    let live = true;
+    setCompose(null);
+    api.composeInfo().then(
+      (c) => {
+        if (!live) return;
+        setCompose(c);
+        if (c.template?.trim()) setMsg((m) => (m.trim() ? m : c.template!));
+      },
+      () => live && setCompose({ history: [] }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [repoPath]);
+  /** 提交后：说明框回到模板，重新读说明历史 */
+  const afterCommit = () => {
+    setMsg(template ?? "");
+    setAuthor("");
+    api.composeInfo().then((c) => setCompose(c), () => {});
+  };
+  const histAll = () => {
+    const seen = new Set<string>();
+    return [...readHistory(), ...(compose?.history ?? [])].filter((m) => (seen.has(m) ? false : (seen.add(m), true)));
+  };
   const histKey = `strand.msgs:${repoPath}`;
   const readHistory = (): string[] => {
     try {
@@ -213,6 +254,111 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
   // 全部勾选时点击变为全不选，其余情况点击变为全选（说明书 4.3）
   const toggleAll = () => setUnchecked(picked.length === changes.length ? new Set(changes.map((c) => c.path)) : new Set());
 
+  // ---------- 变更列表 ----------
+  const [cl, setCl] = useState<Changelists | null>(null);
+  /** 折叠起来的列表 */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** 正在起名字：id 为空是新建；moving 是建好后要移进去的文件 */
+  const [naming, setNaming] = useState<{ id: string | null; value: string; moving?: string[] } | null>(null);
+  const [moveMenu, setMoveMenu] = useState<MenuState | null>(null);
+  useEffect(() => {
+    let live = true;
+    setCl(null);
+    api.changelistsGet().then(
+      (c) => live && setCl(c),
+      () => live && setCl({ lists: [{ id: "default", name: "" }], active: "default", files: {} }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [repoPath]);
+  const multi = !!cl && cl.lists.length > 1;
+  const listOf = (path: string) => (cl ? cl.files[path] ?? cl.active : "default");
+  const listName = (id: string) => {
+    const l = cl?.lists.find((x) => x.id === id);
+    return l?.name.trim() || t("改动");
+  };
+  const saveCl = (next: Changelists) => {
+    // 只记还有改动的文件
+    const live = new Set(changes.map((c) => c.path));
+    const files = Object.fromEntries(Object.entries(next.files).filter(([p]) => live.has(p)));
+    const n = { ...next, files };
+    setCl(n);
+    api.changelistsSet(n).then(setCl, (e) => setError(e instanceof ApiError ? e.message : String(e)));
+  };
+  const moveTo = (paths: string[], id: string, base = cl) => {
+    if (!base) return;
+    saveCl({ ...base, files: { ...base.files, ...Object.fromEntries(paths.map((p) => [p, id])) } });
+  };
+  const finishNaming = () => {
+    if (!naming || !cl) return;
+    const name = naming.value.trim();
+    if (!name && naming.id !== "default") return setNaming(null);
+    if (cl.lists.some((l) => l.id !== naming.id && (l.name.trim() || t("改动")).toLowerCase() === (name || t("改动")).toLowerCase())) return setError(t("已经有同名的变更列表"));
+    if (naming.id === null) {
+      const id = `cl-${Date.now().toString(36)}`;
+      const next = { ...cl, lists: [...cl.lists, { id, name }] };
+      if (naming.moving?.length) moveTo(naming.moving, id, next);
+      else saveCl(next);
+    } else {
+      saveCl({ ...cl, lists: cl.lists.map((l) => (l.id === naming.id ? { ...l, name } : l)) });
+    }
+    setNaming(null);
+    setError(null);
+  };
+  /** 设为活动列表：新出现的改动放进这里；勾选只留这个列表的文件 */
+  const makeActive = (id: string) => {
+    if (!cl) return;
+    const files = { ...cl.files };
+    for (const c of changes) if (!files[c.path]) files[c.path] = cl.active;
+    saveCl({ ...cl, files, active: id });
+    setUnchecked(new Set(changes.filter((c) => (files[c.path] ?? id) !== id).map((c) => c.path)));
+  };
+  /** 删掉列表：里面的文件回到默认列表 */
+  const removeList = (id: string) => {
+    if (!cl || id === "default") return;
+    const files = { ...cl.files };
+    for (const c of changes) if ((files[c.path] ?? cl.active) === id) files[c.path] = "default";
+    saveCl({ ...cl, files, lists: cl.lists.filter((l) => l.id !== id), active: cl.active === id ? "default" : cl.active });
+  };
+  const openMove = (paths: string[], el: HTMLElement) => {
+    if (!cl) return;
+    const r = el.getBoundingClientRect();
+    const here = paths.length === 1 ? listOf(paths[0]) : null;
+    setMoveMenu({
+      x: r.left,
+      y: r.bottom + 2,
+      items: [
+        { label: paths.length === 1 ? t("移到变更列表") : t("把 {0} 个勾选的文件移到", paths.length), heading: true },
+        ...cl.lists.map((l) => ({ label: listName(l.id), checked: here === l.id, disabled: here === l.id, run: () => moveTo(paths, l.id) })),
+        "-" as const,
+        { label: t("新建变更列表…"), icon: ADD_ICON, run: () => setNaming({ id: null, value: "", moving: paths }) },
+      ],
+    });
+  };
+  const nameInput = (
+    <input
+      className="cl-name-in"
+      autoFocus
+      value={naming?.value ?? ""}
+      placeholder={t("变更列表的名字")}
+      aria-label={t("变更列表的名字")}
+      spellCheck={false}
+      onChange={(e) => naming && setNaming({ ...naming, value: e.target.value })}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          finishNaming();
+        } else if (e.key === "Escape") {
+          e.stopPropagation();
+          setNaming(null);
+        }
+      }}
+      onBlur={finishNaming}
+      onClick={(e) => e.preventDefault()}
+    />
+  );
+
   const title = msg.split("\n")[0];
   // 重命名的文件连旧路径一起搁置
   const pickedPaths = picked.flatMap((c) => (c.old_path ? [c.path, c.old_path] : [c.path]));
@@ -264,6 +410,12 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     setError(null);
     if (amend) return doAmend();
     if (picked.length === 0) return setError(t("至少勾选一个文件"));
+    if (author.trim() && !identOk(author)) return setError(t("作者要写成“名字 <邮箱>”"));
+    if (template && msg.trim() === template.trim()) {
+      setError(t("说明还是模板原样，先改成这次的说明"));
+      input.current?.focus();
+      return;
+    }
     if (!title.trim()) {
       setError(t("先写一句提交说明"));
       input.current?.focus();
@@ -272,9 +424,9 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     setBusy(true);
     try {
       if (!(await preCommit(picked))) return;
-      const r = await api.commitCreate(msg, selectionOf(picked), settings().signOff);
+      const r = await api.commitCreate(msg, selectionOf(picked), settings().signOff, author.trim() || null);
       remember(msg.trim());
-      setMsg("");
+      afterCommit();
       onCommitted(r, picked.length, push);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -287,15 +439,16 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
   /** 修订：上一次提交用 git commit --amend；更早的提交用 Fixup（有说明时是 Squash Into） */
   const doAmend = async () => {
     if (!target) return setError(targets && targets.length === 0 ? t("当前分支上没有还没推送的提交，不能修订") : t("正在读取可以修订的提交…"));
-    const m = msg.trim() ? msg : null;
-    if (picked.length === 0 && !m) return setError(t("勾选要并入的文件，或者写一段新的说明"));
+    const m = msg.trim() && msg.trim() !== template?.trim() ? msg : null;
+    if (author.trim() && !identOk(author)) return setError(t("作者要写成“名字 <邮箱>”"));
+    if (picked.length === 0 && !m && !author.trim()) return setError(t("勾选要并入的文件，或者写一段新的说明"));
     setBusy(true);
     try {
       if (picked.length && !(await preCommit(picked))) return;
       if (target === targets?.[0]?.id) {
-        const r = await api.commitAmend(m, selectionOf(picked), settings().signOff);
+        const r = await api.commitAmend(m, selectionOf(picked), settings().signOff, author.trim() || null);
         if (m) remember(m.trim());
-        setMsg("");
+        afterCommit();
         setAmend(false);
         onCommitted(r, picked.length, false, true);
       } else {
@@ -303,9 +456,13 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           setError(t("修订更早的提交时要勾选要并入的文件"));
           return;
         }
+        if (author.trim()) {
+          setError(t("修订更早的提交时不能换作者"));
+          return;
+        }
         const w = await api.commitFixup(target, selectionOf(picked), m);
         if (m) remember(m.trim());
-        setMsg("");
+        afterCommit();
         setAmend(false);
         onWritten(w.state, t("已把改动并入“{0}”", targets?.find((x) => x.id === target)?.title ?? ""), w.op);
       }
@@ -402,6 +559,11 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                       <BoxIcon d="M2 3h3M2 7h3M2 11h3M7 3h5M7 7h5M7 11h5" />
                     </button>
                   )}
+                  {multi && (
+                    <button type="button" className="ib sm frow-act" title={t("移到另一个变更列表")} aria-label={t("把 {0} 移到另一个变更列表", c.path)} onClick={(e) => openMove([c.path], e.currentTarget)}>
+                      <BoxIcon d={MOVE_ICON} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="ib sm frow-act"
@@ -484,6 +646,21 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
         >
           <BoxIcon d={APPLY_PATCH_ICON} />
         </button>
+        <button type="button" className="ib sm" title={t("新建变更列表（把改动分组，分开提交）")} aria-label={t("新建变更列表")} disabled={!cl} onClick={() => setNaming({ id: null, value: "" })}>
+          <BoxIcon d={NEW_LIST_ICON} />
+        </button>
+        {multi && (
+          <button
+            type="button"
+            className="ib sm"
+            title={picked.length ? t("把勾选的文件移到另一个变更列表") : t("先勾选要移动的文件")}
+            aria-label={t("移动勾选的文件")}
+            disabled={picked.length === 0}
+            onClick={(e) => openMove(picked.map((c) => c.path), e.currentTarget)}
+          >
+            <BoxIcon d={MOVE_ICON} />
+          </button>
+        )}
         <button
           type="button"
           className={"ib sm" + (groupDir ? " pressed" : "")}
@@ -500,13 +677,90 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           title={changesOpen ? t("折叠“改动”") : t("展开“改动”")}
           aria-label={changesOpen ? t("折叠“改动”") : t("展开“改动”")}
           disabled={changes.length === 0}
-          onClick={() => setChangesOpen((o) => !o)}
+          onClick={() => {
+            if (!multi) return setChangesOpen((o) => !o);
+            setCollapsed(changesOpen ? new Set(cl!.lists.map((l) => l.id)) : new Set());
+            setChangesOpen((o) => !o);
+          }}
         >
           <BoxIcon d={changesOpen ? "M4 6l3-3 3 3M4 11l3-3 3 3" : "M4 3l3 3 3-3M4 8l3 3 3-3"} />
         </button>
       </div>
       <div className="cp-list">
-        {changes.length === 0 ? (
+        {naming?.id === null && <div className="cp-node cl-node naming">{nameInput}</div>}
+        {multi ? (
+          cl!.lists.map((l) => {
+            const items = changes.filter((c) => listOf(c.path) === l.id);
+            const on = items.filter((c) => !unchecked.has(c.path) && !allOff(c.path)).length;
+            const open = !collapsed.has(l.id);
+            const active = cl!.active === l.id;
+            return (
+              <div key={l.id} className="cl-group">
+                <div className={"cp-node cl-node" + (active ? " active" : "")}>
+                  <button
+                    type="button"
+                    className="fold"
+                    aria-expanded={open}
+                    title={open ? t("折叠") : t("展开")}
+                    aria-label={open ? t("折叠“{0}”", listName(l.id)) : t("展开“{0}”", listName(l.id))}
+                    onClick={() =>
+                      setCollapsed((c) => {
+                        const n = new Set(c);
+                        if (n.has(l.id)) n.delete(l.id);
+                        else n.add(l.id);
+                        return n;
+                      })
+                    }
+                  >
+                    {open ? "▾" : "▸"}
+                  </button>
+                  <input
+                    type="checkbox"
+                    aria-label={t("提交“{0}”里的文件", listName(l.id))}
+                    disabled={items.length === 0}
+                    checked={items.length > 0 && on === items.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = on > 0 && on < items.length;
+                    }}
+                    onChange={() =>
+                      setUnchecked((u) => {
+                        const n = new Set(u);
+                        for (const c of items) {
+                          if (on === items.length) n.add(c.path);
+                          else n.delete(c.path);
+                        }
+                        return n;
+                      })
+                    }
+                  />
+                  {naming?.id === l.id ? nameInput : <span className="cp-node-name" onDoubleClick={() => setNaming({ id: l.id, value: l.name })}>{listName(l.id)}</span>}
+                  {active && (
+                    <span className="cl-active" title={t("新出现的改动放进这个列表")}>
+                      {t("活动")}
+                    </span>
+                  )}
+                  <span className="dim">{items.length ? t("已选 {0} / {1}", on, items.length) : t("空")}</span>
+                  <span className="cl-acts">
+                    {!active && (
+                      <button type="button" className="ib sm" title={t("设为活动列表（新改动放进这里，只勾选这里的文件）")} aria-label={t("把“{0}”设为活动列表", listName(l.id))} onClick={() => makeActive(l.id)}>
+                        <BoxIcon d={ACTIVE_ICON} />
+                      </button>
+                    )}
+                    <button type="button" className="ib sm" title={t("重命名")} aria-label={t("重命名“{0}”", listName(l.id))} onClick={() => setNaming({ id: l.id, value: l.name })}>
+                      <BoxIcon d={RENAME_ICON} />
+                    </button>
+                    {l.id !== "default" && (
+                      <button type="button" className="ib sm" title={items.length ? t("删除这个列表（里面的文件回到“{0}”）", listName("default")) : t("删除这个列表")} aria-label={t("删除“{0}”", listName(l.id))} onClick={() => removeList(l.id)}>
+                        <BoxIcon d={TRASH_ICON} />
+                      </button>
+                    )}
+                  </span>
+                </div>
+                {open && (groupDir ? <FileTree items={items} pathOf={(c) => c.path} leaf={(c, d) => changeRow(c, d)} dirLead={dirCheck} /> : items.map((c) => changeRow(c)))}
+              </div>
+            );
+          })
+        ) : changes.length === 0 ? (
           <p className="cp-clean dim" ref={cleanNote} tabIndex={-1}>
             {t("没有改动，工作区是干净的")}
           </p>
@@ -534,7 +788,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                 }}
                 onChange={toggleAll}
               />
-              <span className="cp-node-name">{t("改动")}</span>
+              {naming?.id === "default" ? nameInput : <span className="cp-node-name">{cl ? listName("default") : t("改动")}</span>}
               <span className="dim">
                 {t("已选 {0} / {1}", picked.length, changes.length)}
               </span>
@@ -582,6 +836,17 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
               </button>
               <button
                 type="button"
+                className={"ib sm" + (showAuthor ? " pressed" : "")}
+                title={author.trim() ? t("作者：{0}", author.trim()) : coAuthorsOf(msg).length ? t("作者和共同作者（{0} 个共同作者）", coAuthorsOf(msg).length) : t("作者和共同作者")}
+                aria-label={t("作者和共同作者")}
+                aria-expanded={showAuthor}
+                onClick={() => setShowAuthor((v) => !v)}
+              >
+                <BoxIcon d={AUTHOR_ICON} />
+                {author.trim() || coAuthorsOf(msg).length ? <span className="ib-dot" /> : null}
+              </button>
+              <button
+                type="button"
                 className={"ib sm" + (showOpts ? " pressed" : "")}
                 title={optsTitle}
                 aria-label={t("提交选项")}
@@ -607,10 +872,25 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
               }}
             />
           )}
+          {showAuthor && <AuthorOptions repoPath={repoPath} me={compose?.me ?? null} author={author} setAuthor={setAuthor} msg={msg} setMsg={setMsg} />}
           {history && (
             <div className="cp-history" role="listbox" aria-label={t("说明历史")}>
-              {readHistory().length === 0 && <p className="dim small pad">{t("还没有说明历史")}</p>}
-              {readHistory().map((m) => (
+              {histAll().length > 6 && (
+                <input
+                  className="pk-q cp-hist-q"
+                  autoFocus
+                  value={histQ}
+                  placeholder={t("搜索说明历史")}
+                  aria-label={t("搜索说明历史")}
+                  spellCheck={false}
+                  onChange={(e) => setHistQ(e.target.value)}
+                  onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), setHistory(false))}
+                />
+              )}
+              {histAll().length === 0 && <p className="dim small pad">{t("还没有说明历史")}</p>}
+              {histAll()
+                .filter((m) => !histQ.trim() || m.toLowerCase().includes(histQ.trim().toLowerCase()))
+                .map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -619,6 +899,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                   onClick={() => {
                     setMsg(m);
                     setHistory(false);
+                    setHistQ("");
                     input.current?.focus();
                   }}
                 >
@@ -634,6 +915,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
             value={msg}
             rows={4}
             placeholder={t("第一行是标题\n\n空一行后写正文")}
+            title={template ? t("说明框里是提交说明模板（{0}）", compose?.template_path ?? "commit.template") : undefined}
             onChange={(e) => setMsg(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -707,6 +989,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           </div>
         </div>
       )}
+      {moveMenu && <Menu menu={moveMenu} onClose={() => setMoveMenu(null)} />}
       {report && (
         <ChecksReport
           run={report.run}

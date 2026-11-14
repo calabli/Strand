@@ -107,7 +107,7 @@ fn commit_only_selected_files() {
     write(p, "README.md", "也改了\n");
     let mut s = Session::open(p).unwrap();
 
-    let id = s.commit_create("只提交 lib\n\n正文", &sel(&["src/lib.rs"]), false).unwrap();
+    let id = s.commit_create("只提交 lib\n\n正文", &sel(&["src/lib.rs"]), false, None).unwrap();
     assert_eq!(id.len(), 40);
     s.reload().unwrap();
     let page = s.log_page(0, 10).unwrap();
@@ -130,8 +130,8 @@ fn commit_validation() {
     let p = d.path();
     write(p, "README.md", "改了\n");
     let s = Session::open(p).unwrap();
-    assert_eq!(s.commit_create("  \n正文", &sel(&["README.md"]), false).unwrap_err().code, ErrorCode::EmptyMessage);
-    assert_eq!(s.commit_create("说明", &sel(&[]), false).unwrap_err().code, ErrorCode::NothingSelected);
+    assert_eq!(s.commit_create("  \n正文", &sel(&["README.md"]), false, None).unwrap_err().code, ErrorCode::EmptyMessage);
+    assert_eq!(s.commit_create("说明", &sel(&[]), false, None).unwrap_err().code, ErrorCode::NothingSelected);
 }
 
 #[test]

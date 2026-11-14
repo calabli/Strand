@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
 import { treeOrder } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
-import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Worktree, WorktreeStatus } from "./api/types";
+import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Worktree, WorktreeStatus } from "./api/types";
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
 import { useRebase } from "./components/RebaseWindow";
 import { CompareView, PatchWindow, TreeWindow } from "./components/compareTools";
 import { ApplyPatch } from "./components/ApplyPatch";
+import { PickFiles } from "./components/PickFiles";
 import { ReflogWindow } from "./components/ReflogWindow";
 import { RemotesWindow } from "./components/RemotesWindow";
 import { BisectBar, useBisect } from "./components/BisectBar";
@@ -499,6 +500,7 @@ export default function App() {
   const [patch, setPatch] = useState<{ title: string; text: string | null; name: string } | null>(null);
   /** 应用补丁对话框：带着拖进来的补丁，或空着打开 */
   const [applying, setApplying] = useState<{ text: string; name?: string } | null>(null);
+  const [pickFiles, setPickFiles] = useState<{ commit: Commit; files: FileChange[]; initial: string[]; revert: boolean } | null>(null);
   const [reflogOpen, setReflogOpen] = useState(false);
   const [remotesOpen, setRemotesOpen] = useState(false);
   // 把 .patch / .diff 文件拖进窗口：打开应用补丁对话框（桌面应用里由系统送来文件路径，浏览器预览里读拖进来的文件）
@@ -647,6 +649,7 @@ export default function App() {
       jump: jumpToCommit,
       openWeb: (url: string) => openUrl(url).catch((e) => setError(errOf(e).message)),
       bisect: repo?.state === "normal" || bisect.active ? { active: bisect.active, mark: (m) => bisect.mark(m, c.id) } : undefined,
+      pickFiles: repo?.state === "normal" && !repo?.bisecting ? (revert) => openPickFiles(c, [], revert) : undefined,
     });
 
   // 选中提交的可用条件；多选时算“能不能全部拣选”
@@ -1029,6 +1032,46 @@ export default function App() {
         ask({ title: t("快捷键"), items: SHORTCUTS.map(([k, d]) => `${keys(k)}　${t(d)}`), confirm: t("关闭"), onSubmit: () => {} }) },
     );
     return list;
+  };
+
+  // 只拣选或还原部分文件、取回某个版本的文件（对照 JetBrains 提交详情里文件的右键菜单）
+  const openPickFiles = (c: Commit, initial: string[], revert: boolean, files?: FileChange[]) => {
+    if (files) return setPickFiles({ commit: c, files, initial, revert });
+    api.commitDetail(c.id).then(
+      (d) => setPickFiles({ commit: c, files: d.files, initial, revert }),
+      (e) => failedCb(msgOf(e)),
+    );
+  };
+  const restoreFile = (c: Commit, f: FileChange) => {
+    const del = f.status === "D";
+    const local = status?.changes.some((x) => x.path === f.path) || status?.untracked.includes(f.path);
+    ask({
+      title: del ? t("删除工作区里的 {0}", f.path) : t("把 {0} 取回到这个版本", f.path),
+      message: del
+        ? t("这个提交删掉了这个文件，取回这个版本就是把工作区里的它删掉。可以在操作时间线里撤销。")
+        : local
+          ? t("工作区里这个文件的改动会被 {0} 的内容替换。可以在操作时间线里撤销。", shortId(c.id))
+          : t("工作区里的文件换成 {0} 的内容，成为一处改动，检查后再提交。可以在操作时间线里撤销。", shortId(c.id)),
+      confirm: del ? t("删除") : t("取回"),
+      danger: del || !!local,
+      onSubmit: () => runWrite(api.fileRestore(c.id, f.path), del ? t("已删除 {0}", f.path) : t("已把 {0} 取回到 {1}", f.path, shortId(c.id))),
+    });
+  };
+  const commitFileMenu = (c: Commit, f: FileChange, files: FileChange[], x: number, y: number) => {
+    const ok = repo?.state === "normal" && !repo?.bisecting;
+    const why = t("合并或变基还没完成");
+    setMenu({
+      x,
+      y,
+      items: [
+        { label: t("查看差异"), icon: COMMIT_ICONS.compare, run: () => openDiff({ kind: "commit", id: c.id, path: f.path }) },
+        { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(f.path, undefined, true) },
+        "-",
+        { label: t("把这个文件的改动拣选到工作区"), icon: COMMIT_ICONS.cherry, disabled: !ok, why, run: () => openPickFiles(c, [f.path], false, files) },
+        { label: t("在工作区还原这个文件的改动"), icon: COMMIT_ICONS.revert, disabled: !ok, why, run: () => openPickFiles(c, [f.path], true, files) },
+        { label: f.status === "D" ? t("取回这个版本（删除工作区里的文件）…") : t("取回这个版本的文件…"), icon: COMMIT_ICONS.checkout, disabled: !ok, why, run: () => restoreFile(c, f) },
+      ],
+    });
   };
 
   // 提交面板里文件的右键菜单（说明书 12.2）
@@ -1431,6 +1474,7 @@ export default function App() {
             setUi((u) => ({ ...u, path }));
             setTab("log");
           }}
+          onFileMenu={commitFileMenu}
         />
         )}
       </div>
@@ -1494,6 +1538,7 @@ export default function App() {
           busy={repo?.state !== "normal"}
         />
       )}
+      {pickFiles && <PickFiles {...pickFiles} onClose={() => setPickFiles(null)} done={doneCb} failed={failedCb} say={say} />}
       {applying && <ApplyPatch initial={applying} onClose={() => setApplying(null)} done={doneCb} failed={failedCb} say={say} />}
       {patch && <PatchWindow title={patch.title} text={patch.text} name={patch.name} onClose={() => setPatch(null)} say={say} />}
       {repoPop && <RepoPopup x={repoPop.x} y={repoPop.y} current={repo.path} onOpen={open} onBrowse={choose} onClone={() => setCloneOpen(true)} onClose={() => setRepoPop(null)} />}

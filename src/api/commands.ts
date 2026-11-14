@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Changelists,
+  ComposeInfo,
   PatchPreview,
   BisectMark,
   BisectStatus,
@@ -115,11 +117,22 @@ export const api = {
   /** context：上下文行数（FULL 是整个文件）；逐行勾选的行号按 3 行上下文的块记录 */
   diffWorktree: (path: string, ignoreWs = false, context = 3): Promise<FileDiff> =>
     inTauri ? call("diff_worktree", { path, ignoreWs, context }) : mock.diffFile(path, context),
-  commitCreate: (message: string, selection: Selection, signOff = false): Promise<CommitCreated> =>
-    inTauri ? call("commit_create", { message, selection, signOff }) : mock.commitCreate(message, selection),
+  /** author：“名字 <邮箱>”，为空时用 Git 配置里的身份 */
+  commitCreate: (message: string, selection: Selection, signOff = false, author: string | null = null): Promise<CommitCreated> =>
+    inTauri ? call("commit_create", { message, selection, signOff, author }) : mock.commitCreate(message, selection),
   /** 修订上一次提交；message 为空时保留原说明 */
-  commitAmend: (message: string | null, selection: Selection, signOff = false): Promise<CommitCreated> =>
-    inTauri ? call("commit_amend", { message, selection, signOff }) : mock.commitAmend(message),
+  commitAmend: (message: string | null, selection: Selection, signOff = false, author: string | null = null): Promise<CommitCreated> =>
+    inTauri ? call("commit_amend", { message, selection, signOff, author }) : mock.commitAmend(message),
+  /** 只拣选或还原一个提交里的部分文件，结果放在工作区；有冲突时返回 CONFLICTS */
+  commitFilesApply: (id: string, paths: string[], revert: boolean): Promise<Written<null>> =>
+    inTauri ? call("commit_files_apply", { id, paths, revert }) : mock.commitOp(revert ? t("还原部分文件") : t("拣选部分文件")),
+  /** 把工作区里的文件换成某个版本的内容 */
+  fileRestore: (id: string, path: string): Promise<Written<null>> => (inTauri ? call("file_restore", { id, path }) : mock.commitOp(t("取回 {0}", path))),
+  /** 文件某个版本的原始字节；rev 为空是工作区 */
+  fileBytes: (path: string, rev: string | null): Promise<ArrayBuffer> => (inTauri ? call("file_bytes", { path, rev }) : mock.fileBytes(path, rev)),
+  composeInfo: (): Promise<ComposeInfo> => (inTauri ? call("compose_info") : mock.composeInfo()),
+  changelistsGet: (): Promise<Changelists> => (inTauri ? call("changelists_get") : mock.changelistsGet()),
+  changelistsSet: (lists: Changelists): Promise<Changelists> => (inTauri ? call("changelists_set", { lists }) : mock.changelistsSet(lists)),
   commitDetail: (id: string): Promise<CommitDetail> => (inTauri ? call("commit_detail", { id }) : mock.commitDetail(id)),
   commitCaps: (id: string): Promise<CommitCaps> => (inTauri ? call("commit_caps", { id }) : mock.commitCaps(id)),
   /** 拣选：按从旧到新的顺序依次拣选；有冲突时返回 CONFLICTS，仓库停在拣选状态 */

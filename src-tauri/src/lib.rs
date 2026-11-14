@@ -171,10 +171,10 @@ async fn diff_worktree(state: State<'_, AppState>, path: String, ignore_ws: Opti
 
 /// 按勾选的文件提交，提交后刷新日志。返回新提交的版本号和仓库状态。
 #[tauri::command]
-async fn commit_create(state: State<'_, AppState>, message: String, selection: Selection, sign_off: Option<bool>) -> CmdResult<CommitCreated> {
+async fn commit_create(state: State<'_, AppState>, message: String, selection: Selection, sign_off: Option<bool>, author: Option<String>) -> CmdResult<CommitCreated> {
     with_repo(&state, move |s| {
         let title = message.lines().next().unwrap_or("").trim().to_string();
-        let r = s.run_op_reload(&format!("提交“{}”", short(&title)), OpKind::Commit, |s| s.commit_create(&message, &selection, sign_off.unwrap_or(false)));
+        let r = s.run_op_reload(&format!("提交“{}”", short(&title)), OpKind::Commit, |s| s.commit_create(&message, &selection, sign_off.unwrap_or(false), author.as_deref()));
         let (id, op) = r?;
         Ok(CommitCreated { id, state: s.state()?, op })
     })
@@ -183,15 +183,32 @@ async fn commit_create(state: State<'_, AppState>, message: String, selection: S
 
 /// 修订上一次提交（说明书 4.5）：message 为空时保留原说明
 #[tauri::command]
-async fn commit_amend(state: State<'_, AppState>, message: Option<String>, selection: Selection, sign_off: Option<bool>) -> CmdResult<CommitCreated> {
+async fn commit_amend(state: State<'_, AppState>, message: Option<String>, selection: Selection, sign_off: Option<bool>, author: Option<String>) -> CmdResult<CommitCreated> {
     with_repo(&state, move |s| {
         let head = s.state()?.head.commit.unwrap_or_default();
         let label = format!("修订{}", title_of(s, &head));
-        let r = s.run_op_reload(&label, OpKind::Commit, |s| s.commit_amend(message.as_deref(), &selection, sign_off.unwrap_or(false)));
+        let r = s.run_op_reload(&label, OpKind::Commit, |s| s.commit_amend(message.as_deref(), &selection, sign_off.unwrap_or(false), author.as_deref()));
         let (id, op) = r?;
         Ok(CommitCreated { id, state: s.state()?, op })
     })
     .await
+}
+
+/// 写说明用的：说明历史、提交说明模板、当前身份
+#[tauri::command]
+async fn compose_info(state: State<'_, AppState>) -> CmdResult<strand_core::compose::ComposeInfo> {
+    with_repo(&state, |s| s.compose_info()).await
+}
+
+/// 变更列表（Strand 自己的分组，存在 .git/strand/changelists.json）
+#[tauri::command]
+async fn changelists_get(state: State<'_, AppState>) -> CmdResult<strand_core::compose::Changelists> {
+    with_repo(&state, |s| s.changelists_get()).await
+}
+
+#[tauri::command]
+async fn changelists_set(state: State<'_, AppState>, lists: strand_core::compose::Changelists) -> CmdResult<strand_core::compose::Changelists> {
+    with_repo(&state, move |s| s.changelists_set(lists)).await
 }
 
 #[tauri::command]
@@ -835,6 +852,13 @@ async fn file_text(state: State<'_, AppState>, path: String, rev: Option<String>
     with_repo(&state, move |s| s.file_text(&path, rev.as_deref())).await
 }
 
+/// 文件某个版本的原始字节（图片对比）；rev 为空是工作区。直接返回二进制，不经过 JSON
+#[tauri::command]
+async fn file_bytes(state: State<'_, AppState>, path: String, rev: Option<String>) -> CmdResult<tauri::ipc::Response> {
+    let b = with_repo(&state, move |s| s.file_bytes(&path, rev.as_deref())).await?;
+    Ok(tauri::ipc::Response::new(b))
+}
+
 /// 在差异里编辑后保存工作区文件；expected 是开始编辑时读到的内容（磁盘上的变了就不覆盖）
 #[tauri::command]
 async fn save_worktree_file(state: State<'_, AppState>, path: String, text: String, expected: String) -> CmdResult<()> {
@@ -959,6 +983,25 @@ async fn patch_apply(state: State<'_, AppState>, text: String, commit: bool) -> 
     let n = strand_core::patch::mail_commits(&text).len();
     let (label, kind) = if commit { (format!("应用补丁（{n} 个提交）"), OpKind::Commit) } else { ("应用补丁到工作区".to_string(), OpKind::Other) };
     logged_op(&state, label, kind, move |s| s.patch_apply(&text, commit)).await
+}
+
+/// 只拣选或还原一个提交里的部分文件，结果放在工作区（不生成提交）
+#[tauri::command]
+async fn commit_files_apply(state: State<'_, AppState>, id: String, paths: Vec<String>, revert: bool) -> CmdResult<Written<()>> {
+    let title = with_repo(&state, { let id = id.clone(); move |s| Ok(title_of(s, &id)) }).await?;
+    let what = if paths.len() == 1 { paths[0].clone() } else { format!("{} 个文件", paths.len()) };
+    let label = if revert { format!("还原{title}里的 {what}") } else { format!("拣选{title}里的 {what}") };
+    // 快照只管已跟踪文件：拣选可能新建文件，要额外记下这些路径，撤销时才能删掉
+    let scope = OpScope { files: paths.clone(), ..Default::default() };
+    logged_op_scoped(&state, label, OpKind::Other, scope, move |s| s.commit_files_apply(&id, &paths, revert)).await
+}
+
+/// 把工作区里的一个文件换成某个版本的内容
+#[tauri::command]
+async fn file_restore(state: State<'_, AppState>, id: String, path: String) -> CmdResult<Written<()>> {
+    let label = format!("把 {path} 取回到 {}", &id[..id.len().min(7)]);
+    let scope = OpScope { files: vec![path.clone()], ..Default::default() };
+    logged_op_scoped(&state, label, OpKind::Other, scope, move |s| s.file_restore(&id, &path)).await
 }
 
 // ---------- 丢弃改动、未跟踪的文件（说明书 4.7、4.8） ----------
@@ -1261,12 +1304,15 @@ pub fn run(adopted: Option<u128>) {
             reflog,
             patch_apply,
             save_worktree_file,
+            file_bytes,
             file_history,
             file_diff_versions,
             commit_change_matches,
             project_search,
             file_save,
             changes_discard,
+            commit_files_apply,
+            file_restore,
             untracked_add,
             untracked_ignore,
             untracked_delete,
@@ -1300,6 +1346,9 @@ pub fn run(adopted: Option<u128>) {
             diff_worktree,
             commit_create,
             commit_detail,
+            compose_info,
+            changelists_get,
+            changelists_set,
             diff_commit,
             refs_list,
             log_locate,

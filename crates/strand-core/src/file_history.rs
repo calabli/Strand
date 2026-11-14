@@ -136,13 +136,8 @@ impl Session {
     /// 原文件用 CRLF 换行时，保存的内容也换成 CRLF（编辑框会把换行统一成 LF）。
     /// 只能写仓库里已有的普通文件，路径不能跳出仓库，也不能写进 .git。
     pub fn save_worktree_file(&self, path: &str, text: &str, expected: &str) -> Result<()> {
+        check_rel_path(path)?;
         let rel = std::path::Path::new(path);
-        let bad = path.is_empty()
-            || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_)))
-            || rel.components().next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case(".git"));
-        if bad {
-            return Err(CoreError::new(ErrorCode::InvalidName, format!("不能保存这个路径：{path}")));
-        }
         let full = self.path().join(rel);
         let meta = std::fs::symlink_metadata(&full).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
         if !meta.is_file() {
@@ -282,5 +277,45 @@ mod tests {
         assert_eq!((v[1].status, v[1].added, v[1].deleted), (FileStatus::M, 2, 1));
         assert_eq!((v[2].status, v[2].binary, v[2].commit.parents.len()), (FileStatus::A, true, 0));
         assert_eq!(v[2].commit.author.name, "周");
+    }
+}
+
+/// 工作区里的相对路径：不能是空的、绝对路径、带 `..`，也不能在 .git 里
+pub(crate) fn check_rel_path(path: &str) -> Result<()> {
+    let rel = std::path::Path::new(path);
+    let bad = path.is_empty()
+        || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_)))
+        || rel.components().next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case(".git"));
+    if bad {
+        return Err(CoreError::new(ErrorCode::InvalidName, format!("不能保存这个路径：{path}")));
+    }
+    Ok(())
+}
+
+impl Session {
+    /// 文件某个版本的原始字节（图片对比用）；`rev` 为空是工作区。超过 30 MB 或这个版本里没有这个文件时报错
+    pub fn file_bytes(&self, path: &str, rev: Option<&str>) -> Result<Vec<u8>> {
+        check_rel_path(path)?;
+        const MAX: usize = 30 << 20;
+        let too_big = || CoreError::new(ErrorCode::InvalidRange, "文件太大（超过 30 MB），不显示");
+        match rev {
+            None => {
+                let full = self.path().join(path);
+                let meta = std::fs::metadata(&full).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
+                if meta.len() as usize > MAX {
+                    return Err(too_big());
+                }
+                std::fs::read(&full).map_err(|e| CoreError::git("读取文件失败", e))
+            }
+            Some(r) => {
+                let repo = self.git2()?;
+                let obj = repo.revparse_single(&format!("{r}:{path}")).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("这个版本里没有 {path}")))?;
+                let blob = obj.peel_to_blob().map_err(|_| CoreError::new(ErrorCode::NotFound, format!("这个版本里没有 {path}")))?;
+                if blob.size() > MAX {
+                    return Err(too_big());
+                }
+                Ok(blob.content().to_vec())
+            }
+        }
     }
 }

@@ -66,7 +66,7 @@ fn commit_only_some_lines() {
     assert_eq!(s.diff_worktree("a.txt", false, 3).unwrap().hunks.len(), 2);
     let first = pick(&s, "a.txt", |_, t| t.contains("2 行") || t == "第二行");
     let sel = Selection { files: vec![partial("a.txt", first), SelectedFile { path: "b.txt".into(), old_path: None, whole: true, lines: vec![] }] };
-    s.commit_create("只提交上面那处", &sel, false).unwrap();
+    s.commit_create("只提交上面那处", &sel, false, None).unwrap();
 
     let committed = git(p, &["show", "HEAD:a.txt"]);
     assert!(committed.contains("第二行") && committed.contains("第 29 行"));
@@ -86,21 +86,21 @@ fn one_pair_and_no_newline_at_end() {
     // 只提交“删掉二、加上二改”这一对，开头新加的“零”不提交
     let lines = pick(&s, "c.txt", |_, t| t == "二" || t == "二改");
     assert_eq!(lines.len(), 2);
-    s.commit_create("改二", &Selection { files: vec![partial("c.txt", lines)] }, false).unwrap();
+    s.commit_create("改二", &Selection { files: vec![partial("c.txt", lines)] }, false, None).unwrap();
     let raw = Command::new("git").args(["cat-file", "-p", "HEAD:c.txt"]).current_dir(p).output().unwrap().stdout;
     assert_eq!(String::from_utf8(raw).unwrap(), "一\n二改\n三", "文件末尾没有换行的保持不变");
 
     // 再提交剩下的“零”
     let s = Session::open(p).unwrap();
     let lines = pick(&s, "c.txt", |_, t| t == "零");
-    s.commit_create("加零", &Selection { files: vec![partial("c.txt", lines)] }, false).unwrap();
+    s.commit_create("加零", &Selection { files: vec![partial("c.txt", lines)] }, false, None).unwrap();
     assert_eq!(git(p, &["status", "--porcelain"]), "");
 
     // 同一块里只选一部分：和 git add -p 一样，没选的删除行留在原处，选中的新增行接在它后面
     std::fs::write(p.join("c.txt"), "零\n一\nA\nB").unwrap();
     let s = Session::open(p).unwrap();
     let lines = pick(&s, "c.txt", |_, t| t == "二改" || t == "A");
-    s.commit_create("部分", &Selection { files: vec![partial("c.txt", lines)] }, false).unwrap();
+    s.commit_create("部分", &Selection { files: vec![partial("c.txt", lines)] }, false, None).unwrap();
     assert_eq!(git(p, &["cat-file", "-p", "HEAD:c.txt"]), "零\n一\n三\nA");
 }
 
@@ -151,12 +151,12 @@ fn sign_off_line() {
     // 整文件提交
     std::fs::write(p.join("a.txt"), numbered(30).replace("第 1 行\n", "第一行\n")).unwrap();
     let sel = Selection { files: vec![SelectedFile { path: "a.txt".into(), old_path: None, whole: true, lines: vec![] }] };
-    s.commit_create("加签名", &sel, true).unwrap();
+    s.commit_create("加签名", &sel, true, None).unwrap();
     assert!(git(p, &["log", "-1", "--format=%B"]).contains("Signed-off-by: 林夏 <linxia@example.com>"));
     // 部分行提交
     let s = Session::open(p).unwrap();
     std::fs::write(p.join("a.txt"), numbered(30).replace("第 1 行\n", "第一行\n").replace("第 30 行\n", "第三十行\n")).unwrap();
     let lines = pick(&s, "a.txt", |_, _| true);
-    s.commit_create("部分也加签名", &Selection { files: vec![partial("a.txt", lines)] }, true).unwrap();
+    s.commit_create("部分也加签名", &Selection { files: vec![partial("a.txt", lines)] }, true, None).unwrap();
     assert!(git(p, &["log", "-1", "--format=%B"]).contains("Signed-off-by: 林夏"));
 }

@@ -38,7 +38,7 @@ fn amend_files_and_message() {
     let s = Session::open(p).unwrap();
     // 说明为空：保留原说明，改动并进去
     std::fs::write(p.join("a.txt"), "a 改\n").unwrap();
-    s.commit_amend(None, &Selection { files: vec![whole("a.txt")] }, false).unwrap();
+    s.commit_amend(None, &Selection { files: vec![whole("a.txt")] }, false, None).unwrap();
     assert_eq!(git(p, &["log", "-1", "--format=%B"]), "第二个\n\n正文");
     assert_eq!(git(p, &["show", "HEAD:a.txt"]), "a 改");
     assert_eq!(git(p, &["rev-parse", "HEAD~1"]), parent, "还是同一个父提交");
@@ -47,10 +47,10 @@ fn amend_files_and_message() {
 
     // 只改说明
     let mut s = Session::open(p).unwrap();
-    s.commit_amend(Some("第二个（改过）"), &Selection { files: vec![] }, false).unwrap();
+    s.commit_amend(Some("第二个（改过）"), &Selection { files: vec![] }, false, None).unwrap();
     s.reload().unwrap();
     assert_eq!(git(p, &["log", "-1", "--format=%s"]), "第二个（改过）");
-    assert_eq!(s.commit_amend(Some("  "), &Selection { files: vec![] }, false).unwrap_err().code, ErrorCode::NothingSelected);
+    assert_eq!(s.commit_amend(Some("  "), &Selection { files: vec![] }, false, None).unwrap_err().code, ErrorCode::NothingSelected);
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn amend_some_lines() {
     let s = Session::open(p).unwrap();
     let d0 = s.diff_worktree("b.txt", false, 3).unwrap();
     let lines: Vec<LineRef> = d0.hunks[0].lines.iter().enumerate().filter(|(_, l)| l.kind != LineKind::Context).map(|(j, _)| LineRef { hunk: 0, line: j as u32 }).collect();
-    s.commit_amend(None, &Selection { files: vec![SelectedFile { path: "b.txt".into(), old_path: None, whole: false, lines }] }, false).unwrap();
+    s.commit_amend(None, &Selection { files: vec![SelectedFile { path: "b.txt".into(), old_path: None, whole: false, lines }] }, false, None).unwrap();
     let committed = git(p, &["show", "HEAD:b.txt"]);
     assert!(committed.contains("二\n") && committed.contains("19"));
     assert_eq!(git(p, &["log", "-1", "--format=%s"]), "第二个");
@@ -79,6 +79,6 @@ fn cannot_amend_pushed_commit() {
     git(p, &["push", "-q", "-u", "origin", "main"]);
     std::fs::write(p.join("a.txt"), "a 改\n").unwrap();
     let s = Session::open(p).unwrap();
-    let e = s.commit_amend(None, &Selection { files: vec![whole("a.txt")] }, false).unwrap_err();
+    let e = s.commit_amend(None, &Selection { files: vec![whole("a.txt")] }, false, None).unwrap_err();
     assert_eq!(e.code, ErrorCode::AlreadyPushed);
 }

@@ -133,9 +133,9 @@ fn every_undoable_operation_round_trips() {
 
     // ---------- 提交类 ----------
     write(p, "a.txt", "a2\n");
-    check(&mut s, "提交", |s| op(s, "提交", OpKind::Commit, |s| s.commit_create("A2", &sel(&["a.txt"]), false)));
+    check(&mut s, "提交", |s| op(s, "提交", OpKind::Commit, |s| s.commit_create("A2", &sel(&["a.txt"]), false, None)));
     write(p, "b.txt", "b2\n");
-    check(&mut s, "修订", |s| op(s, "修订", OpKind::Commit, |s| s.commit_amend(Some("A2 和 B2"), &sel(&["b.txt"]), false)));
+    check(&mut s, "修订", |s| op(s, "修订", OpKind::Commit, |s| s.commit_amend(Some("A2 和 B2"), &sel(&["b.txt"]), false, None)));
     let h = git(p, &["rev-parse", "HEAD"]);
     check(&mut s, "修改说明", |s| op(s, "修改说明", OpKind::Commit, |s| s.commit_reword(&h, "A2 B2 新说明")));
     let s1 = git(p, &["rev-parse", "side"]);

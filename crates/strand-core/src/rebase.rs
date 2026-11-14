@@ -161,7 +161,7 @@ impl Session {
         }
         // 先把选中的改动提交成一个临时提交，再在整理时并到目标提交里
         let title = range.commits.first().map(|c| c.title.clone()).unwrap_or_default();
-        let tmp = self.commit_create(&format!("fixup! {title}"), selection, false)?;
+        let tmp = self.commit_create(&format!("fixup! {title}"), selection, false, None)?;
         let mut steps: Vec<Step> = Vec::new();
         for c in &range.commits {
             steps.push(Step { id: c.id.clone(), action: StepAction::Pick, message: None });

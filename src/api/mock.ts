@@ -172,6 +172,7 @@ let mockStatus: WorktreeStatus = {
 export const statusGet = () => delay(structuredClone(mockStatus));
 
 export function diffFile(path: string, context = 3): Promise<FileDiff> {
+  if (/\.(png|jpe?g|gif|webp)$/.test(path)) return delay({ path, binary: true, truncated: false, hunks: [] });
   if (context > 1000) return delay(fullDiff(path));
   return delay({
     path,
@@ -248,7 +249,10 @@ export function commitDetail(id: string): Promise<CommitDetail> {
   return logQuery(0, 500).then((p) => ({
     caps: capsAt(rowOf(id)),
     commit: p.rows.find((c) => c.id === id) ?? p.rows[0],
-    files: mockStatus.changes.length ? mockStatus.changes.slice(0, 3) : [{ path: "src/lib.rs", status: "M", added: 3, deleted: 1, binary: false }],
+    files: [
+      ...(mockStatus.changes.length ? mockStatus.changes.slice(0, 3) : [{ path: "src/lib.rs", status: "M" as const, added: 3, deleted: 1, binary: false }]),
+      { path: "docs/images/graph.png", status: "M" as const, added: 0, deleted: 0, binary: true },
+    ],
   }));
 }
 
@@ -1000,4 +1004,43 @@ export function bisectMark(mark: BisectMark, rev: string | null): Promise<Writte
 export function bisectReset(): Promise<Written<null>> {
   bis = null;
   return delay({ result: null, state: { ...state, head: refs.head, bisecting: false } });
+}
+
+// ---------- 写说明和变更列表 ----------
+import type { Changelists, ComposeInfo } from "./types";
+export function composeInfo(): Promise<ComposeInfo> {
+  return delay({
+    template: null,
+    template_path: null,
+    history: ["图谱：泳道计算移到后台线程\n\n大仓库打开时界面不再卡住", "修复：日志过滤后选中的提交丢失", "提交面板：说明历史"],
+    me: `${authors[0]} <${emails[0]}>`,
+  });
+}
+let mockLists: Changelists = { lists: [{ id: "default", name: "" }], active: "default", files: {} };
+export function changelistsGet(): Promise<Changelists> {
+  return delay(structuredClone(mockLists));
+}
+export function changelistsSet(c: Changelists): Promise<Changelists> {
+  const ids = new Set(c.lists.map((l) => l.id));
+  mockLists = { ...c, active: ids.has(c.active) ? c.active : "default", files: Object.fromEntries(Object.entries(c.files).filter(([, v]) => ids.has(v))) };
+  return delay(structuredClone(mockLists));
+}
+
+/** 示例图片：旧版本是蓝色圆，新版本（工作区或提交）是橙色方块，大小也不同；“^” 结尾的父版本里新增的图片不存在 */
+export async function fileBytes(path: string, rev: string | null): Promise<ArrayBuffer> {
+  const old = !!rev && (rev === "HEAD" || rev.endsWith("^"));
+  if (old && path.includes("new")) throw { code: "NOT_FOUND", message: `这个版本里没有 ${path}` };
+  const c = document.createElement("canvas");
+  c.width = old ? 160 : 200;
+  c.height = old ? 120 : 140;
+  const g = c.getContext("2d")!;
+  g.fillStyle = old ? "#3b82f6" : "#f59e0b";
+  if (old) {
+    g.beginPath();
+    g.arc(80, 60, 44, 0, Math.PI * 2);
+    g.fill();
+  } else g.fillRect(40, 30, 120, 80);
+  const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), "image/png"));
+  await delay(null);
+  return blob.arrayBuffer();
 }

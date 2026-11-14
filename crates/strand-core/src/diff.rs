@@ -153,6 +153,8 @@ fn file_at(diff: &git2::Diff<'_>, idx: usize, path: &str) -> Result<FileDiff> {
             CoreError::git("读取差异失败", e)
         }
     })?;
+    // 工作区的文件读了内容才知道是不是二进制：生成补丁后再看一次
+    let binary = binary || patch.as_ref().is_some_and(|p| p.delta().flags().is_binary() || is_binary_path(&p.delta()));
     let mut hunks = Vec::new();
     let mut total = 0usize;
     let mut truncated = false;

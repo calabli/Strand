@@ -90,9 +90,11 @@ interface Props {
   repoName?: string;
   /** 日志在按说明搜索：标题和正文里标出搜索词 */
   highlight?: { text: string; regex: boolean; caseSensitive: boolean } | null;
+  /** 改动文件的右键菜单：拣选或还原部分文件、取回这个版本 */
+  onFileMenu?: (commit: Commit, file: FileChange, files: FileChange[], x: number, y: number) => void;
 }
 
-export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory, find, highlight, repoName }: Props) {
+export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory, find, highlight, repoName, onFileMenu }: Props) {
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +215,21 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   const listed = files && find && matches && !allFiles ? files.filter((f) => hitCount.has(f.path) || (f.old_path ? hitCount.has(f.old_path) : false)) : files;
   /** 改动文件的一行；depth 是树形显示时的层级（只显示文件名） */
   const fileRow = (f: FileChange, depth?: number) => (
+          <div
+            key={f.path}
+            onContextMenu={(e) => {
+              if (!onFileMenu || !files) return;
+              e.preventDefault();
+              onFileMenu(commit, f, files, e.clientX, e.clientY);
+            }}
+            onKeyDown={(e) => {
+              if (onFileMenu && files && (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey))) {
+                e.preventDefault();
+                const r = e.currentTarget.getBoundingClientRect();
+                onFileMenu(commit, f, files, r.left + 40, r.bottom);
+              }
+            }}
+          >
           <FileRow
             key={f.path}
             depth={depth}
@@ -248,6 +265,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
               </span>
             }
           />
+          </div>
   );
 
   return (
@@ -302,6 +320,10 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
             loading={diff.loading}
             error={diff.error}
             source={shortId(commit.id)}
+            imageSides={(() => {
+              const f = files?.find((x) => x.path === shown);
+              return { left: f?.status === "A" ? null : { path: f?.old_path ?? shown, rev: `${commit.id}^` }, right: f?.status === "D" ? null : { path: shown, rev: commit.id } };
+            })()}
             onExpand={() => onOpenDiff(commit, shown)}
             find={findRe}
             onClose={() => setShown(null)}

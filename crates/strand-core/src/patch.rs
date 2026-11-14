@@ -118,6 +118,72 @@ impl Session {
     }
 }
 
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+impl Session {
+    /// 只拣选或只还原一个提交里的几个文件（对照 JetBrains 的 Apply / Revert Selected Changes）：
+    /// 把这几个文件在这个提交里的改动应用到工作区（还原时反着应用），不生成提交，用户检查后自己提交。
+    /// 和现在的代码对不上时按三方合并，有冲突进入冲突解决（和应用补丁一样）。
+    pub fn commit_files_apply(&self, id: &str, paths: &[String], revert: bool) -> Result<()> {
+        self.require_clean_state()?;
+        if paths.is_empty() {
+            return Err(CoreError::new(ErrorCode::NothingSelected, "至少选一个文件"));
+        }
+        let dir = self.path();
+        let commit = git_cli::run(dir, &["rev-parse", "--verify", "-q", &format!("{id}^{{commit}}")], None)
+            .map_err(|_| CoreError::new(ErrorCode::NotFound, "提交不存在，日志可能已经变化"))?
+            .trim()
+            .to_string();
+        let parent = git_cli::run(dir, &["rev-parse", "--verify", "-q", &format!("{commit}^")], None).map(|s| s.trim().to_string()).unwrap_or_else(|_| EMPTY_TREE.to_string());
+        let (a, b) = if revert { (commit.as_str(), parent.as_str()) } else { (parent.as_str(), commit.as_str()) };
+        let f = self.strand_dir()?.join("apply.patch");
+        std::fs::create_dir_all(self.strand_dir()?).map_err(|e| CoreError::git("准备改动失败", e))?;
+        let out = format!("--output={}", f.to_string_lossy());
+        let mut args = vec!["diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-renames", out.as_str(), a, b, "--"];
+        args.extend(paths.iter().map(String::as_str));
+        git_cli::run(dir, &args, None)?;
+        if std::fs::metadata(&f).map(|m| m.len()).unwrap_or(0) == 0 {
+            return Err(CoreError::new(ErrorCode::NothingSelected, "这几个文件在这个提交里没有改动"));
+        }
+        refresh_index(dir);
+        let fs = f.to_string_lossy().to_string();
+        match git_cli::run(dir, &["apply", "--3way", "--binary", &fs], None) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                if self.index_has_conflicts() {
+                    let label = if revert { "还原的改动" } else { "拣选的改动" };
+                    self.set_unstash(&Unstash { source: UnstashSource::Patch, id: String::new(), label: label.into(), drop: false, remainder: None })?;
+                    return Err(CoreError::new(ErrorCode::Conflicts, "这些改动和现在的代码有冲突，请逐个处理"));
+                }
+                let stderr = err.detail.as_ref().and_then(|d| d.get("stderr")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if stderr.contains("does not apply") || stderr.contains("does not exist") || stderr.contains("already exists") {
+                    let msg = if revert { "这些文件后来又改过，没法直接还原（工作区没有改动）。可以先看看这个提交之后的修改" } else { "这些文件和现在的代码对不上，没法应用（工作区没有改动）" };
+                    return Err(CoreError::new(ErrorCode::GitFailed, msg).with_detail(err.detail.unwrap_or_default()));
+                }
+                Err(overwrite_error(err))
+            }
+        }
+    }
+
+    /// 把工作区里的一个文件换成某个版本的内容（对照 JetBrains 的 Get from Revision）。
+    /// 这个版本里没有这个文件时（后来才加的），删掉工作区的文件。结果是普通的改动，可以丢弃或撤销。
+    pub fn file_restore(&self, id: &str, path: &str) -> Result<()> {
+        let dir = self.path();
+        crate::file_history::check_rel_path(path)?;
+        let exists = git_cli::run(dir, &["cat-file", "-e", &format!("{id}:{path}")], None).is_ok();
+        if exists {
+            git_cli::run(dir, &["restore", &format!("--source={id}"), "--worktree", "--", path], None)?;
+        } else {
+            git_cli::run(dir, &["rev-parse", "--verify", "-q", &format!("{id}^{{commit}}")], None).map_err(|_| CoreError::new(ErrorCode::NotFound, "提交不存在，日志可能已经变化"))?;
+            let full = dir.join(path);
+            if full.exists() {
+                std::fs::remove_file(&full).map_err(|e| CoreError::git("删除文件失败", e))?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// `git apply --numstat -z` 加 `--summary` 的新建、删除，拼成文件列表
 fn parse_numstat(numstat: &str, summary: &str) -> Vec<PatchFile> {
     let mut created = Vec::new();

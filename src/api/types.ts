@@ -751,3 +751,24 @@ export interface BisectStatus {
   first_bad?: string | null;
   first_bad_title?: string | null;
 }
+
+/** 写说明用的：说明模板（去掉注释行）、自己写过的说明（新的在前）、当前身份 */
+export interface ComposeInfo {
+  template?: string | null;
+  template_path?: string | null;
+  history: string[];
+  me?: string | null;
+}
+
+/** 变更列表：第一个是默认列表（id "default"，name 为空时显示“改动”） */
+export interface Changelist {
+  id: string;
+  name: string;
+}
+export interface Changelists {
+  lists: Changelist[];
+  /** 新出现的改动放进哪个列表 */
+  active: string;
+  /** 路径 → 列表 id；不在这里的路径属于活动列表 */
+  files: Record<string, string>;
+}

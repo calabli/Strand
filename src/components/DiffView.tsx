@@ -24,6 +24,7 @@ import { setSettings, useSettings } from "../settings";
 import { Hi, indentStyle, indentUnit } from "./inlineDiff";
 import { EditFile } from "./EditFile";
 import { Crumbs, useTopLine } from "./Crumbs";
+import { ImageDiff, isImage } from "./ImageDiff";
 
 interface Props {
   diff: FileDiff | null;
@@ -54,6 +55,8 @@ interface Props {
   onLocate?: (id: string) => void;
   /** 工作区的文件：可以在这里直接编辑（铅笔），保存后 onSaved 重新读差异 */
   editable?: { path: string; onSaved: () => void } | null;
+  /** 图片两边各是哪个版本（rev 为空是工作区）；不给时用 blameSides */
+  imageSides?: { left?: { path: string; rev: string | null } | null; right?: { path: string; rev: string | null } | null } | null;
 }
 
 /** 逐行追溯里一行的提交 */
@@ -158,7 +161,7 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly, blameSides, onLocate, editable }: Props) {
+export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly, blameSides, onLocate, editable, imageSides }: Props) {
   const [cur, setCur] = useState(0);
   /** 正在编辑：从第几行打开 */
   const [editAt, setEditAt] = useState<number | null>(null);
@@ -673,7 +676,11 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         >
           {loading && <p className="pad dim">{t("正在读取差异…")}</p>}
           {error && <p className="pad err">{tr(error)}</p>}
-          {diff && diff.binary && <p className="pad dim">{t("二进制文件，不显示差异")}</p>}
+          {diff && diff.binary && (imageSides ?? blameSides) && isImage(diff.path) ? (
+            <ImageDiff left={(imageSides ?? blameSides)!.left} right={(imageSides ?? blameSides)!.right} compact={compact} />
+          ) : (
+            diff && diff.binary && <p className="pad dim">{t("二进制文件，不显示差异")}</p>
+          )}
           {diff && !diff.binary && n === 0 && !loading && <p className="pad dim">{t("没有内容差异（可能只改了文件权限）")}</p>}
           {diff && !diff.binary && n > 0 && (
             <div ref={sheet} className={"dfile" + (diffView === "split" ? " split" : "") + (wrap ? " wrap" : "") + (lineNo ? "" : " no-ln") + (showWs ? " show-ws" : "") + (blameOn ? " with-ann" : "")}>

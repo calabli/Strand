@@ -57,7 +57,7 @@ fn undo_and_redo_a_commit_keeps_the_changes() {
     let mut s = Session::open(p).unwrap();
     let start = head(p);
     write(p, "a.txt", "a2\n");
-    let (id, op) = s.run_op("提交“改 a”", OpKind::Commit, |s| s.commit_create("改 a", &sel(&["a.txt"]), false)).unwrap();
+    let (id, op) = s.run_op("提交“改 a”", OpKind::Commit, |s| s.commit_create("改 a", &sel(&["a.txt"]), false, None)).unwrap();
     let op = op.expect("提交应该记入日志");
     assert_eq!(op.label, "提交“改 a”");
     assert_eq!(head(p), id);
@@ -86,7 +86,7 @@ fn switch_create_delete_and_multi_step_undo() {
     let (_, create) = s.run_op("新建分支 feature", OpKind::Branch, |s| s.branch_create("feature", None, true)).unwrap();
     write(p, "c.txt", "c1\n");
     git(p, &["add", "c.txt"]);
-    s.run_op("提交", OpKind::Commit, |s| s.commit_create("加 c", &sel(&["c.txt"]), false)).unwrap();
+    s.run_op("提交", OpKind::Commit, |s| s.commit_create("加 c", &sel(&["c.txt"]), false, None)).unwrap();
     s.run_op("切换到 main", OpKind::Switch, |s| s.branch_switch("main", false)).unwrap();
     assert!(!p.join("c.txt").exists());
     s.run_op("删除分支 feature", OpKind::Branch, |s| s.branch_delete("feature", true)).unwrap();
@@ -131,7 +131,7 @@ fn unrelated_edits_survive_and_conflicting_edits_diverge() {
     let p = d.path();
     let mut s = Session::open(p).unwrap();
     write(p, "a.txt", "a2\n");
-    s.run_op("提交 a", OpKind::Commit, |s| s.commit_create("改 a", &sel(&["a.txt"]), false)).unwrap();
+    s.run_op("提交 a", OpKind::Commit, |s| s.commit_create("改 a", &sel(&["a.txt"]), false, None)).unwrap();
     write(p, "b.txt", "我在改 b\n");
     write(p, "new.txt", "新文件\n");
     s.oplog_undo(None, false).unwrap();
@@ -141,7 +141,7 @@ fn unrelated_edits_survive_and_conflicting_edits_diverge() {
 
     // 提交后又改了同一个文件：撤销提交只改回索引，工作区里的新改动保留
     write(p, "a.txt", "a3\n");
-    s.run_op("提交 a3", OpKind::Commit, |s| s.commit_create("a3", &sel(&["a.txt"]), false)).unwrap();
+    s.run_op("提交 a3", OpKind::Commit, |s| s.commit_create("a3", &sel(&["a.txt"]), false, None)).unwrap();
     write(p, "a.txt", "又改了\n");
     s.oplog_undo(None, false).unwrap();
     assert_eq!(read(p, "a.txt"), "又改了\n");
@@ -240,7 +240,7 @@ fn external_changes_mark_affected_steps() {
     // 提交：之后在命令行里又提交一次，main 变了
     s.reload().unwrap();
     write(p, "a.txt", "a2\n");
-    s.run_op("提交 a", OpKind::Commit, |s| s.commit_create("改 a", &sel(&["a.txt"]), false)).unwrap();
+    s.run_op("提交 a", OpKind::Commit, |s| s.commit_create("改 a", &sel(&["a.txt"]), false, None)).unwrap();
     let mine = head(p);
     git(p, &["commit", "-q", "--allow-empty", "-m", "命令行又提交"]);
     let (can, ok, why) = top(&mut s);

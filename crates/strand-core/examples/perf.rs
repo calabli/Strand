@@ -105,7 +105,7 @@ fn main() {
     };
     let sel = Selection { files: vec![SelectedFile { path: "src/d023/f045.txt".into(), old_path: None, whole: true, lines: Vec::new() }] };
     write(&mut s, "提交 1 个文件", &mut |s| {
-        s.commit_create("性能测试的提交", &sel, false).unwrap();
+        s.commit_create("性能测试的提交", &sel, false, None).unwrap();
     });
     // 切换分支：相距 10 个提交（一般情况）；切到 feature-10（相距很远、很多文件要改写，极端情况）
     let near = s.log_page(10, 1).unwrap().rows[0].id.clone();

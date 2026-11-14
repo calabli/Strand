@@ -197,6 +197,8 @@ export function commitActions(
     openWeb: (url: string) => void;
     /** 二分查找：标好、坏、跳过；active 为真时已经开始 */
     bisect?: { active: boolean; mark: (m: "good" | "bad" | "skip") => void };
+    /** 只拣选或还原部分文件（打开选文件的对话框）；仓库不在普通状态时为空 */
+    pickFiles?: (revert: boolean) => void;
   },
 ): MenuEntry[] {
   const cap = (k: keyof Omit<CommitCaps, "parent" | "child" | "web_url">) => ({ disabled: !caps?.[k].ok, why: caps ? caps[k].why : t("正在读取…") });
@@ -218,6 +220,16 @@ export function commitActions(
     { label: t("拣选到当前分支"), icon: I.cherry, run: () => ops.cherryPick([c.id]), ...cap("cherry_pick") },
     { label: t("重置当前分支到这里…"), icon: I.reset, run: () => ops.reset(c, branch), ...cap("reset") },
     { label: t("还原提交…"), icon: I.revert, run: () => ops.revert(c), ...cap("revert") },
+    {
+      label: t("只拣选或还原部分文件"),
+      icon: I.cherry,
+      disabled: !extra.pickFiles,
+      why: t("合并或变基还没完成"),
+      sub: [
+        { label: t("拣选部分文件到工作区…"), icon: I.cherry, run: () => extra.pickFiles?.(false) },
+        { label: t("还原部分文件到工作区…"), icon: I.revert, run: () => extra.pickFiles?.(true) },
+      ],
+    },
     { label: t("撤销提交"), icon: I.undo, run: ops.undo, ...cap("undo") },
     "-",
     // 整理

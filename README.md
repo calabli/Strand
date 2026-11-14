@@ -91,6 +91,10 @@ cargo run --release -p strand-core --example log -- /path/to/repo
 | `reflog_refs`、`reflog` | 操作记录（reflog）：HEAD 或本地分支指向过的提交，从新到旧，标出已经不在日志里的提交 |
 | `commit_signature`、`signing_config`、`signing_set` | 提交的签名状态（GPG 或 SSH，交给 git 验证）；这个仓库的签名设置，打开或关闭提交签名（`commit.gpgSign`，只写仓库自己的配置） |
 | `bisect_status`、`bisect_mark`、`bisect_reset` | 二分查找：标好、坏、跳过（还没开始时先开始），返回进度、大约还要几步、找到的第一个坏提交；结束回到原来的分支。`repo_state` 带 `bisecting` |
+| `compose_info` | 写提交说明用的：说明模板（commit.template，去掉注释行）、自己在这个仓库里写过的说明、当前身份。`commit_create`、`commit_amend` 带可选的 `author`（“名字 <邮箱>”） |
+| `changelists_get`、`changelists_set` | 变更列表：列表、活动列表、文件属于哪个列表，存在 `.git/strand/changelists.json` |
+| `commit_files_apply` | 只拣选或还原一个提交里的部分文件，用 `git diff` 加 `git apply --3way` 放到工作区，不生成提交；有冲突时进入“取回进行中”的冲突解决 |
+| `file_restore`、`file_bytes` | 把工作区里的文件换成某个版本的内容（`git restore --worktree`，那个版本没有就删掉）；文件某个版本的原始字节（图片对比，直接返回二进制） |
 | 事件 `repo_changed` | 文件监听，`refs` 时刷新日志，`status` 时刷新提交面板和正在看的工作区差异，`stash`、`shelf` 时只刷新贮藏、暂存架列表；忽略 `.gitignore` 里的文件 |
 
 分工：日志用 gix；工作区状态、差异、分支列表用 git2；提交、分支写操作和所有网络操作调用系统 git。
