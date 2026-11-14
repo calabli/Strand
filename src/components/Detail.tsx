@@ -1,14 +1,16 @@
 // 提交详情（说明书 5.5）：上半是改动文件，下半是提交信息和操作图标行（5.6）。
 // 选中两个及以上提交时改为“已选 N 个提交”和批量操作（5.4）。
 // 文件行悬停出现漏斗图标，点它把路径填进日志的路径过滤（说明书写的是单击文件，单击已经用来打开差异）。
-// 文件列表标题右边是“按目录分组”开关，和提交面板共用一个设置（说明书 4.7、5.5）；
+// 文件列表标题右边是“按目录树显示”开关，和提交面板共用一个设置（说明书 4.7、5.5）；
+// 单击文件在列表下面的框里显示这个文件的差异（可以上下滚动），双击或框上的图标在差异标签页里打开；
 // 和本地比较、创建补丁、查看这个版本时的仓库在下面的操作图标行里；文件行悬停有逐行追溯。
 
 import { useEffect, useState } from "react";
 import { ApiError, api, openUrl } from "../api/commands";
-import type { Cap, Commit, CommitCaps, FileChange } from "../api/types";
+import type { Cap, Commit, CommitCaps, FileChange, FileDiff } from "../api/types";
+import { DiffView } from "./DiffView";
 import { COMMIT_ICONS as ICON, type CommitOps } from "./commitOps";
-import { DirHead, FileRow, groupByDir } from "./FileRow";
+import { FileRow, FileTree } from "./FileRow";
 import { setSettings, useSettings } from "../settings";
 import { formatTime, relTime, shortId } from "./format";
 import { FILTER_ICONS } from "./LogFilterBar";
@@ -72,6 +74,9 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
+  /** 下面差异框里显示的文件；换提交后这个文件还在就接着显示 */
+  const [shown, setShown] = useState<string | null>(null);
+  const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null });
 
   useEffect(() => {
     if (!commit) return;
@@ -80,12 +85,30 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
     setError(null);
     api
       .commitDetail(commit.id)
-      .then((d) => live && setFiles(d.files))
+      .then((d) => {
+        if (!live) return;
+        setFiles(d.files);
+        setShown((p) => (p && d.files.some((f) => f.path === p) ? p : null));
+      })
       .catch((e) => live && setError(e instanceof ApiError ? e.message : String(e)));
     return () => {
       live = false;
     };
   }, [commit]);
+
+  const commitId = commit?.id;
+  useEffect(() => {
+    if (!commitId || !shown) return;
+    let live = true;
+    setDiff((d) => ({ ...d, loading: true, error: null }));
+    api.diffCommit(commitId, shown).then(
+      (data) => live && setDiff({ data, loading: false, error: null }),
+      (e) => live && setDiff({ data: null, loading: false, error: e instanceof ApiError ? e.message : String(e) }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [commitId, shown]);
 
   if (multi.length >= 2) {
     return (
@@ -120,14 +143,15 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   }
 
   if (!commit) return <aside className="detail empty">{t("选择一个提交查看详情")}</aside>;
-  /** 改动文件的一行；inDir 为真时按目录分组显示（只显示文件名） */
-  const fileRow = (f: FileChange, inDir: boolean) => (
+  /** 改动文件的一行；depth 是树形显示时的层级（只显示文件名） */
+  const fileRow = (f: FileChange, depth?: number) => (
           <FileRow
             key={f.path}
-            inDir={inDir}
+            depth={depth}
             f={f}
-            active={activePath === f.path}
-            onOpen={() => onOpenDiff(commit, f.path)}
+            active={shown ? shown === f.path : activePath === f.path}
+            onOpen={() => setShown(f.path)}
+            onDouble={() => onOpenDiff(commit, f.path)}
             trail={
               <span className="frow-acts">
               {f.status !== "D" && (
@@ -148,7 +172,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   );
 
   return (
-    <aside className="detail">
+    <aside className={"detail" + (shown ? " with-diff" : "")}>
       <div className="dfiles">
         <div className="dsub dim">
           {files ? t("{0} 个文件", files.length) : error ? "" : t("正在读取改动…")}
@@ -158,8 +182,8 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
             type="button"
             className={"ib sm" + (groupDir ? " pressed" : "")}
             aria-pressed={groupDir}
-            title={t("按目录分组（提交面板里的文件列表也一样）")}
-            aria-label={t("按目录分组")}
+            title={t("按目录树显示（提交面板里的文件列表也一样）")}
+            aria-label={t("按目录树显示")}
             onClick={() => setSettings({ groupByDir: !groupDir })}
           >
             <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
@@ -168,16 +192,21 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
           </button>
         </div>
         {error && <p className="err">{tr(error)}</p>}
-        {files &&
-          (groupDir
-            ? groupByDir(files, (f) => f.path).map((g) => (
-                <div key={g.dir} role="group" aria-label={g.dir || t("根目录")}>
-                  <DirHead dir={g.dir} count={g.items.length} />
-                  {g.items.map((f) => fileRow(f, true))}
-                </div>
-              ))
-            : files.map((f) => fileRow(f, false)))}
+        {files && (groupDir ? <FileTree items={files} pathOf={(f) => f.path} leaf={(f, d) => fileRow(f, d)} /> : files.map((f) => fileRow(f)))}
       </div>
+      {shown && (
+        <div className="ddiff">
+          <DiffView
+            compact
+            diff={diff.data?.path === shown ? diff.data : null}
+            loading={diff.loading}
+            error={diff.error}
+            source={shortId(commit.id)}
+            onExpand={() => onOpenDiff(commit, shown)}
+            onClose={() => setShown(null)}
+          />
+        </div>
+      )}
       <div className="dinfo">
         <div className="dacts" role="toolbar" aria-label={t("提交操作")}>
           <Act icon={ICON.copy} label={t("复制版本号")} onClick={() => ops.copy(commit)} />

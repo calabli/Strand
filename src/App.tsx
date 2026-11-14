@@ -21,6 +21,7 @@ import { Menu, type MenuEntry, type MenuState } from "./components/Menu";
 import { PullPanel, PushDialog, useRemoteOps } from "./components/remoteOps";
 import { CommitPanel } from "./components/CommitPanel";
 import { Detail } from "./components/Detail";
+import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
 import { keys, shortId } from "./components/format";
 import { LogView } from "./components/LogView";
@@ -99,6 +100,9 @@ export default function App() {
   const [focusSearch, setFocusSearch] = useState(0);
   // 清空条件后要跳到别的提交时，不再把旧的选中提交滚回可见区域
   const skipKeep = useRef(false);
+  /** 三栏的容器和日志里分支树那一栏：分隔线往上面写宽度 */
+  const panesRef = useRef<HTMLDivElement>(null);
+  const logSplitRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<WorktreeStatus | null>(null);
   const [tab, setTab] = useState<"log" | "console" | "diff">("log");
   const [target, setTarget] = useState<DiffTarget | null>(null);
@@ -969,7 +973,28 @@ export default function App() {
           command={conflictCmd}
         />
       ) : (
-      <div className={"panes" + (tab === "console" ? " no-detail" : "") + (panelOpen ? "" : " no-panel")}>
+      <div ref={panesRef} style={paneVars(settings())} className={"panes" + (tab === "console" ? " no-detail" : "") + (panelOpen ? "" : " no-panel")}>
+        {/* 分隔线（拖动调整宽度）：中间至少留 420 像素 */}
+        {panelOpen && (
+          <Splitter
+            name="paneLeft"
+            host={panesRef}
+            grow="right"
+            min={220}
+            max={() => (panesRef.current?.clientWidth ?? 1200) - (tab === "console" ? 0 : settings().paneRight) - 420}
+            label={t("调整提交面板的宽度")}
+          />
+        )}
+        {tab !== "console" && (
+          <Splitter
+            name="paneRight"
+            host={panesRef}
+            grow="left"
+            min={260}
+            max={() => (panesRef.current?.clientWidth ?? 1200) - (panelOpen ? settings().paneLeft : 0) - 420}
+            label={t("调整提交详情的宽度")}
+          />
+        )}
         {panelOpen && (
         <aside className="commit-panel">
           <div className="ptabs" role="tablist">
@@ -1046,7 +1071,17 @@ export default function App() {
               </button>
             )}
           </div>
-          <div className="tabpanel log-split" hidden={tab !== "log"}>
+          <div className="tabpanel log-split" ref={logSplitRef} hidden={tab !== "log"}>
+            {treeOpen && (
+              <Splitter
+                name="paneTree"
+                host={panesRef}
+                grow="right"
+                min={160}
+                max={() => Math.min(480, (logSplitRef.current?.clientWidth ?? 800) - 360)}
+                label={t("调整分支树的宽度")}
+              />
+            )}
             {treeOpen && (
               <BranchTree
                 refs={refs}

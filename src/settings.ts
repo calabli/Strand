@@ -24,11 +24,15 @@ export interface Settings {
   diffView: "unified" | "split";
   /** 差异里忽略空白：只影响显示 */
   ignoreWs: boolean;
-  /** 文件列表按目录分组（说明书 4.7）：提交面板和提交详情共用 */
+  /** 文件列表按目录树显示（说明书 4.7）：提交面板和提交详情共用 */
   groupByDir: boolean;
+  /** 拖动分隔线调整的宽度（像素）：左边提交面板、右边提交详情、日志左边的分支树 */
+  paneLeft: number;
+  paneRight: number;
+  paneTree: number;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, groupByDir: false };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220 };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

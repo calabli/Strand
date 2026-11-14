@@ -20,6 +20,9 @@ interface Props {
   onClose: () => void;
   /** 行级勾选：给出时显示勾选框。行的键是“块序号:行序号” */
   pick?: { excluded: Set<string>; onToggle: (keys: string[], on: boolean, all: string[]) => void };
+  /** 窄的版本（提交详情里文件下面的差异框）：只显示文件名、行数、上下块和关闭，固定合并视图；onExpand 在标签页里打开 */
+  compact?: boolean;
+  onExpand?: () => void;
 }
 
 const key = (h: number, l: number) => `${h}:${l}`;
@@ -116,6 +119,7 @@ const ICON = {
   unified: "M2 3h10M2 6h10M2 9h10M2 12h10",
   split: "M2 2h4.5v10H2zM7.5 2H12v10H7.5z",
   ws: "M2.5 7.5v3.5h9V7.5",
+  expand: "M8.5 2H12v3.5M12 2L7.5 6.5M5.5 12H2V8.5M2 12l4.5-4.5",
 };
 
 function Ico({ d }: { d: string }) {
@@ -126,10 +130,12 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-export function DiffView({ diff, loading, error, source, onClose, pick }: Props) {
+export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand }: Props) {
   const [cur, setCur] = useState(0);
   const box = useRef<HTMLDivElement>(null);
-  const { diffView, ignoreWs } = useSettings();
+  const settings = useSettings();
+  const diffView = compact ? "unified" : settings.diffView;
+  const ignoreWs = settings.ignoreWs;
   const n = diff?.hunks.length ?? 0;
 
   useEffect(() => setCur(0), [diff?.path, source]);
@@ -164,10 +170,10 @@ export function DiffView({ diff, loading, error, source, onClose, pick }: Props)
   const off = (h: number, it: Item | undefined) => (pick && it && it.kind !== "context" && pick.excluded.has(key(h, it.j)) ? " off" : "");
 
   return (
-    <div className="diff">
+    <div className={"diff" + (compact ? " compact" : "")}>
       <div className="diff-bar">
-        <span className="mono diff-path">{diff?.path}</span>
-        <span className="dim">{source}</span>
+        <span className="mono diff-path" title={diff?.path}>{compact ? diff?.path.split("/").pop() : diff?.path}</span>
+        {!compact && <span className="dim">{source}</span>}
         {diff && !diff.binary && (
           <>
             <span className="mono plus">+{added}</span>
@@ -176,6 +182,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick }: Props)
         )}
         {pick && allKeys.length > 0 && <span className="dim">{t("已选 {0} / {1} 行", picked, allKeys.length)}</span>}
         <span className="grow" />
+        {!compact && (
         <span className="seg diff-seg" role="radiogroup" aria-label={t("差异视图")}>
           <button type="button" role="radio" aria-checked={diffView === "unified"} className={diffView === "unified" ? "on" : ""} title={t("合并视图")} aria-label={t("合并视图")} onClick={() => setSettings({ diffView: "unified" })}>
             <Ico d={ICON.unified} />
@@ -184,6 +191,8 @@ export function DiffView({ diff, loading, error, source, onClose, pick }: Props)
             <Ico d={ICON.split} />
           </button>
         </span>
+        )}
+        {!compact && (
         <button
           type="button"
           className={"ib" + (ignoreWs ? " pressed" : "")}
@@ -194,9 +203,10 @@ export function DiffView({ diff, loading, error, source, onClose, pick }: Props)
         >
           <Ico d={ICON.ws} />
         </button>
+        )}
         {n > 0 && (
           <>
-            <span className="dim">{t("第 {0} / {1} 块", cur + 1, n)}</span>
+            <span className="dim">{compact ? `${cur + 1}/${n}` : t("第 {0} / {1} 块", cur + 1, n)}</span>
             <button type="button" className="ib" onClick={() => go(-1)} disabled={n < 2} title={t("上一块")} aria-label={t("上一块")}>
               ↑
             </button>
@@ -204,6 +214,11 @@ export function DiffView({ diff, loading, error, source, onClose, pick }: Props)
               ↓
             </button>
           </>
+        )}
+        {onExpand && (
+          <button type="button" className="ib" onClick={onExpand} title={t("在差异标签页里打开（可以左右对比）")} aria-label={t("在差异标签页里打开")}>
+            <Ico d={ICON.expand} />
+          </button>
         )}
         <button type="button" className="ib" onClick={onClose} title={t("关闭差异")} aria-label={t("关闭差异")}>
           ×

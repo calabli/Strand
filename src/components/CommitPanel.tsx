@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api/commands";
 import type { CheckRun, ChecksInfo, CommitCreated, OpInfo, RangeCommit, RepoState, Selection, WorktreeStatus } from "../api/types";
-import { DirHead, FileRow, StatusBadge, groupByDir } from "./FileRow";
+import { FileRow, FileTree, StatusBadge, treeOrder } from "./FileRow";
 import { setSettings, settings, useSettings } from "../settings";
 import { t, tr } from "../i18n";
 import { ChecksOptions, ChecksReport } from "./checks";
@@ -326,8 +326,8 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     return on.length ? t("提交选项（提交前：{0}）", on.join(t("、"))) : t("提交选项");
   })();
 
-  /** “改动”里的一个文件行；inDir 为真时按目录分组显示（只显示文件名） */
-  const changeRow = (c: (typeof changes)[number], inDir: boolean) => (
+  /** “改动”里的一个文件行；depth 是树形显示时的层级（只显示文件名） */
+  const changeRow = (c: (typeof changes)[number], depth?: number) => (
               <div
                 key={c.path}
                 onContextMenu={(e) => {
@@ -344,7 +344,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                 }}
               >
               <FileRow
-                inDir={inDir}
+                depth={depth}
                 f={c}
                 active={activePath === c.path}
                 onOpen={() => onOpenDiff(c.path)}
@@ -417,9 +417,9 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           aria-label={t("查看差异")}
           disabled={changes.length === 0}
           onClick={() => {
-            // 按列表上看到的顺序取第一个（分组时目录排过序）
+            // 按列表上看到的顺序取第一个（树形显示时目录排过序）
             const list = picked.length ? picked : changes;
-            const first = groupDir ? groupByDir(list, (c) => c.path)[0].items[0] : list[0];
+            const first = groupDir ? treeOrder(list, (c) => c.path)[0] : list[0];
             onOpenDiff(first.path);
           }}
         >
@@ -449,8 +449,8 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           type="button"
           className={"ib sm" + (groupDir ? " pressed" : "")}
           aria-pressed={groupDir}
-          title={t("按目录分组（提交详情里的文件列表也一样）")}
-          aria-label={t("按目录分组")}
+          title={t("按目录树显示（提交详情里的文件列表也一样）")}
+          aria-label={t("按目录树显示")}
           onClick={() => setSettings({ groupByDir: !groupDir })}
         >
           <BoxIcon d={GROUP_ICON} />
@@ -501,14 +501,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
               </span>
             </label>
             {changesOpen &&
-              (groupDir
-                ? groupByDir(changes, (c) => c.path).map((g) => (
-                    <div key={g.dir} role="group" aria-label={g.dir || t("根目录")}>
-                      <DirHead dir={g.dir} count={g.items.length} />
-                      {g.items.map((c) => changeRow(c, true))}
-                    </div>
-                  ))
-                : changes.map((c) => changeRow(c, false)))}
+              (groupDir ? <FileTree items={changes} pathOf={(c) => c.path} leaf={(c, d) => changeRow(c, d)} /> : changes.map((c) => changeRow(c)))}
           </>
         )}
         {untracked.length > 0 && (
