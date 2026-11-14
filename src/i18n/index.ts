@@ -33,13 +33,27 @@ if (typeof document !== "undefined") document.documentElement.lang = lang === "z
 
 export const langSetting = (): LangSetting => setting;
 
-/** 保存语言设置并重新加载窗口 */
+/** 切换语言重新加载窗口之前要做的事（界面把当前看的东西存起来，加载后回到原处） */
+const beforeReload = new Set<() => void>();
+export function onBeforeLangReload(fn: () => void): () => void {
+  beforeReload.add(fn);
+  return () => beforeReload.delete(fn);
+}
+
+/** 保存语言设置并重新加载窗口（加载前先让界面存下当前看的东西） */
 export function setLang(v: LangSetting) {
   try {
     if (v === "auto") localStorage.removeItem(KEY);
     else localStorage.setItem(KEY, v);
   } catch {
     /* 存不了就只在本次有效 */
+  }
+  for (const fn of beforeReload) {
+    try {
+      fn();
+    } catch {
+      /* 存不了就回到默认的样子 */
+    }
   }
   location.reload();
 }

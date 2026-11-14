@@ -31,7 +31,7 @@ import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
 import { Toolbar } from "./components/Toolbar";
-import { setLang, t, tr } from "./i18n";
+import { onBeforeLangReload, setLang, t, tr } from "./i18n";
 
 /** 差异标签页显示的是什么：工作区里的文件，还是某个提交里的文件 */
 type DiffTarget =
@@ -46,6 +46,31 @@ const msgOf = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
 const LAST_REPO = "strand.lastRepo";
 const TREE_OPEN = "strand.treeOpen";
 const PANEL_OPEN = "strand.panelOpen";
+
+/** 切换语言时重新加载窗口前存下的界面位置（sessionStorage：只在这个窗口、这次重新加载有效） */
+const RESUME = "strand.resume";
+type Resume = {
+  repo: string;
+  tab: "log" | "console" | "diff" | "file";
+  panel: "commit" | "shelf" | "stash" | "files";
+  selectedId: string | null;
+  target: DiffTarget | null;
+  fileOpen: string | null;
+  ui: LogUi;
+  compareBase: string | null;
+  settingsOpen: boolean;
+};
+function takeResume(): Resume | null {
+  try {
+    const v = sessionStorage.getItem(RESUME);
+    sessionStorage.removeItem(RESUME);
+    return v ? (JSON.parse(v) as Resume) : null;
+  } catch {
+    return null;
+  }
+}
+/** 页面加载时读一次（开发时 React 会把启动的 effect 跑两遍，两遍都要用到同一份） */
+const pendingResume = takeResume();
 
 function readLast(): string | null {
   try {
@@ -293,8 +318,29 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    Promise.all([api.gitCheck(), api.launchPath()]).then(([g, launch]) => {
+    Promise.all([api.gitCheck(), api.launchPath()]).then(async ([g, launch]) => {
       setGit(g);
+      // 切换语言重新加载的：回到加载前看的仓库和位置（只用一次）
+      const resume = pendingResume;
+      if (g.ok && resume) {
+        await open(resume.repo);
+        setUi(resume.ui);
+        setPanel(resume.panel);
+        setCompareBase(resume.compareBase);
+        if (resume.target) openDiff(resume.target);
+        else if (resume.fileOpen) openFile(resume.fileOpen);
+        else setTab(resume.tab === "console" ? "console" : "log");
+        if (resume.settingsOpen) setSettingsOpen(true);
+        if (resume.selectedId) {
+          const id = resume.selectedId;
+          const row = await api.logLocate(id, toFilter(resume.ui), resume.ui.sort).catch(() => null);
+          if (row != null) {
+            setJump({ row, n: Date.now() });
+            setSelectAfterLoad({ row, id });
+          }
+        }
+        return;
+      }
       // 启动参数指定的仓库优先，其次是上次打开的仓库
       const target = launch ?? (settings().reopenLast ? readLast() : null) ?? (inTauri ? null : "/示例/strand-app");
       if (g.ok && target) open(target);
@@ -785,6 +831,28 @@ export default function App() {
   // 命令面板（说明书 12.1）：⌘K 打开或关闭，全局有效；⌘, 打开设置
   const [palette, setPalette] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 切换语言要重新加载窗口：加载前存下现在看的仓库和位置，加载后回到这里（而不是首页）
+  const resumeRef = useRef<Resume | null>(null);
+  resumeRef.current = repo
+    ? {
+        repo: repo.path,
+        tab,
+        panel,
+        selectedId: selected?.id ?? null,
+        target: tab === "diff" ? target : null,
+        fileOpen: tab === "file" ? fileOpen : null,
+        ui,
+        compareBase,
+        settingsOpen,
+      }
+    : null;
+  useEffect(
+    () =>
+      onBeforeLangReload(() => {
+        if (resumeRef.current) sessionStorage.setItem(RESUME, JSON.stringify(resumeRef.current));
+      }),
+    [],
+  );
   const [repoPop, setRepoPop] = useState<{ x: number; y: number } | null>(null);
   const [wtDialog, setWtDialog] = useState<{ branch?: string } | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
