@@ -1044,3 +1044,20 @@ export async function fileBytes(path: string, rev: string | null): Promise<Array
   await delay(null);
   return blob.arrayBuffer();
 }
+
+/** 示例：逐行比较（只够预览用：按行号对齐，不找最长公共子序列） */
+export function textDiff(left: string, right: string, name: string): Promise<FileDiff> {
+  const a = left.split("\n");
+  const b = right.split("\n");
+  const lines: FileDiff["hunks"][number]["lines"] = [];
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] === b[i]) lines.push({ kind: "context", old_no: i + 1, new_no: i + 1, text: a[i] });
+    else {
+      if (a[i] !== undefined) lines.push({ kind: "del", old_no: i + 1, text: a[i] });
+      if (b[i] !== undefined) lines.push({ kind: "add", new_no: i + 1, text: b[i] });
+    }
+  }
+  const changed = lines.some((l) => l.kind !== "context");
+  return delay({ path: name, binary: false, truncated: false, hunks: changed ? [{ title: "第 1 行起", old_start: 1, new_start: 1, lines }] : [] });
+}

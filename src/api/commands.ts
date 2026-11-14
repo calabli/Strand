@@ -306,7 +306,12 @@ export const api = {
   /** 暂存架条目里的文件和改动行数（从保存的补丁里读） */
   shelfFiles: (id: number): Promise<FileChange[]> => (inTauri ? call("shelf_files", { id }) : mock.shelfFiles(id)),
   /** 暂存架条目里一个文件的差异 */
-  shelfDiff: (id: number, path: string): Promise<FileDiff> => (inTauri ? call("shelf_diff", { id, path }) : mock.diffFile(path)),
+  /** context 给出时显示整个文件（从搁置时的提交取原来的内容） */
+  shelfDiff: (id: number, path: string, context?: number): Promise<FileDiff> => (inTauri ? call("shelf_diff", { id, path, context }) : mock.diffFile(path, context)),
+  /** 系统剪贴板里的文字（桌面应用里由外壳读） */
+  clipboardText: (): Promise<string> => (inTauri ? call("clipboard_text") : navigator.clipboard.readText()),
+  /** 两段文字的整个文件差异（任意两个文件、和剪贴板对比）；name 用来认语言 */
+  textDiff: (left: string, right: string, name: string): Promise<FileDiff> => (inTauri ? call("text_diff", { left, right, name }) : mock.textDiff(left, right, name)),
   shelfRename: (id: number, name: string): Promise<null> => (inTauri ? call("shelf_rename", { id, name }) : mock.shelfRename(id, name)),
   oplogList: (limit = 50): Promise<OpList> => (inTauri ? call("oplog_list", { limit }) : mock.oplogList(limit)),
   /** 撤销最近一步，或撤销到 toId（含）为止；越过已推送的步骤要 confirmPushed */

@@ -213,12 +213,12 @@ fn shelf_files_and_diff() {
     assert_eq!(f("gone.txt").deleted, 1);
     assert!(f("img.bin").binary);
 
-    let a = s.shelf_diff(e.id, "a.txt").unwrap();
+    let a = s.shelf_diff(e.id, "a.txt", None).unwrap();
     let lines: Vec<_> = a.hunks[0].lines.iter().map(|l| (format!("{:?}", l.kind), l.text.clone(), l.new_no)).collect();
     assert_eq!(lines, vec![("Context".into(), "a1".into(), Some(1)), ("Add".into(), "a2".into(), Some(2))]);
-    assert!(s.shelf_diff(e.id, "gone.txt").unwrap().hunks[0].lines.iter().all(|l| format!("{:?}", l.kind) == "Del"));
-    assert!(s.shelf_diff(e.id, "img.bin").unwrap().binary);
-    assert_eq!(s.shelf_diff(e.id, "b.txt").unwrap_err().code, ErrorCode::NotFound);
+    assert!(s.shelf_diff(e.id, "gone.txt", None).unwrap().hunks[0].lines.iter().all(|l| format!("{:?}", l.kind) == "Del"));
+    assert!(s.shelf_diff(e.id, "img.bin", None).unwrap().binary);
+    assert_eq!(s.shelf_diff(e.id, "b.txt", None).unwrap_err().code, ErrorCode::NotFound);
 
     // 看差异不改工作区；删掉后读不到
     assert_eq!(read(p, "a.txt"), "a1\n");
@@ -250,7 +250,7 @@ fn shelf_restore_some_files() {
     assert_ne!(list[0].id, e.id);
     assert_eq!(list[0].files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), vec!["b.txt"]);
     assert_eq!(s.shelf_files(list[0].id).unwrap().len(), 1);
-    assert_eq!(s.shelf_diff(list[0].id, "b.txt").unwrap().hunks.len(), 1);
+    assert_eq!(s.shelf_diff(list[0].id, "b.txt", None).unwrap().hunks.len(), 1);
 
     // 撤销：工作区回去，原条目整个回来
     s.oplog_undo(None, false).unwrap();

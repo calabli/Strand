@@ -307,6 +307,18 @@ impl Session {
                 }
                 std::fs::read(&full).map_err(|e| CoreError::git("读取文件失败", e))
             }
+            // 冲突时索引里的各方：":1" 共同祖先、":2" 当前分支（ours）、":3" 合并进来的（theirs）
+            Some(r @ (":1" | ":2" | ":3")) => {
+                let repo = self.git2()?;
+                let stage: i32 = r[1..].parse().unwrap_or(2);
+                let idx = repo.index().map_err(|e| CoreError::git("读取索引失败", e))?;
+                let e = idx.get_path(std::path::Path::new(path), stage).ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("这一方没有 {path}")))?;
+                let blob = repo.find_blob(e.id).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("这一方没有 {path}")))?;
+                if blob.size() > MAX {
+                    return Err(too_big());
+                }
+                Ok(blob.content().to_vec())
+            }
             Some(r) => {
                 let repo = self.git2()?;
                 let obj = repo.revparse_single(&format!("{r}:{path}")).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("这个版本里没有 {path}")))?;

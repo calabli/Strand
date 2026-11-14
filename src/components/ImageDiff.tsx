@@ -91,7 +91,16 @@ function Meta({ s, label }: { s: State; label: string }) {
 
 type Mode = "side" | "swipe" | "fade";
 
-export function ImageDiff({ left, right, compact }: { left: Side; right: Side; compact?: boolean }) {
+/** 两边的名字和“没有这个文件”时的说明；不给时是旧、新 */
+export interface ImageNames {
+  left: string;
+  right: string;
+  leftNone: string;
+  rightNone: string;
+}
+
+export function ImageDiff({ left, right, compact, names }: { left: Side; right: Side; compact?: boolean; names?: ImageNames }) {
+  const nm: ImageNames = names ?? { left: t("旧"), right: t("新"), leftNone: t("新增的图片"), rightNone: t("图片已删除") };
   const a = useImage(left);
   const b = useImage(right);
   const [mode, setMode] = useState<Mode>("side");
@@ -109,10 +118,10 @@ export function ImageDiff({ left, right, compact }: { left: Side; right: Side; c
     <div className={"imd-pane " + kind}>
       {s.status === "ok" ? (
         <div className="imd-checker">
-          <img src={s.url} alt={kind === "old" ? t("旧版本") : t("新版本")} draggable={false} />
+          <img src={s.url} alt={kind === "old" ? nm.left : nm.right} draggable={false} />
         </div>
       ) : s.status === "none" ? (
-        <p className="imd-empty dim">{kind === "old" ? t("新增的图片") : t("图片已删除")}</p>
+        <p className="imd-empty dim">{kind === "old" ? nm.leftNone : nm.rightNone}</p>
       ) : s.status === "error" ? (
         <p className="err small pad">{tr(s.message)}</p>
       ) : (
@@ -137,10 +146,10 @@ export function ImageDiff({ left, right, compact }: { left: Side; right: Side; c
   };
 
   return (
-    <div className={"imd" + (compact ? " compact" : "")}>
+    <div className={"imd" + (compact ? " compact" : "") + (names ? " sides" : "")}>
       <div className="imd-head">
-        <Meta s={a} label={t("旧")} />
-        <Meta s={b} label={t("新")} />
+        <Meta s={a} label={nm.left} />
+        <Meta s={b} label={nm.right} />
         <span className="grow" />
         {same && <span className="dim small">{t("尺寸和大小都没变")}</span>}
         {both && !compact && (
@@ -187,7 +196,7 @@ export function ImageDiff({ left, right, compact }: { left: Side; right: Side; c
               />
             )}
           </div>
-          {m === "swipe" && <p className="dim small imd-tip">{t("左边是旧图，右边是新图，拖动分界线对照")}</p>}
+          {m === "swipe" && <p className="dim small imd-tip">{names ? t("左边是{0}，右边是{1}，拖动分界线对照", nm.left, nm.right) : t("左边是旧图，右边是新图，拖动分界线对照")}</p>}
         </div>
       ) : null}
     </div>

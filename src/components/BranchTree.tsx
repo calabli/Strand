@@ -126,7 +126,8 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
   const toggle = (g: Group) => setOpen((o) => ({ ...o, [g]: !o[g] }));
   const allOpen = open.local && open.remote && open.tags && open.worktrees;
 
-  // 拖拽合并（说明书 6.1）：按住本地或远程分支拖到另一个本地分支上松开。
+  // 拖拽合并或变基（说明书 6.1，变基对照 JetBrains 后来补上）：按住本地或远程分支拖到另一个本地分支上松开，
+  // 弹出菜单选合并还是变基。变基只改当前分支：拖的是当前分支时把它变基到目标之上，拖到当前分支上时把当前分支变基到拖来的分支之上。
   // 用鼠标事件自己做，不用 HTML5 拖放（Tauri 窗口里文件拖放会拦截它）。移动超过 5 px 才算拖。
   const [drag, setDrag] = useState<{ src: string; x: number; y: number; over: string | null } | null>(null);
   const over = useRef<string | null>(null);
@@ -155,7 +156,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
       stopDrag.current = null;
       setDrag(null);
     };
-    const up = () => {
+    const up = (ev: MouseEvent) => {
       const target = on ? over.current : null;
       if (on) {
         // 松开后紧跟着的 click 不算单击
@@ -163,7 +164,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
         window.setTimeout(() => (dragged.current = false), 0);
       }
       end();
-      if (target) ops.mergeInto(src, target);
+      if (target) onMenu(ev.clientX, ev.clientY, dropMenu(src, target));
     };
     const esc = (ev: KeyboardEvent) => ev.key === "Escape" && end();
     window.addEventListener("mousemove", move);
@@ -172,6 +173,19 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
     stopDrag.current = end;
   };
   const click = (f: () => void) => () => !dragged.current && f();
+  /** 松开后的菜单：合并，或变基（只能改当前分支） */
+  const dropMenu = (src: string, target: string): MenuEntry[] => {
+    const cur = ops.current;
+    // rebase_block 是“把当前分支变基到它之上”不行的原因
+    const block = (name: string) => refs?.branches.find((b) => b.name === name)?.rebase_block ?? refs?.remotes.find((r) => r.name === name)?.rebase_block ?? undefined;
+    const rebase: MenuEntry =
+      src === cur
+        ? { label: t("把 {0} 变基到 {1} 之上…", src, target), icon: I.rebase, run: () => ops.rebaseOnto(target), disabled: !!block(target), why: block(target) }
+        : target === cur
+          ? { label: t("把 {0} 变基到 {1} 之上…", target, src), icon: I.rebase, run: () => ops.rebaseOnto(src), disabled: !!block(src), why: block(src) }
+          : { label: t("变基…"), icon: I.rebase, disabled: true, why: t("变基只改当前分支：把当前分支拖到别的分支上，或者把别的分支拖到当前分支上") };
+    return [{ label: t("{0} → {1}", src, target), heading: true }, { label: t("把 {0} 合并到 {1}…", src, target), icon: I.merge, run: () => ops.mergeInto(src, target) }, rebase];
+  };
   /**
    * 行可以用键盘操作（说明书 12.4）：Tab 到达，回车等同单击，Shift+F10 或菜单键打开右键菜单。
    * 只处理行本身上的按键，行里的图标按钮照常。
@@ -485,7 +499,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
         )}
         {drag && (
           <div className="drag-ghost mono" style={{ left: drag.x + 14, top: drag.y + 10 }} aria-hidden="true">
-            {drag.over ? t("把 {0} 合并到 {1}", drag.src, drag.over) : drag.src}
+            {drag.over ? t("{0} → {1}：松开后选合并或变基", drag.src, drag.over) : drag.src}
           </div>
         )}
         {f && local.length + remotes.length + tags.length + worktrees.length === 0 && <p className="pad dim">{t("没有匹配的分支或标签")}</p>}

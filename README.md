@@ -95,6 +95,8 @@ cargo run --release -p strand-core --example log -- /path/to/repo
 | `changelists_get`、`changelists_set` | 变更列表：列表、活动列表、文件属于哪个列表，存在 `.git/strand/changelists.json` |
 | `commit_files_apply` | 只拣选或还原一个提交里的部分文件，用 `git diff` 加 `git apply --3way` 放到工作区，不生成提交；有冲突时进入“取回进行中”的冲突解决 |
 | `file_restore`、`file_bytes` | 把工作区里的文件换成某个版本的内容（`git restore --worktree`，那个版本没有就删掉）；文件某个版本的原始字节（图片对比，直接返回二进制） |
+| `text_diff`、`clipboard_text` | 两段文字的整个文件差异（任意两个文件对比、和剪贴板对比）；系统剪贴板里的文字（macOS 用 pbpaste，Windows 用 PowerShell） |
+| `shelf_diff` 的 `context` | 给出时显示整个文件：从搁置时的提交取原来的内容，按补丁拼出搁置的内容再比较。`file_bytes` 的 `rev` 可以是 `:1`、`:2`、`:3`（冲突时索引里的各方） |
 | 事件 `repo_changed` | 文件监听，`refs` 时刷新日志，`status` 时刷新提交面板和正在看的工作区差异，`stash`、`shelf` 时只刷新贮藏、暂存架列表；忽略 `.gitignore` 里的文件 |
 
 分工：日志用 gix；工作区状态、差异、分支列表用 git2；提交、分支写操作和所有网络操作调用系统 git。

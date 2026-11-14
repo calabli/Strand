@@ -462,10 +462,30 @@ impl Session {
     }
 
     /// 暂存架条目里一个文件的差异（相对搁置时的 HEAD），从保存的补丁里读，不碰工作区
-    pub fn shelf_diff(&self, id: u64, path: &str) -> Result<crate::model::FileDiff> {
+    /// 暂存架条目里一个文件的差异。`context` 给出时显示整个文件：从搁置时的提交里取出原来的内容，
+    /// 按补丁拼出搁置的内容，再整个比较；原来的内容取不到（提交已经被清理）时退回补丁里的片段。
+    pub fn shelf_diff(&self, id: u64, path: &str, context: Option<u32>) -> Result<crate::model::FileDiff> {
         let patch = self.shelf_patch(id)?;
         let diff = git2::Diff::from_buffer(&patch).map_err(|e| CoreError::git("读取暂存架的补丁失败", e))?;
-        crate::diff::file_named(&diff, path)?.ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("这个条目里没有 {path}")))
+        let short = crate::diff::file_named(&diff, path)?.ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("这个条目里没有 {path}")))?;
+        let Some(ctx) = context else { return Ok(short) };
+        if short.binary || short.truncated {
+            return Ok(short);
+        }
+        let entry = self.shelf_entry(id)?;
+        let old_path = path;
+        let added = entry.files.iter().any(|f| f.path == path && f.status == crate::model::FileStatus::A);
+        let old: Vec<u8> = if added {
+            Vec::new()
+        } else {
+            let repo = self.git2()?;
+            match repo.revparse_single(&format!("{}:{old_path}", entry.base)).and_then(|o| o.peel_to_blob()) {
+                Ok(b) => b.content().to_vec(),
+                Err(_) => return Ok(short),
+            }
+        };
+        let Some(new) = apply_hunks(&old, &short.hunks) else { return Ok(short) };
+        crate::diff::buffers_diff(&old, &new, path, ctx)
     }
 
     fn shelf_patch(&self, id: u64) -> Result<Vec<u8>> {
@@ -602,4 +622,57 @@ fn split_patch(patch: &[u8]) -> Result<Vec<(Vec<String>, Vec<u8>)>> {
 /// 会误报“does not match index”。先刷新一次（失败不要紧）。
 pub(crate) fn refresh_index(dir: &std::path::Path) {
     let _ = git_cli::run(dir, &["update-index", "-q", "--refresh"], None);
+}
+
+/// 按差异的修改块把原来的内容改成新的内容；修改块和原来的内容对不上时返回 `None`
+fn apply_hunks(old: &[u8], hunks: &[crate::model::Hunk]) -> Option<Vec<u8>> {
+    use crate::model::LineKind;
+    let lines: Vec<&[u8]> = old.split_inclusive(|&b| b == b'\n').collect();
+    let eol: &[u8] = if old.windows(2).any(|w| w == b"\r\n") { b"\r\n" } else { b"\n" };
+    let strip = |l: &[u8]| -> String {
+        let mut t = l;
+        if t.ends_with(b"\n") {
+            t = &t[..t.len() - 1];
+        }
+        if t.ends_with(b"\r") {
+            t = &t[..t.len() - 1];
+        }
+        String::from_utf8_lossy(t).into_owned()
+    };
+    let mut out = Vec::with_capacity(old.len());
+    let mut at = 0usize; // 原来内容的下一行（从 0 开始）
+    for h in hunks {
+        let start = (h.old_start as usize).saturating_sub(1);
+        // 空文件或纯新增时 old_start 是 0
+        let start = if h.lines.iter().all(|l| l.kind == LineKind::Add) && h.old_start > 0 { h.old_start as usize } else { start };
+        if start < at || start > lines.len() {
+            return None;
+        }
+        for l in &lines[at..start] {
+            out.extend_from_slice(l);
+        }
+        at = start;
+        for l in &h.lines {
+            match l.kind {
+                LineKind::Context | LineKind::Del => {
+                    let src = lines.get(at)?;
+                    if strip(src) != l.text {
+                        return None;
+                    }
+                    if l.kind == LineKind::Context {
+                        out.extend_from_slice(src);
+                    }
+                    at += 1;
+                }
+                LineKind::Add => {
+                    out.extend_from_slice(l.text.as_bytes());
+                    out.extend_from_slice(eol);
+                }
+            }
+        }
+    }
+    for l in &lines[at.min(lines.len())..] {
+        out.extend_from_slice(l);
+    }
+    Some(out)
 }

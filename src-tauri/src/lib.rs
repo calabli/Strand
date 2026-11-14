@@ -852,6 +852,39 @@ async fn file_text(state: State<'_, AppState>, path: String, rev: Option<String>
     with_repo(&state, move |s| s.file_text(&path, rev.as_deref())).await
 }
 
+/// 系统剪贴板里的文字（网页的剪贴板接口在桌面应用里读不到时用）
+#[tauri::command]
+async fn clipboard_text() -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(target_os = "macos")]
+        let out = std::process::Command::new("pbpaste").output();
+        #[cfg(target_os = "windows")]
+        let out = {
+            use std::os::windows::process::CommandExt;
+            std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Clipboard -Raw"])
+                .creation_flags(0x0800_0000)
+                .output()
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let out: std::io::Result<std::process::Output> = Err(std::io::Error::other("不支持"));
+        match out {
+            Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).into_owned()),
+            _ => Err(CoreError::new(strand_core::ErrorCode::GitFailed, "读不到剪贴板")),
+        }
+    })
+    .await
+    .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+/// 两段文字的整个文件差异（任意两个文件对比、和剪贴板对比）
+#[tauri::command]
+async fn text_diff(left: String, right: String, name: String) -> CmdResult<strand_core::model::FileDiff> {
+    tauri::async_runtime::spawn_blocking(move || strand_core::compare::text_diff(&left, &right, &name))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
 /// 文件某个版本的原始字节（图片对比）；rev 为空是工作区。直接返回二进制，不经过 JSON
 #[tauri::command]
 async fn file_bytes(state: State<'_, AppState>, path: String, rev: Option<String>) -> CmdResult<tauri::ipc::Response> {
@@ -1152,8 +1185,8 @@ async fn shelf_files(state: State<'_, AppState>, id: u64) -> CmdResult<Vec<stran
 }
 
 #[tauri::command]
-async fn shelf_diff(state: State<'_, AppState>, id: u64, path: String) -> CmdResult<strand_core::model::FileDiff> {
-    with_repo(&state, move |s| s.shelf_diff(id, &path)).await
+async fn shelf_diff(state: State<'_, AppState>, id: u64, path: String, context: Option<u32>) -> CmdResult<strand_core::model::FileDiff> {
+    with_repo(&state, move |s| s.shelf_diff(id, &path, context)).await
 }
 
 #[tauri::command]
@@ -1305,6 +1338,8 @@ pub fn run(adopted: Option<u128>) {
             patch_apply,
             save_worktree_file,
             file_bytes,
+            text_diff,
+            clipboard_text,
             file_history,
             file_diff_versions,
             commit_change_matches,

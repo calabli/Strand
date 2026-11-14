@@ -26,9 +26,11 @@ interface Props {
   refs: RefsList | null;
   /** 打开文件；从内容搜索结果打开时带上行号和版本（空是工作区） */
   onOpen: (path: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }) => void;
+  /** 文件的右键菜单（打开、和别的文件或剪贴板比较） */
+  onMenu?: (path: string, x: number, y: number) => void;
 }
 
-export function ProjectFiles({ status, active, reloadKey, refs, onOpen }: Props) {
+export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu }: Props) {
   const [mode, setMode] = useState<"name" | "content">("name");
   const [files, setFiles] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +67,23 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen }: Props)
     const st = marks.get(p);
     const name = p.slice(p.lastIndexOf("/") + 1);
     return (
-      <div key={p} className={"frow in-dir prow" + (active === p ? " active" : "")} style={{ paddingLeft: 8 + depth * 14 }}>
+      <div
+        key={p}
+        className={"frow in-dir prow" + (active === p ? " active" : "")}
+        style={{ paddingLeft: 8 + depth * 14 }}
+        onContextMenu={(e) => {
+          if (!onMenu) return;
+          e.preventDefault();
+          onMenu(p, e.clientX, e.clientY);
+        }}
+        onKeyDown={(e) => {
+          if (onMenu && (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey))) {
+            e.preventDefault();
+            const r = e.currentTarget.getBoundingClientRect();
+            onMenu(p, r.left + 40, r.bottom);
+          }
+        }}
+      >
         <button type="button" className="frow-main" title={p} onClick={() => onOpen(p)}>
           <TypeIcon path={p} />
           <span className={"fpath mono" + (st ? " changed" : "")}>{name}</span>

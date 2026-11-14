@@ -8,6 +8,7 @@ import { useRebase } from "./components/RebaseWindow";
 import { CompareView, PatchWindow, TreeWindow } from "./components/compareTools";
 import { ApplyPatch } from "./components/ApplyPatch";
 import { PickFiles } from "./components/PickFiles";
+import { isImage } from "./components/ImageDiff";
 import { ReflogWindow } from "./components/ReflogWindow";
 import { RemotesWindow } from "./components/RemotesWindow";
 import { BisectBar, useBisect } from "./components/BisectBar";
@@ -44,7 +45,10 @@ type DiffTarget =
   | { kind: "commit"; id: string; path: string }
   | { kind: "compare"; from: string; to: string; path: string }
   /** 暂存架条目里的文件（说明书 4.9） */
-  | { kind: "shelf"; id: number; name: string; path: string };
+  | { kind: "shelf"; id: number; name: string; path: string }
+  /** 任意两段内容对比（两个文件、文件和剪贴板）；text 为空是二进制文件（只有图片能看）；file 是工作区里的路径 */
+  | { kind: "texts"; path: string; left: TextSide; right: TextSide };
+type TextSide = { label: string; text: string | null; file?: string };
 
 const msgOf = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
 
@@ -240,10 +244,14 @@ export default function App() {
       return;
     }
     const p =
-      t.kind === "compare"
+      t.kind === "texts"
+        ? t.left.text === null || t.right.text === null
+          ? Promise.resolve({ path: t.path, binary: true, hunks: [], truncated: false })
+          : api.textDiff(t.left.text, t.right.text, t.path)
+        : t.kind === "compare"
           ? wholeFile((c) => api.diffCompare(t.from, t.to, t.path, c))
           : t.kind === "shelf"
-            ? api.shelfDiff(t.id, t.path)
+            ? wholeFile((c) => api.shelfDiff(t.id, t.path, c))
             : wholeFile((c) => api.diffCommit(t.id, t.path, c));
     p.then(
       (data) => setDiff({ data, loading: false, error: null }),
@@ -259,9 +267,9 @@ export default function App() {
 
   // 差异标签页在同一组文件之间切换（说明书 10.1 的扩展）：同一个提交、同一次比较、同一条暂存架、工作区的改动
   const [siblings, setSiblings] = useState<{ key: string; paths: string[] } | null>(null);
-  const groupKey = !target ? "" : target.kind === "commit" ? `c:${target.id}` : target.kind === "compare" ? `p:${target.from}:${target.to}` : target.kind === "shelf" ? `s:${target.id}` : "w";
+  const groupKey = !target ? "" : target.kind === "commit" ? `c:${target.id}` : target.kind === "compare" ? `p:${target.from}:${target.to}` : target.kind === "shelf" ? `s:${target.id}` : target.kind === "texts" ? "x" : "w";
   useEffect(() => {
-    if (!target || target.kind === "worktree") return;
+    if (!target || target.kind === "worktree" || target.kind === "texts") return;
     if (siblings?.key === groupKey) return;
     let live = true;
     const order = (paths: string[]) => (settings().groupByDir ? treeOrder(paths, (p) => p) : paths);
@@ -277,7 +285,7 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupKey]);
-  const filesInGroup = target?.kind === "worktree" ? [...(status?.changes.map((c) => c.path) ?? []), ...(status?.untracked ?? [])] : siblings?.key === groupKey ? siblings.paths : [];
+  const filesInGroup = target?.kind === "texts" ? [] : target?.kind === "worktree" ? [...(status?.changes.map((c) => c.path) ?? []), ...(status?.untracked ?? [])] : siblings?.key === groupKey ? siblings.paths : [];
   const fileNav =
     target && filesInGroup.length > 1 && filesInGroup.includes(target.path)
       ? {
@@ -501,6 +509,8 @@ export default function App() {
   /** 应用补丁对话框：带着拖进来的补丁，或空着打开 */
   const [applying, setApplying] = useState<{ text: string; name?: string } | null>(null);
   const [pickFiles, setPickFiles] = useState<{ commit: Commit; files: FileChange[]; initial: string[]; revert: boolean } | null>(null);
+  /** 任意两个文件对比：先选好的左边 */
+  const [cmpLeft, setCmpLeft] = useState<string | null>(null);
   const [reflogOpen, setReflogOpen] = useState(false);
   const [remotesOpen, setRemotesOpen] = useState(false);
   // 把 .patch / .diff 文件拖进窗口：打开应用补丁对话框（桌面应用里由系统送来文件路径，浏览器预览里读拖进来的文件）
@@ -1074,6 +1084,66 @@ export default function App() {
     });
   };
 
+  // 任意两个文件对比、和剪贴板对比（对照 JetBrains 的 Compare Files / Compare with Clipboard）：读工作区里的内容
+  const readSide = async (path: string): Promise<TextSide> => {
+    const f = await api.fileText(path, null);
+    if (f.missing) throw new Error(t("工作区里没有 {0}", path));
+    if (f.truncated) throw new Error(t("{0} 太大，不能比较", path));
+    return { label: path, text: f.binary ? null : f.text ?? "", file: path };
+  };
+  const compareFiles = async (a: string, b: string) => {
+    try {
+      const [l, r] = await Promise.all([readSide(a), readSide(b)]);
+      if ((l.text === null) !== (r.text === null)) return failedCb(t("一个是文本文件、一个是二进制文件，不能比较"));
+      if (l.text === null && !(isImage(a) && isImage(b))) return failedCb(t("两个都是二进制文件，只有图片能比较"));
+      setCmpLeft(null);
+      openDiff({ kind: "texts", path: b, left: l, right: r });
+    } catch (e) {
+      failedCb(e instanceof Error ? e.message : msgOf(e));
+    }
+  };
+  const compareClipboard = async (path: string) => {
+    let clip = "";
+    try {
+      // 桌面应用里网页的剪贴板接口要再点一次“粘贴”或者直接被拒绝，由外壳读
+      clip = await api.clipboardText();
+    } catch {
+      return failedCb(t("读不到剪贴板"));
+    }
+    if (!clip) return say(t("剪贴板里没有文字"));
+    try {
+      const l = await readSide(path);
+      if (l.text === null) return failedCb(t("二进制文件不能和剪贴板比较"));
+      openDiff({ kind: "texts", path, left: l, right: { label: t("剪贴板"), text: clip } });
+    } catch (e) {
+      failedCb(e instanceof Error ? e.message : msgOf(e));
+    }
+  };
+  const compareItems = (path: string): MenuEntry[] => [
+    ...(cmpLeft && cmpLeft !== path ? [{ label: t("和 {0} 比较", cmpLeft), icon: COMMIT_ICONS.compare, run: () => compareFiles(cmpLeft, path) }] : []),
+    {
+      label: cmpLeft === path ? t("已选为比较的左边") : t("选为比较的左边"),
+      icon: COMMIT_ICONS.base,
+      checked: cmpLeft === path,
+      run: () => {
+        setCmpLeft(path);
+        say(t("已选 {0}。再在另一个文件上右键，选“和 {0} 比较”", path));
+      },
+    },
+    { label: t("和剪贴板比较"), icon: COMMIT_ICONS.copy, run: () => compareClipboard(path) },
+  ];
+  const projectFileMenu = (path: string, x: number, y: number) =>
+    setMenu({
+      x,
+      y,
+      items: [
+        { label: t("打开"), icon: COMMIT_ICONS.tree, run: () => openFile(path) },
+        { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(path, undefined, true) },
+        "-",
+        ...compareItems(path),
+      ],
+    });
+
   // 提交面板里文件的右键菜单（说明书 12.2）
   const fileMenu = (path: string, x: number, y: number) =>
     setMenu({
@@ -1087,6 +1157,7 @@ export default function App() {
         } },
         { label: t("逐行追溯"), icon: COMMIT_ICONS.patch, run: () => setBlame({ path, rev: null }), disabled: status?.changes.find((c) => c.path === path)?.status === "D", why: t("文件已经删除") },
         "-",
+        ...(status?.changes.find((c) => c.path === path)?.status === "D" ? [] : [...compareItems(path), "-" as const]),
         { label: t("丢弃改动…"), icon: COMMIT_ICONS.drop, run: () => discard([path]), danger: true, disabled: !normal, why: busyWhy },
       ],
     });
@@ -1204,6 +1275,7 @@ export default function App() {
               reloadKey={`${logKey}|${status?.untracked.length ?? 0}|${status?.changes.length ?? 0}`}
               refs={refs}
               onOpen={openFile}
+              onMenu={projectFileMenu}
             />
           )}
           {panel === "shelf" && (
@@ -1398,7 +1470,9 @@ export default function App() {
                     ? t("比较 {0} → {1}", shortId(target.from), shortId(target.to))
                     : target.kind === "shelf"
                       ? t("暂存架“{0}”", target.name)
-                      : t("提交 {0}", shortId(target.id))
+                      : target.kind === "texts"
+                        ? t("{0} ↔ {1}", target.left.label, target.right.label)
+                        : t("提交 {0}", shortId(target.id))
               }
               pick={
                 target.kind === "worktree" && status?.changes.find((c) => c.path === target.path)?.status === "M"
@@ -1424,6 +1498,11 @@ export default function App() {
                     : target.kind === "worktree"
                       ? { left: { path: target.path, rev: "HEAD" }, right: { path: target.path, rev: null } }
                       : null
+              }
+              imageSides={
+                target.kind === "texts"
+                  ? { left: target.left.file ? { path: target.left.file, rev: null } : null, right: target.right.file ? { path: target.right.file, rev: null } : null }
+                  : null
               }
               onLocate={(id) => locate(id)}
               editable={

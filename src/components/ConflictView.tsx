@@ -11,6 +11,7 @@ import { formatTime, shortId } from "./format";
 import { Found, Hi } from "./inlineDiff";
 import { highlight, langOf, type Tok } from "../highlight";
 import { useSettings } from "../settings";
+import { ImageDiff, isImage } from "./ImageDiff";
 import { t, tr, withNote, lazy } from "../i18n";
 
 type Marks = Record<string, Record<string, ChangeMark>>; // 文件 → 修改处编号 → 标记
@@ -68,6 +69,8 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
   const [open, setOpen] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** 展开了图片预览的二进制文件 */
+  const [preview, setPreview] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setMarks(load(key, saved));
@@ -332,7 +335,25 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
                 <button type="button" className="ib acc" title={tipTheirs} aria-label={tipTheirs} disabled={busy} onClick={() => take(f, "theirs")}>
                   ⇤
                 </button>
-                {whole ? (
+                {f.kind === "binary" && isImage(f.path) ? (
+                  <button
+                    type="button"
+                    className={"ib" + (preview.has(f.path) ? " pressed" : "")}
+                    aria-pressed={preview.has(f.path)}
+                    title={t("看看两边的图片")}
+                    aria-label={t("预览 {0} 两边的图片", f.path)}
+                    onClick={() =>
+                      setPreview((p) => {
+                        const n = new Set(p);
+                        if (n.has(f.path)) n.delete(f.path);
+                        else n.add(f.path);
+                        return n;
+                      })
+                    }
+                  >
+                    ◧
+                  </button>
+                ) : whole ? (
                   <span className="ib-gap" />
                 ) : (
                   <button type="button" className="ib" title={t("打开合并窗口，逐块处理")} aria-label={t("打开合并窗口")} onClick={() => setOpen(f.path)}>
@@ -341,7 +362,18 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
                 )}
               </span>
               {f.kind === "lock" && <span className="cf-note dim">{t("锁文件：建议用对方的，完成合并后重新生成")}</span>}
-              {f.kind === "binary" && <span className="cf-note dim">{t("二进制文件，只能整个选一边")}</span>}
+              {f.kind === "binary" && !isImage(f.path) && <span className="cf-note dim">{t("二进制文件，只能整个选一边")}</span>}
+              {f.kind === "binary" && isImage(f.path) && !preview.has(f.path) && <span className="cf-note dim">{t("图片只能整个选一边，点 ◧ 先看看两边")}</span>}
+              {f.kind === "binary" && isImage(f.path) && preview.has(f.path) && (
+                <div className="cf-preview">
+                  <ImageDiff
+                    // 变基时“你的”是 git 的 theirs（索引第 3 方）
+                    left={{ path: f.path, rev: session.kind === "rebase" ? ":3" : ":2" }}
+                    right={{ path: f.path, rev: session.kind === "rebase" ? ":2" : ":3" }}
+                    names={{ left: t("你的"), right: t("对方的"), leftNone: t("你这边删掉了"), rightNone: t("对方删掉了") }}
+                  />
+                </div>
+              )}
               {f.kind === "rename" && (
                 <span className="cf-note dim">
                   {t("两边改成了不同的名字：你的是 {0}，对方的是 {1}", f.mine_path ?? "", f.theirs_path ?? "")}

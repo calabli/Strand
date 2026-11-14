@@ -155,41 +155,59 @@ fn file_at(diff: &git2::Diff<'_>, idx: usize, path: &str) -> Result<FileDiff> {
     })?;
     // 工作区的文件读了内容才知道是不是二进制：生成补丁后再看一次
     let binary = binary || patch.as_ref().is_some_and(|p| p.delta().flags().is_binary() || is_binary_path(&p.delta()));
+    let (hunks, truncated) = match (patch, binary) {
+        (Some(p), false) => patch_hunks(&p)?,
+        _ => (Vec::new(), false),
+    };
+    Ok(FileDiff { path: path.to_string(), binary, hunks, truncated })
+}
+
+/// 一个补丁的全部修改块（最多 `MAX_LINES` 行，超过时截断）
+fn patch_hunks(p: &git2::Patch<'_>) -> Result<(Vec<Hunk>, bool)> {
     let mut hunks = Vec::new();
     let mut total = 0usize;
     let mut truncated = false;
-    if let (Some(p), false) = (patch, binary) {
-        'outer: for h in 0..p.num_hunks() {
-            let (hunk, n) = p.hunk(h).map_err(|e| CoreError::git("读取差异失败", e))?;
-            let mut lines = Vec::with_capacity(n);
-            for l in 0..n {
-                if total >= MAX_LINES {
-                    truncated = true;
-                    if !lines.is_empty() {
-                        hunks.push(make_hunk(&hunk, lines));
-                    }
-                    break 'outer;
+    'outer: for h in 0..p.num_hunks() {
+        let (hunk, n) = p.hunk(h).map_err(|e| CoreError::git("读取差异失败", e))?;
+        let mut lines = Vec::with_capacity(n);
+        for l in 0..n {
+            if total >= MAX_LINES {
+                truncated = true;
+                if !lines.is_empty() {
+                    hunks.push(make_hunk(&hunk, lines));
                 }
-                let line = p.line_in_hunk(h, l).map_err(|e| CoreError::git("读取差异失败", e))?;
-                let kind = match line.origin() {
-                    '+' => LineKind::Add,
-                    '-' => LineKind::Del,
-                    ' ' => LineKind::Context,
-                    _ => continue, // 文件末尾没有换行之类的提示行
-                };
-                let mut text = String::from_utf8_lossy(line.content()).into_owned();
-                if text.ends_with('\n') {
-                    text.pop();
-                    if text.ends_with('\r') {
-                        text.pop();
-                    }
-                }
-                lines.push(DiffLine { kind, old_no: line.old_lineno(), new_no: line.new_lineno(), text });
-                total += 1;
+                break 'outer;
             }
-            hunks.push(make_hunk(&hunk, lines));
+            let line = p.line_in_hunk(h, l).map_err(|e| CoreError::git("读取差异失败", e))?;
+            let kind = match line.origin() {
+                '+' => LineKind::Add,
+                '-' => LineKind::Del,
+                ' ' => LineKind::Context,
+                _ => continue, // 文件末尾没有换行之类的提示行
+            };
+            let mut text = String::from_utf8_lossy(line.content()).into_owned();
+            if text.ends_with('\n') {
+                text.pop();
+                if text.ends_with('\r') {
+                    text.pop();
+                }
+            }
+            lines.push(DiffLine { kind, old_no: line.old_lineno(), new_no: line.new_lineno(), text });
+            total += 1;
         }
+        hunks.push(make_hunk(&hunk, lines));
     }
+    Ok((hunks, truncated))
+}
+
+/// 两段内容之间的差异（不经过仓库）：任意两个文件对比、和剪贴板对比、暂存架看整个文件
+pub fn buffers_diff(old: &[u8], new: &[u8], path: &str, context: u32) -> Result<FileDiff> {
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(context);
+    let p = git2::Patch::from_buffers(old, Some(std::path::Path::new(path)), new, Some(std::path::Path::new(path)), Some(&mut opts))
+        .map_err(|e| CoreError::git("计算差异失败", e))?;
+    let binary = p.delta().flags().is_binary() || is_binary_path(&p.delta());
+    let (hunks, truncated) = if binary { (Vec::new(), false) } else { patch_hunks(&p)? };
     Ok(FileDiff { path: path.to_string(), binary, hunks, truncated })
 }
 

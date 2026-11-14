@@ -61,7 +61,7 @@ export function PickFiles({ commit, files, initial, revert: revert0, onClose, do
         <p className="modal-msg small">
           <span className="mono dim">{shortId(commit.id)}</span> {commit.title}
         </p>
-        <div className="seg pf-mode" role="radiogroup" aria-label={t("做什么")}>
+        <div className="seg pkf-mode" role="radiogroup" aria-label={t("做什么")}>
           <button type="button" role="radio" aria-checked={!revert} className={!revert ? "on" : ""} onClick={() => setRevert(false)}>
             {t("拣选（把改动拿过来）")}
           </button>
@@ -69,7 +69,7 @@ export function PickFiles({ commit, files, initial, revert: revert0, onClose, do
             {t("还原（撤掉这些改动）")}
           </button>
         </div>
-        <label className="pf-all check">
+        <label className="pkf-all check">
           <input
             type="checkbox"
             checked={all}
@@ -80,9 +80,9 @@ export function PickFiles({ commit, files, initial, revert: revert0, onClose, do
           />
           {t("已选 {0} / {1}", picked.length, files.length)}
         </label>
-        <div className="pf-list">
+        <div className="pkf-list">
           {files.map((f) => (
-            <label key={f.path} className="pf-row check">
+            <label key={f.path} className="pkf-row check">
               <input
                 type="checkbox"
                 checked={on.has(f.path)}
@@ -96,7 +96,7 @@ export function PickFiles({ commit, files, initial, revert: revert0, onClose, do
                 }
               />
               <StatusBadge s={f.status} />
-              <span className="mono pf-path" title={f.old_path ? `${f.old_path} → ${f.path}` : f.path}>
+              <span className="mono pkf-path" title={f.old_path ? `${f.old_path} → ${f.path}` : f.path}>
                 {f.path}
               </span>
               <span className="dim small mono">

@@ -159,3 +159,8 @@ impl Session {
         Ok(out)
     }
 }
+
+/// 两段文字的整个文件差异（任意两个文件对比、和剪贴板对比）；`name` 用来认语言和显示
+pub fn text_diff(left: &str, right: &str, name: &str) -> crate::Result<crate::model::FileDiff> {
+    crate::diff::buffers_diff(left.as_bytes(), right.as_bytes(), name, 1_000_000)
+}
