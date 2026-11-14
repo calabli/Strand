@@ -8,12 +8,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Splitter, sizeVars } from "./Splitter";
 import { ApiError, api, openUrl } from "../api/commands";
-import type { Cap, Commit, CommitCaps, FileChange, FileDiff } from "../api/types";
+import type { Cap, ChangeMatch, Commit, CommitCaps, FileChange, FileDiff } from "../api/types";
 import { DiffView } from "./DiffView";
 import { COMMIT_ICONS as ICON, type CommitOps } from "./commitOps";
 import { FileRow, FileTree } from "./FileRow";
 import { setSettings, settings, useSettings } from "../settings";
-import { formatTime, relTime, shortId } from "./format";
+import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { FILTER_ICONS } from "./LogFilterBar";
 import { t, tr } from "../i18n";
 
@@ -71,9 +71,11 @@ interface Props {
   onBlame: (path: string, rev: string) => void;
   /** 打开文件视图（内容和修改链） */
   onFileHistory: (path: string) => void;
+  /** 日志在按改动内容搜索：只列改动行有匹配的文件，差异里标出匹配的行 */
+  find?: { text: string; regex: boolean; caseSensitive: boolean } | null;
 }
 
-export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory }: Props) {
+export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory, find }: Props) {
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +106,30 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   }, [commit]);
 
   const commitId = commit?.id;
+  // 按改动内容搜索时：这个提交里哪些文件的改动行有匹配
+  const [matches, setMatches] = useState<ChangeMatch[] | null>(null);
+  const [allFiles, setAllFiles] = useState(false);
+  const findKey = find ? JSON.stringify(find) : "";
+  useEffect(() => {
+    setMatches(null);
+    if (!commitId || !find) return;
+    let live = true;
+    api.commitChangeMatches(commitId, find.text, find.regex, find.caseSensitive).then(
+      (m) => {
+        if (!live) return;
+        setMatches(m);
+        // 自动在下面的框里打开第一个匹配的文件
+        if (m.length) setShown((p) => (p && m.some((x) => x.path === p) ? p : m[0].path));
+      },
+      () => live && setMatches([]),
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commitId, findKey]);
+  const findRe = find ? findRegExp(find.text, find.regex, find.caseSensitive) : null;
+  const hitCount = new Map((matches ?? []).map((m) => [m.path, m.lines] as const));
   useEffect(() => {
     if (!commitId || !shown) return;
     let live = true;
@@ -150,6 +176,8 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   }
 
   if (!commit) return <aside className="detail empty">{t("选择一个提交查看详情")}</aside>;
+  // 搜改动内容时默认只列匹配的文件
+  const listed = files && find && matches && !allFiles ? files.filter((f) => hitCount.has(f.path) || (f.old_path ? hitCount.has(f.old_path) : false)) : files;
   /** 改动文件的一行；depth 是树形显示时的层级（只显示文件名） */
   const fileRow = (f: FileChange, depth?: number) => (
           <FileRow
@@ -161,6 +189,11 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
             onDouble={() => onOpenDiff(commit, f.path)}
             trail={
               <span className="frow-acts">
+              {hitCount.has(f.path) && (
+                <span className="find-n" title={t("{0} 行改动有匹配", hitCount.get(f.path))}>
+                  {hitCount.get(f.path)}
+                </span>
+              )}
               {f.status !== "D" && (
                 <button type="button" className="ib sm frow-act" title={t("逐行追溯")} aria-label={t("逐行追溯 {0}", f.path)} onClick={() => onBlame(f.path, commit.id)}>
                   <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
@@ -190,6 +223,16 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
         <div className="dsub dim">
           {files ? t("{0} 个文件", files.length) : error ? "" : t("正在读取改动…")}
           {commit.parents.length > 1 && files && <span>{t("（相对第一个父提交）")}</span>}
+          {find && matches && files && (
+            <button
+              type="button"
+              className={"linklike find-toggle" + (allFiles ? "" : " on")}
+              title={allFiles ? t("只看改动里有“{0}”的文件", find.text) : t("显示这个提交的全部文件")}
+              onClick={() => setAllFiles((a) => !a)}
+            >
+              {allFiles ? t("只看匹配的 {0} 个", matches.length) : t("{0} 个有匹配 · 显示全部", matches.length)}
+            </button>
+          )}
           <span className="grow" />
           <button
             type="button"
@@ -205,7 +248,8 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
           </button>
         </div>
         {error && <p className="err">{tr(error)}</p>}
-        {files && (groupDir ? <FileTree items={files} pathOf={(f) => f.path} leaf={(f, d) => fileRow(f, d)} /> : files.map((f) => fileRow(f)))}
+        {listed && (groupDir ? <FileTree items={listed} pathOf={(f) => f.path} leaf={(f, d) => fileRow(f, d)} /> : listed.map((f) => fileRow(f)))}
+        {find && matches && matches.length === 0 && !allFiles && <p className="dim small pad">{t("这个提交的改动里没有找到“{0}”（可能是合并带进来的，或跨了多行）", find.text)}</p>}
       </div>
       {/* 上下拖动：文件列表的高度；显示差异框时还有提交信息的高度，差异框占剩下的 */}
       <Splitter
@@ -226,6 +270,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
             error={diff.error}
             source={shortId(commit.id)}
             onExpand={() => onOpenDiff(commit, shown)}
+            find={findRe}
             onClose={() => setShown(null)}
           />
         </div>

@@ -36,6 +36,8 @@ pub enum ErrorCode {
     GitMissing,
     /// 日志过滤：正则表达式写错了
     InvalidRegex,
+    /// 部分克隆的仓库：要做的事需要下载全部历史的文件内容（如在历史改动里搜索）
+    PartialClone,
 }
 
 #[derive(Debug, Clone, Serialize, thiserror::Error)]

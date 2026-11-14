@@ -30,9 +30,11 @@ export interface LogUi {
   to: string | null;
   path: string | null;
   sort: LogSort;
+  /** 搜索框搜哪里：提交说明和哈希，还是改动内容（这段文字加进来或删掉的提交） */
+  searchIn: "message" | "changes";
 }
 
-export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, branch: null, authors: [], authorRule: null, date: "all", from: null, to: null, path: null, sort: "topo" };
+export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, branch: null, authors: [], authorRule: null, date: "all", from: null, to: null, path: null, sort: "topo", searchIn: "message" };
 
 const DATE_LABEL: Record<Exclude<DateRange, "custom">, string> = { all: t("所有日期"), today: t("今天"), "3d": t("最近 3 天"), "6d": t("最近 6 天") };
 
@@ -63,6 +65,7 @@ export function toFilter(u: LogUi): LogFilter {
     since: u.date === "custom" ? (u.from ? dayStart(u.from) : null) : sinceOf(u.date),
     until: u.date === "custom" && u.to ? dayStart(u.to, 1) : null,
     path: u.path,
+    search_in: u.searchIn,
   };
 }
 
@@ -143,10 +146,10 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
   // 外面清空了条件（如“定位”、跳到提交）时同步输入框
   useEffect(() => setText(ui.text), [ui.text]);
 
-  // 输入后 150 ms 再过滤
+  // 输入后 150 ms 再过滤；搜改动内容时每次都要在全部历史上跑一遍 git，等 600 ms（或按回车）
   useEffect(() => {
     if (text === latest.current.text) return;
-    const t = window.setTimeout(() => onChange({ ...latest.current, text }), 150);
+    const t = window.setTimeout(() => onChange({ ...latest.current, text }), latest.current.searchIn === "changes" ? 600 : 150);
     return () => window.clearTimeout(t);
   }, [text, onChange]);
 
@@ -195,17 +198,34 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
       <button type="button" className={"ib" + (treeOpen ? " pressed" : "")} title={treeOpen ? t("隐藏分支树") : t("显示分支树")} aria-label={t("分支树")} aria-pressed={treeOpen} onClick={onToggleTree}>
         <Icon d={FILTER_ICONS.tree} />
       </button>
-      <label className={"fsearch" + (badRegex ? " bad" : "")} title={badRegex ? t("正则表达式写得不对") : undefined}>
+      <label className={"fsearch" + (badRegex ? " bad" : "") + (ui.searchIn === "changes" ? " in-changes" : "")} title={badRegex ? t("正则表达式写得不对") : undefined}>
         <Icon d={FILTER_ICONS.search} />
+        <button
+          type="button"
+          className={"ftog fs-mode" + (ui.searchIn === "changes" ? " on" : "")}
+          title={
+            ui.searchIn === "changes"
+              ? t("正在搜改动内容：找加进来或删掉这段文字的提交（正则时找改动的行有匹配的提交）。点一下改回搜说明")
+              : t("正在搜提交说明和哈希。点一下改为搜改动内容（在全部历史的代码改动里找）")
+          }
+          aria-label={t("搜索范围")}
+          aria-pressed={ui.searchIn === "changes"}
+          onClick={() => set({ searchIn: ui.searchIn === "changes" ? "message" : "changes", text })}
+        >
+          {ui.searchIn === "changes" ? t("改动") : t("说明")}
+        </button>
         <input
           ref={input}
           value={text}
-          placeholder={t("搜索说明或哈希")}
+          placeholder={ui.searchIn === "changes" ? t("搜改动内容，如函数名") : t("搜索说明或哈希")}
           spellCheck={false}
           aria-invalid={badRegex}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape" && text) {
+            if (e.key === "Enter" && text !== ui.text) {
+              e.preventDefault();
+              onChange({ ...ui, text });
+            } else if (e.key === "Escape" && text) {
               e.stopPropagation();
               setText("");
               onChange({ ...ui, text: "" });

@@ -105,7 +105,10 @@ function filtered(f: LogFilter, sort: LogSort): number[] | null {
     if (f.since != null && c.time < f.since) continue;
     if (f.until != null && c.time >= f.until) continue;
     if (f.path && i % 3 !== 0) continue;
-    if (re && !re.test(c.title) && !(f.text!.length >= 4 && !f.regex && c.id.startsWith(f.text!.toLowerCase()))) continue;
+    // 示例数据没有文件内容：搜改动内容时当作每 6 个提交有一个改过这段文字
+    if (re && f.search_in === "changes") {
+      if (i % 6 !== 0) continue;
+    } else if (re && !re.test(c.title) && !(f.text!.length >= 4 && !f.regex && c.id.startsWith(f.text!.toLowerCase()))) continue;
     out.push(i);
   }
   return out;
@@ -794,3 +797,23 @@ export function fileHistory(path: string) {
 }
 
 export const fileDiffVersions = (_from: string | null, _fromPath: string, _to: string | null, toPath: string) => diffFile(toPath);
+
+// ---------- 按内容搜索 ----------
+
+export const commitChangeMatches = () => delay([{ path: "src/graph/layout.rs", lines: 3 }, { path: "src/ui/graph_view.rs", lines: 1 }]);
+
+export function projectSearch(text: string, regex: boolean, caseSensitive: boolean, rev: string | null) {
+  let re: RegExp;
+  try {
+    re = new RegExp(regex ? text : text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), caseSensitive ? "" : "i");
+  } catch {
+    return Promise.reject({ code: "INVALID_REGEX", message: "正则表达式写得不对" });
+  }
+  // 示例：每个文本文件里有几行“含有”搜索的文字
+  const files = PROJECT.filter((p) => !p.endsWith(".png") && !p.endsWith(".lock")).slice(0, rev ? 5 : 8).map((path, k) => ({
+    path,
+    hits: Array.from({ length: (k % 3) + 1 }, (_, j) => ({ line: 4 + j * 9 + k, text: `    let value = ${text}(state, ${j}); // ${re.source.slice(0, 20)}` })),
+    more: false,
+  }));
+  return delay({ files, total: files.reduce((n, f) => n + f.hits.length, 0), truncated: false });
+}

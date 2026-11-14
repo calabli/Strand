@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ChangeMatch,
+  ProjectSearch,
   FileHistory,
   FileText,
   ChangeMark,
@@ -235,6 +237,12 @@ export const api = {
   /** rev 为空时是工作区里的内容 */
   fileText: (path: string, rev: string | null = null): Promise<FileText> => (inTauri ? call("file_text", { path, rev }) : mock.fileText(path, rev)),
   fileHistory: (path: string): Promise<FileHistory> => (inTauri ? call("file_history", { path }) : mock.fileHistory(path)),
+  /** 按改动内容搜索时，这个提交里改动行有匹配的文件 */
+  commitChangeMatches: (id: string, text: string, regex: boolean, caseSensitive: boolean): Promise<ChangeMatch[]> =>
+    inTauri ? call("commit_change_matches", { id, text, regex, caseSensitive }) : mock.commitChangeMatches(),
+  /** 项目文件全文搜；rev 为空是工作区 */
+  projectSearch: (text: string, regex: boolean, caseSensitive: boolean, rev: string | null): Promise<ProjectSearch> =>
+    inTauri ? call("project_search", { text, regex, caseSensitive, rev }) : mock.projectSearch(text, regex, caseSensitive, rev),
   /** from 为空是新增（旧的一边没有），to 为空是工作区 */
   fileDiffVersions: (from: string | null, fromPath: string, to: string | null, toPath: string): Promise<FileDiff> =>
     inTauri ? call("file_diff_versions", { from, fromPath, to, toPath }) : mock.fileDiffVersions(from, fromPath, to, toPath),

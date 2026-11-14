@@ -88,6 +88,8 @@ export interface LogFilter {
   since?: number | null;
   /** 作者时间早于（Unix 秒，不含） */
   until?: number | null;
+  /** 搜索文字搜哪里：提交说明（默认），还是改动内容（git log -S / -G） */
+  search_in?: "message" | "changes";
   /** 路径子串 */
   path?: string | null;
 }
@@ -129,7 +131,8 @@ export type ErrorCode =
   | "NOT_A_REPO"
   | "NO_REPO"
   | "GIT_MISSING"
-  | "INVALID_REGEX";
+  | "INVALID_REGEX"
+  | "PARTIAL_CLONE";
 
 export interface CoreError {
   code: ErrorCode;
@@ -628,5 +631,30 @@ export interface FileVersion {
 export interface FileHistory {
   /** 从新到旧 */
   versions: FileVersion[];
+  truncated: boolean;
+}
+
+// ---------- 按内容搜索 ----------
+
+export interface ChangeMatch {
+  path: string;
+  /** 匹配的改动行数 */
+  lines: number;
+}
+
+export interface SearchHit {
+  line: number;
+  text: string;
+}
+
+export interface SearchFile {
+  path: string;
+  hits: SearchHit[];
+  more: boolean;
+}
+
+export interface ProjectSearch {
+  files: SearchFile[];
+  total: number;
   truncated: boolean;
 }

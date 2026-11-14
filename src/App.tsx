@@ -109,8 +109,11 @@ export default function App() {
   const [tab, setTab] = useState<"log" | "console" | "diff" | "file">("log");
   /** 中间“文件”标签里看的文件（项目文件和修改链） */
   const [fileOpen, setFileOpen] = useState<string | null>(null);
-  const openFile = useCallback((p: string) => {
+  /** 从内容搜索结果打开时：跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
+  const [fileAt, setFileAt] = useState<{ line: number; rev: string | null; n: number } | null>(null);
+  const openFile = useCallback((p: string, at?: { line: number; rev: string | null }) => {
     setFileOpen(p);
+    setFileAt(at ? { ...at, n: Date.now() } : null);
     setTab("file");
   }, []);
   /** 控制台和文件视图用中间加右边的宽度，不显示提交详情 */
@@ -1031,6 +1034,7 @@ export default function App() {
               status={status}
               active={tab === "file" ? fileOpen : null}
               reloadKey={`${logKey}|${status?.untracked.length ?? 0}|${status?.changes.length ?? 0}`}
+              refs={refs}
               onOpen={openFile}
             />
           )}
@@ -1160,7 +1164,7 @@ export default function App() {
               filtered={isFiltered(ui)}
               scrollKey={queryKey}
               onClearFilter={() => setUi((u) => ({ ...EMPTY_UI, regex: u.regex, caseSensitive: u.caseSensitive }))}
-              highlight={ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : undefined}
+              highlight={ui.text && ui.searchIn === "message" ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : undefined}
               selected={selected?.id ?? null}
               multi={new Set(multi)}
               onSelect={pick}
@@ -1199,6 +1203,7 @@ export default function App() {
           {tab === "file" && fileOpen && (
             <FileView
               path={fileOpen}
+              at={fileAt}
               changed={!!status && (status.changes.some((c) => c.path === fileOpen) || status.untracked.includes(fileOpen))}
               onClose={() => {
                 setFileOpen(null);
@@ -1263,7 +1268,8 @@ export default function App() {
           activePath={tab === "diff" && target?.kind === "commit" && target.id === selected?.id ? target.path : null}
           onOpenDiff={(c, path) => openDiff({ kind: "commit", id: c.id, path })}
           onBlame={(path, rev) => setBlame({ path, rev })}
-          onFileHistory={openFile}
+          onFileHistory={(p) => openFile(p)}
+          find={ui.searchIn === "changes" && ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : null}
           onFilterPath={(path) => {
             setUi((u) => ({ ...u, path }));
             setTab("log");

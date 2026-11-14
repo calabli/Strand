@@ -28,3 +28,13 @@ export function keys(s: string): string {
   if (isMac) return s;
   return s.replace(/⇧⌘/g, "Ctrl+Shift+").replace(/⌥⌘/g, "Ctrl+Alt+").replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+");
 }
+
+/** 搜索文字换成正则（普通文字转义；不区分大小写加 i）；写错时返回 null */
+export function findRegExp(text: string, regex: boolean, caseSensitive: boolean): RegExp | null {
+  if (!text) return null;
+  try {
+    return new RegExp(regex ? text : text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), caseSensitive ? "" : "i");
+  } catch {
+    return null;
+  }
+}

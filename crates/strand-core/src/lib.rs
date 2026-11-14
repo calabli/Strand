@@ -24,6 +24,7 @@ pub mod rebase;
 pub mod remote;
 pub mod stash;
 pub mod repo;
+pub mod search;
 pub mod shell_path;
 pub mod watch;
 mod worktree;

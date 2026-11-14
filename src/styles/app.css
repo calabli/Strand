@@ -792,3 +792,30 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .tv-line { display: grid; grid-template-columns: 56px minmax(0, 1fr); }
 .tv-line:hover { background: var(--hover); }
 .tv-line .code { white-space: pre; padding-right: 16px; }
+
+/* 日志搜索框：搜说明还是改动内容 */
+.fs-mode { width: auto !important; padding: 0 5px; font-size: 11px; font-family: inherit; flex-shrink: 0; }
+.fsearch.in-changes { border-color: color-mix(in srgb, var(--accent) 55%, var(--line2)); }
+/* 按改动内容搜索：匹配的改动行左边加一条强调色竖线 */
+.dl.found, .sl-side.found { box-shadow: inset 3px 0 0 var(--accent); }
+.dl.found .code, .sl-side.found .code { font-weight: 600; }
+.find-n { min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; text-align: center; line-height: 16px; align-self: center; }
+.find-toggle { font-size: 11px; font-weight: 600; margin-left: 6px; }
+
+/* 文件标签：文件名搜索 / 内容搜索 */
+.pf-mode { padding: 8px 8px 0; }
+.pf-mode .seg { display: flex; }
+.pf-mode .seg button { flex: 1; }
+.pf-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pf-pane[hidden] { display: none; }
+.pf-csearch { max-width: none; flex: 1; }
+.pf-rev { display: flex; align-items: center; gap: 4px; }
+.pf-hitfile.stale { opacity: 0.6; }
+.pf-hithead { font-weight: 600; color: var(--fg); }
+.pf-hit { display: flex; gap: 8px; width: 100%; padding: 2px 8px 2px 22px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-size: 12px; line-height: 18px; cursor: pointer; color: var(--fg); }
+.pf-hit:hover { background: var(--hover); }
+.pf-hit .ln { width: 36px; flex-shrink: 0; text-align: right; }
+.pf-hit-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-hit mark, .tv mark { background: var(--pend-bg); color: var(--pend-ink); border-radius: 2px; }
+.pf-more { margin: 2px 0 4px 30px; }
+.tv-line.focus { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }

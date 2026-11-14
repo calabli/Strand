@@ -5,6 +5,7 @@
 // - 选一个提交：默认显示这次提交对这个文件的修改，可以切到“这个版本的内容”。
 // - ⌘ 或 Shift 单击再选一个：比较这两个版本（旧的在左、新的在右，中间改过名也能比较）。
 // 差异用差异标签页同一套显示（合并视图或左右对比、忽略空白、上下块跳转）。
+// 从内容搜索结果打开时（at）：显示那个版本（或工作区）的全文，滚到那一行并标出来；在修改链里选别的就回到平常的样子。
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -21,6 +22,8 @@ const MAX_LINES = 20000;
 
 interface Props {
   path: string;
+  /** 打开后跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
+  at?: { line: number; rev: string | null; n: number } | null;
   /** 工作区里这个文件有没提交的改动（或是未跟踪的） */
   changed: boolean;
   onClose: () => void;
@@ -33,7 +36,7 @@ interface Props {
 type Load<T> = { data: T | null; loading: boolean; error: string | null };
 const idle = { data: null, loading: false, error: null };
 
-export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
+export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Props) {
   const [hist, setHist] = useState<Load<FileHistory>>({ ...idle, loading: true });
   /** 选中的：WORK 或提交哈希；最多两个，按点的先后 */
   const [sel, setSel] = useState<string[]>([WORK]);
@@ -42,6 +45,14 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
   const [text, setText] = useState<Load<FileText>>(idle);
   const [diff, setDiff] = useState<Load<FileDiff>>(idle);
   const host = useRef<HTMLDivElement>(null);
+  /** 内容搜索结果指向的版本（分支名、标签都可以）和行；在修改链里点别的就清掉 */
+  const [jump, setJump] = useState<{ line: number; rev: string | null } | null>(null);
+  useEffect(() => {
+    if (!at) return;
+    setJump({ line: at.line, rev: at.rev });
+    setSel([WORK]);
+    setMode("text");
+  }, [at]);
   const list = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,6 +60,7 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
     setHist({ ...idle, loading: true });
     setSel([WORK]);
     setMode("text");
+    if (!at) setJump(null);
     api.fileHistory(path).then(
       (data) => live && setHist({ data, loading: false, error: null }),
       (e) => live && setHist({ data: null, loading: false, error: errOf(e).message }),
@@ -67,6 +79,7 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
   // 右边要显示的东西
   type Req = { kind: "text"; rev: string | null; path: string } | { kind: "diff"; from: string | null; fromPath: string; to: string | null; toPath: string; label: string };
   const req: Req | null = useMemo(() => {
+    if (jump?.rev) return { kind: "text", rev: jump.rev, path };
     if (sel.length === 2) {
       const [a, b] = [...sel].sort((x, y) => order(y) - order(x)); // 旧的在前
       const va = byId(a);
@@ -91,7 +104,7 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
     if (mode === "text") return { kind: "text", rev: v.commit.id, path: v.path };
     return { kind: "diff", from: v.commit.parents[0] ?? null, fromPath: v.old_path ?? v.path, to: v.commit.id, toPath: v.path, label: t("提交 {0} 的修改", shortId(v.commit.id)) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel, mode, versions, path, head]);
+  }, [sel, mode, versions, path, head, jump]);
 
   const reqKey = JSON.stringify(req);
   useEffect(() => {
@@ -119,6 +132,7 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
 
   /** 单击选一个；⌘ / Shift 单击再选一个（比较），再点已选的取消 */
   const pick = (k: string, add: boolean) => {
+    setJump(null);
     if (!add) {
       setSel([k]);
       setMode(k === WORK ? "text" : "diff");
@@ -172,12 +186,12 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
           }}
         >
           <p className="fv-tip dim small">{t("单击看一个版本；⌘ 或 Shift 单击再选一个，比较两个版本")}</p>
-          <VersionRow k={WORK} sel={sel} onPick={pick} first last={!versions.length}>
+          <VersionRow k={WORK} sel={jump?.rev ? [] : sel} onPick={pick} first last={!versions.length}>
             <div className="fv-title">{t("当前（工作区）")}</div>
             <div className="fv-meta dim small">{changed ? <span className="fv-tag warn">{t("有没提交的改动")}</span> : t("和最新提交相同")}</div>
           </VersionRow>
           {versions.map((v, i) => (
-            <VersionRow key={v.commit.id} k={v.commit.id} sel={sel} onPick={pick} last={i === versions.length - 1}>
+            <VersionRow key={v.commit.id} k={v.commit.id} sel={jump?.rev ? [] : sel} onPick={pick} last={i === versions.length - 1}>
               <div className="fv-title" title={v.commit.title}>
                 {v.commit.title}
               </div>
@@ -228,7 +242,12 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
           label={t("调整修改链的宽度")}
         />
         <div className="fv-main">
-          {sel.length === 1 && (single === WORK ? changed && !!head : !!singleV) && (
+          {jump?.rev && (
+            <div className="fv-mode">
+              <span className="dim small">{t("{0} 时的内容（从搜索结果打开）", jump.rev)}</span>
+            </div>
+          )}
+          {!jump?.rev && sel.length === 1 && (single === WORK ? changed && !!head : !!singleV) && (
             <div className="fv-mode">
               <span className="seg" role="radiogroup" aria-label={t("显示内容")}>
                 <button type="button" role="radio" aria-checked={mode === "diff"} className={mode === "diff" ? "on" : ""} onClick={() => setMode("diff")}>
@@ -248,7 +267,7 @@ export function FileView({ path, changed, onClose, onLocate, onBlame }: Props) {
           {req?.kind === "diff" ? (
             <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
           ) : (
-            <TextView load={text} />
+            <TextView load={text} focus={jump?.line ?? null} />
           )}
         </div>
       </div>
@@ -276,15 +295,21 @@ function VersionRow({ k, sel, onPick, first, last, children }: { k: string; sel:
 }
 
 /** 文件全文，带行号 */
-function TextView({ load }: { load: Load<FileText> }) {
+function TextView({ load, focus }: { load: Load<FileText>; focus: number | null }) {
   const f = load.data;
+  const box = useRef<HTMLDivElement>(null);
+  // 跳到指定的行
+  useEffect(() => {
+    if (!focus || load.loading) return;
+    box.current?.querySelector(".tv-line.focus")?.scrollIntoView({ block: "center" });
+  }, [focus, f, load.loading]);
   const lines = useMemo(() => {
     const all = f?.text?.split("\n") ?? [];
     if (all.length && all[all.length - 1] === "") all.pop();
     return all;
   }, [f]);
   return (
-    <div className="fv-text">
+    <div className="fv-text" ref={box}>
       {load.loading && !f && <p className="pad dim">{t("正在读取…")}</p>}
       {load.error && <p className="pad err">{tr(load.error)}</p>}
       {f?.missing && <p className="pad dim">{t("这个版本里没有这个文件（已删除或还没创建）")}</p>}
@@ -292,7 +317,7 @@ function TextView({ load }: { load: Load<FileText> }) {
       {f?.text !== undefined && (
         <div className={"tv mono" + (load.loading ? " stale" : "")}>
           {lines.slice(0, MAX_LINES).map((l, i) => (
-            <div key={i} className="tv-line">
+            <div key={i} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
               <span className="ln">{i + 1}</span>
               <span className="code">{l}</span>
             </div>

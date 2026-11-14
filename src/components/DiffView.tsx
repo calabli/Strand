@@ -23,6 +23,8 @@ interface Props {
   /** 窄的版本（提交详情里文件下面的差异框）：只显示文件名、行数、上下块和关闭，固定合并视图；onExpand 在标签页里打开 */
   compact?: boolean;
   onExpand?: () => void;
+  /** 按改动内容搜索时：匹配的改动行标出来，打开时滚到第一处 */
+  find?: RegExp | null;
 }
 
 const key = (h: number, l: number) => `${h}:${l}`;
@@ -130,7 +132,7 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand }: Props) {
+export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find }: Props) {
   const [cur, setCur] = useState(0);
   const box = useRef<HTMLDivElement>(null);
   const settings = useSettings();
@@ -139,6 +141,13 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const n = diff?.hunks.length ?? 0;
 
   useEffect(() => setCur(0), [diff?.path, source]);
+  // 有搜索时滚到第一处匹配的改动行
+  useEffect(() => {
+    if (!find || !diff) return;
+    const el = box.current?.querySelector(".found");
+    if (el) el.scrollIntoView({ block: "center" });
+  }, [diff, find]);
+  const found = (it: Item | undefined) => (find && it && it.kind !== "context" && find.test(it.line.text) ? " found" : "");
 
   const go = (d: number) => {
     if (n === 0) return;
@@ -253,7 +262,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
             </div>
             {diffView === "unified"
               ? unifiedItems(h.lines, ignoreWs).map((it) => (
-                  <div key={it.j + (it.old ? "s" : "")} className={`dl dl-${it.kind}` + (pick ? " pickable" : "") + off(i, it) + (it.same ? " ws-same" : "")} title={it.same ? t("只有空白不同") : undefined}>
+                  <div key={it.j + (it.old ? "s" : "")} className={`dl dl-${it.kind}` + (pick ? " pickable" : "") + off(i, it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
                     {check(i, it)}
                     <span className="ln">{(it.old ?? it.line).old_no ?? ""}</span>
                     <span className="ln">{it.line.new_no ?? ""}</span>
@@ -268,7 +277,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
                     {[r.left, r.right].map((it, side) => (
                       <div
                         key={side}
-                        className={"sl-side " + (it ? `dl-${it.kind}` : "sl-empty") + off(i, it) + (it?.same ? " ws-same" : "")}
+                        className={"sl-side " + (it ? `dl-${it.kind}` : "sl-empty") + off(i, it) + (it?.same ? " ws-same" : "") + found(it)}
                         title={it?.same ? t("只有空白不同") : undefined}
                       >
                         {check(i, it && it.kind !== "context" ? it : undefined)}

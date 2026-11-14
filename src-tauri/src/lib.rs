@@ -827,6 +827,21 @@ async fn file_diff_versions(state: State<'_, AppState>, from: Option<String>, fr
     with_repo(&state, move |s| s.file_diff_versions(from.as_deref(), &from_path, to.as_deref(), &to_path)).await
 }
 
+/// 按改动内容搜索时，这个提交里改动行有匹配的文件
+#[tauri::command]
+async fn commit_change_matches(state: State<'_, AppState>, id: String, text: String, regex: bool, case_sensitive: bool) -> CmdResult<Vec<strand_core::search::ChangeMatch>> {
+    with_repo(&state, move |s| s.commit_change_matches(&id, &text, regex, case_sensitive)).await
+}
+
+/// 项目文件全文搜（git grep）：rev 为空是工作区。在后台跑，不占着仓库
+#[tauri::command]
+async fn project_search(state: State<'_, AppState>, text: String, regex: bool, case_sensitive: bool, rev: Option<String>) -> CmdResult<strand_core::search::ProjectSearch> {
+    let dir = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::search::project_search(&dir, &text, regex, case_sensitive, rev.as_deref()))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
 /// 把文字写到用户在系统保存对话框里选的路径（保存补丁用）
 #[tauri::command]
 async fn file_save(path: String, text: String) -> CmdResult<()> {
@@ -1121,6 +1136,8 @@ pub fn run(adopted: Option<u128>) {
             file_text,
             file_history,
             file_diff_versions,
+            commit_change_matches,
+            project_search,
             file_save,
             changes_discard,
             untracked_add,

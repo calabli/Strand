@@ -48,6 +48,17 @@ pub struct LogFilter {
     pub until: Option<i64>,
     /// 路径子串：只看改过匹配文件的提交
     pub path: Option<String>,
+    /// 搜索文字搜哪里：提交说明（默认），还是改动内容（`git log -S` / `-G`，说明书 5.1 的扩展）
+    pub search_in: SearchIn,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchIn {
+    #[default]
+    Message,
+    /// 改动内容：普通文字找“这段文字出现次数变了”的提交（加进来或删掉的那次），正则找改动的行里有匹配的提交
+    Changes,
 }
 
 impl LogFilter {
@@ -64,6 +75,11 @@ impl LogFilter {
 
     fn path(&self) -> Option<&str> {
         self.path.as_deref().filter(|p| !p.is_empty())
+    }
+
+    /// 按改动内容搜索的文字
+    fn changes(&self) -> Option<&str> {
+        (self.search_in == SearchIn::Changes && !self.text.is_empty()).then_some(self.text.as_str())
     }
 }
 
@@ -150,6 +166,8 @@ pub struct Cache {
     run: Option<Run>,
     /// 路径过滤的后台查询
     path: Option<PathJob>,
+    /// 按改动内容搜索的后台查询
+    changes: Option<PathJob>,
 }
 
 impl Cache {
@@ -163,7 +181,7 @@ impl Cache {
 struct Run {
     filter: LogFilter,
     sort: LogSort,
-    /// 算 `base` 时路径查询已经找到的提交数、是否已经结束；变了就重算
+    /// 算 `base` 时路径查询和改动内容查询已经找到的提交数、是否都已经结束；变了就重算
     path_seen: usize,
     path_done: bool,
     /// 便宜的条件（分支、日期、作者、路径）过滤后的行，按行号
@@ -177,10 +195,11 @@ struct Run {
     done: bool,
 }
 
-/// 后台运行的 `git rev-list --all -- <路径>`：边读输出边记下改过这个路径的提交
+/// 后台运行的 git 查询（路径过滤的 `git rev-list --all -- <路径>`、改动内容的 `git log -S`）：
+/// 边读输出边记下命中的提交（每行一个哈希）
 struct PathJob {
-    pattern: String,
-    case_sensitive: bool,
+    /// 这组参数的标识，条件变了就换一个查询
+    key: String,
     hits: Arc<Mutex<HashSet<gix::ObjectId>>>,
     done: Arc<AtomicBool>,
     failed: Arc<Mutex<Option<CoreError>>>,
@@ -196,24 +215,27 @@ impl Drop for PathJob {
 
 impl PathJob {
     fn start(dir: &Path, pattern: &str, case_sensitive: bool) -> PathJob {
-        let job = PathJob {
-            pattern: pattern.to_string(),
-            case_sensitive,
-            hits: Arc::default(),
-            done: Arc::default(),
-            failed: Arc::default(),
-            stop: Arc::default(),
-        };
-        // 不带 glob 魔法时 `*` 也匹配 `/`，`*x*` 就是整个路径里的子串
-        let spec = format!(":({}){}{}{}", if case_sensitive { "" } else { "icase" }, "*", pattern, "*");
+        let spec = path_spec(pattern, case_sensitive);
+        PathJob::run(dir, format!("path:{case_sensitive}:{pattern}"), &["rev-list".to_string(), "--all".into(), "--".into(), spec], "按路径过滤失败")
+    }
+
+    fn run(dir: &Path, key: String, args: &[String], fail_msg: &'static str) -> PathJob {
+        let job = PathJob { key, hits: Arc::default(), done: Arc::default(), failed: Arc::default(), stop: Arc::default() };
         let mut cmd = Command::new("git");
-        cmd.args(["rev-list", "--all", "--", &spec]).current_dir(dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        // 输出到管道时 git 会攒满一块（约 8 KB）再写：命中少的路径要等到最后才一起出来。让它每条都立刻写出
+        cmd.args(args).current_dir(dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        // 输出到管道时 git 会攒满一块（约 8 KB）再写：命中少的要等到最后才一起出来。让它每条都立刻写出
         cmd.env("GIT_FLUSH", "1");
+        // 部分克隆：不要为了查询去下载缺的文件内容（会极慢）；需要时宁可失败
+        cmd.env("GIT_NO_LAZY_FETCH", "1");
         git_cli::hide_console(&mut cmd);
         let (hits, done, failed, stop) = (job.hits.clone(), job.done.clone(), job.failed.clone(), job.stop.clone());
         std::thread::spawn(move || {
-            let fail = |msg: String| *failed.lock().unwrap() = Some(CoreError::new(ErrorCode::GitFailed, "按路径过滤失败").with_detail(serde_json::json!({ "stderr": msg })));
+            let fail = |msg: String| {
+                // -G 的正则写错时 git 报 “Invalid regex” 之类
+                let bad_re = msg.contains("regex") || msg.contains("regcomp");
+                let e = if bad_re { CoreError::new(ErrorCode::InvalidRegex, "正则表达式写得不对") } else { CoreError::new(ErrorCode::GitFailed, fail_msg) };
+                *failed.lock().unwrap() = Some(e.with_detail(serde_json::json!({ "stderr": msg })));
+            };
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
@@ -250,6 +272,50 @@ impl PathJob {
         });
         job
     }
+}
+
+/// 路径过滤的 pathspec：不带 glob 魔法时 `*` 也匹配 `/`，`*x*` 就是整个路径里的子串
+fn path_spec(pattern: &str, case_sensitive: bool) -> String {
+    format!(":({}){}{}{}", if case_sensitive { "" } else { "icase" }, "*", pattern, "*")
+}
+
+/// 按改动内容搜索的 `git log` 参数：普通文字用 -S（出现次数变了的提交），正则用 -G（改动的行匹配，POSIX 扩展正则）。
+/// 分支、日期、路径也交给 git，范围小了快得多（10 万提交上全量 5 秒，限定路径或日期 0.3 秒以内）。
+fn changes_args(f: &LogFilter, text: &str) -> Vec<String> {
+    let mut a: Vec<String> = vec!["log".into(), "--format=%H".into()];
+    a.push(f.branch.clone().unwrap_or_else(|| "--all".into()));
+    a.push(if f.regex { format!("-G{text}") } else { format!("-S{text}") });
+    if !f.case_sensitive {
+        a.push("--regexp-ignore-case".into());
+    }
+    if let Some(t) = f.since {
+        a.push(format!("--since=@{t}"));
+    }
+    if let Some(t) = f.until {
+        a.push(format!("--until=@{t}"));
+    }
+    a.push("--".into());
+    if let Some(p) = f.path() {
+        a.push(path_spec(p, f.case_sensitive));
+    }
+    a
+}
+
+/// 仓库是不是部分克隆（文件内容没有全部下载）
+pub fn is_partial_clone(dir: &Path) -> bool {
+    let Ok(repo) = git2::Repository::open(dir) else { return false };
+    let Ok(cfg) = repo.config() else { return false };
+    if cfg.get_string("extensions.partialclone").is_ok_and(|v| !v.is_empty()) {
+        return true;
+    }
+    let Ok(mut entries) = cfg.entries(Some(r"remote\..*\.promisor")) else { return false };
+    let mut hit = false;
+    while let Some(Ok(e)) = entries.next() {
+        if e.value() == Ok("true") {
+            hit = true;
+        }
+    }
+    hit
 }
 
 /// 改过匹配路径的提交（在全部引用上运行 `git rev-list`，等它结束）。测试和工具用；日志过滤走后台查询。
@@ -299,38 +365,50 @@ impl Session {
         // 先把正则编译好，写错了直接报错，不用白做前面的工作
         let matcher = Matcher::new(f)?;
 
-        // 路径过滤：没有对应的后台查询就开一个
-        let path_state = match f.path() {
-            None => {
-                self.filter_cache.path = None;
-                None
-            }
-            Some(p) => {
-                let same = self.filter_cache.path.as_ref().is_some_and(|j| j.pattern == p && j.case_sensitive == f.case_sensitive);
-                if !same {
-                    let job = PathJob::start(self.path(), p, f.case_sensitive);
-                    // 刚开始的查询还没有结果：最多等 FIRST_WAIT，攒够一页或结束就返回，第一次查询就能带回首批结果
-                    let t0 = Instant::now();
-                    while t0.elapsed() < FIRST_WAIT && !job.done.load(Ordering::SeqCst) && job.hits.lock().unwrap().len() < FIRST_BATCH {
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    self.filter_cache.path = Some(job);
+        // 路径过滤和改动内容搜索：没有对应的后台查询就开一个
+        let path_key = f.path().map(|p| format!("path:{}:{p}", f.case_sensitive));
+        let changes_key = f.changes().map(|t| format!("changes:{}", serde_json::json!([t, f.regex, f.case_sensitive, f.branch, f.since, f.until, f.path()])));
+        if changes_key.is_some() && is_partial_clone(self.path()) {
+            return Err(CoreError::new(
+                ErrorCode::PartialClone,
+                "这个仓库是部分克隆，文件内容没有全部下载。在历史改动里搜索要把全部历史的文件内容下载下来，所以没有执行",
+            ));
+        }
+        let mut seen = 0;
+        let mut all_done = true;
+        for (slot, key) in [(0, path_key), (1, changes_key)] {
+            let dir = self.path().to_path_buf();
+            let cache = if slot == 0 { &mut self.filter_cache.path } else { &mut self.filter_cache.changes };
+            let Some(key) = key else {
+                *cache = None;
+                continue;
+            };
+            if cache.as_ref().is_none_or(|j| j.key != key) {
+                let job = if slot == 0 {
+                    PathJob::start(&dir, f.path().unwrap_or(""), f.case_sensitive)
+                } else {
+                    PathJob::run(&dir, key, &changes_args(f, f.changes().unwrap_or("")), "按改动内容搜索失败")
+                };
+                // 刚开始的查询还没有结果：最多等 FIRST_WAIT，攒够一页或结束就返回，第一次查询就能带回首批结果
+                let t0 = Instant::now();
+                while t0.elapsed() < FIRST_WAIT && !job.done.load(Ordering::SeqCst) && job.hits.lock().unwrap().len() < FIRST_BATCH {
+                    std::thread::sleep(Duration::from_millis(5));
                 }
-                let job = self.filter_cache.path.as_ref().expect("刚放进去");
-                let failed = job.failed.lock().unwrap().take();
-                if let Some(e) = failed {
-                    self.filter_cache.path = None;
-                    self.filter_cache.run = None;
-                    return Err(e);
-                }
-                let job = self.filter_cache.path.as_ref().expect("刚放进去");
-                // 先读 done 再读数目：读到 done 时数目一定是最终的
-                let done = job.done.load(Ordering::SeqCst);
-                let seen = job.hits.lock().unwrap().len();
-                Some((seen, done))
+                *cache = Some(job);
             }
-        };
-        let (path_seen, path_done) = path_state.unwrap_or((0, true));
+            let job = cache.as_ref().expect("刚放进去");
+            let failed = job.failed.lock().unwrap().take();
+            if let Some(e) = failed {
+                *cache = None;
+                self.filter_cache.run = None;
+                return Err(e);
+            }
+            // 先读 done 再读数目：读到 done 时数目一定是最终的
+            let done = job.done.load(Ordering::SeqCst);
+            seen += job.hits.lock().unwrap().len();
+            all_done &= done;
+        }
+        let (path_seen, path_done) = (seen, all_done);
 
         let mut run = match self.filter_cache.run.take() {
             Some(r) if r.filter == *f && r.sort == sort && r.path_seen == path_seen && r.path_done == path_done => r,
@@ -393,6 +471,12 @@ impl Session {
                     .collect();
                 rows.retain(|&r| ok[meta.author[r as usize] as usize]);
             }
+        }
+        if f.changes().is_some()
+            && let Some(job) = &self.filter_cache.changes
+        {
+            let hits = job.hits.lock().unwrap();
+            rows.retain(|&r| hits.contains(&self.ids[r as usize]));
         }
         if f.path().is_some()
             && let Some(job) = &self.filter_cache.path
@@ -498,7 +582,8 @@ struct Matcher {
 
 impl Matcher {
     fn new(f: &LogFilter) -> Result<Option<Matcher>> {
-        if f.text.is_empty() {
+        // 按改动内容搜索时文字交给 git log -S / -G，不匹配说明
+        if f.text.is_empty() || f.search_in == SearchIn::Changes {
             return Ok(None);
         }
         let pattern = if f.regex { f.text.clone() } else { regex::escape(&f.text) };
