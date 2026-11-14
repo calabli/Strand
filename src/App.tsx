@@ -14,7 +14,7 @@ import { ReflogWindow } from "./components/ReflogWindow";
 import { RemotesWindow } from "./components/RemotesWindow";
 import { BisectBar, useBisect } from "./components/BisectBar";
 import { BlameWindow } from "./components/BlameWindow";
-import { RepoList, RepoPopup, SettingsWindow } from "./components/RepoAndSettings";
+import { prefetchSettings, RepoList, RepoPopup, SettingsWindow } from "./components/RepoAndSettings";
 import { rememberRepo, settings, useRecentRepos } from "./settings";
 import { CommandPalette, SHORTCUTS, type PaletteCommand } from "./components/CommandPalette";
 import { Timeline, useOplog } from "./components/oplog";
@@ -662,6 +662,8 @@ export default function App() {
   };
   // Leave compare mode when switching repositories
   useEffect(() => setCompareBase(null), [repo?.path]);
+  // Read the settings window's Git settings ahead, so it opens complete without the page jumping
+  useEffect(() => prefetchSettings(!!repo), [repo?.path]);
   // "Compare with current branch" on a branch: from the current branch's latest commit to that branch's latest commit
   const branchOps = {
     ...ops,

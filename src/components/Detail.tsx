@@ -386,7 +386,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
           </dd>
           <dt>{t("版本号")}</dt>
           <dd className="mono">
-            <button type="button" className="linklike mono" title={t("点击复制")} onClick={() => ops.copy(commit)}>
+            <button type="button" className="linklike mono" title={`${commit.id}\n${t("点击复制")}`} onClick={() => ops.copy(commit)}>
               {commit.id}
             </button>
           </dd>

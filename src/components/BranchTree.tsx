@@ -527,7 +527,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                 return (
                   <div
                     key={m.path}
-                    className={"trow sub-row" + (ready ? "" : " gone")}
+                    className={"trow sub-row" + (ready ? "" : " uninit")}
                     title={[m.path, m.url, m.recorded && t("记录的提交 {0}", m.recorded.slice(0, 7)), m.current && m.current !== m.recorded && t("检出的提交 {0}", m.current.slice(0, 7))].filter(Boolean).join("\n")}
                     onDoubleClick={() => (ready ? sm.open(m.path) : sm.update([m.path]))}
                     onContextMenu={(e) => {

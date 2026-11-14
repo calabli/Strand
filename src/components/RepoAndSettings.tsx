@@ -287,6 +287,14 @@ export function SettingsWindow({
   onCheckUpdate?: () => void;
 }) {
   useReturnFocus();
+  // Closing fades out first (the window unmounts after the animation)
+  const [closing, setClosing] = useState(false);
+  const close = () => {
+    if (closing) return;
+    setClosing(true);
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    window.setTimeout(onClose, reduce ? 0 : 140);
+  };
   // Opened from the commit panel's "set identity": scroll to the Git settings and focus the user name
   const gitSec = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -299,7 +307,11 @@ export function SettingsWindow({
   }, [section]);
   const s = useSettings();
   // Commit signing for this repository (git config --local commit.gpgSign); hidden when no repository is open
-  const [signing, setSigning] = useState<SigningConfig | null>(null);
+  const [signing, setSigningState] = useState<SigningConfig | null>(repoOpen ? signCache : null);
+  const setSigning = (v: SigningConfig | null) => {
+    signCache = v;
+    setSigningState(v);
+  };
   const [signErr, setSignErr] = useState<string | null>(null);
   useEffect(() => {
     if (repoOpen) api.signingConfig().then(setSigning, () => setSigning(null));
@@ -317,22 +329,22 @@ export function SettingsWindow({
   );
   return (
     <div
-      className="modal-back"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      className={"modal-back" + (closing ? " closing" : "")}
+      onMouseDown={(e) => e.target === e.currentTarget && close()}
     >
       <div
         className="modal settings"
         role="dialog"
         aria-modal="true"
         aria-label={t("设置")}
-        onKeyDown={(e) => e.key === "Escape" && onClose()}
+        onKeyDown={(e) => e.key === "Escape" && close()}
       >
         <div className="set-head">
           <h2>{t("设置")}</h2>
           <button
             type="button"
             className="ib set-close"
-            onClick={onClose}
+            onClick={close}
             title={t("关闭设置（Esc）")}
             aria-label={t("关闭设置")}
           >
@@ -502,7 +514,7 @@ export function SettingsWindow({
           <button
             type="button"
             className="btn primary"
-            onClick={onClose}
+            onClick={close}
             autoFocus
           >
             {t("完成")}
@@ -660,13 +672,28 @@ function ConfigText({
   );
 }
 
+/** The last Git settings and commit signing read: the settings window shows them at once and refreshes in the background, so the page doesn't jump when they arrive */
+let gitCache: ConfigValue[] | null = null;
+let signCache: SigningConfig | null = null;
+/** Read Git settings and signing ahead (when a repository opens), so the first time the settings window opens it's complete */
+export function prefetchSettings(repoOpen: boolean) {
+  api.gitConfigGet().then((v) => (gitCache = v), () => {});
+  if (repoOpen) api.signingConfig().then((v) => (signCache = v), () => (signCache = null));
+  else signCache = null;
+}
+
 /** Git settings in the settings window: global (~/.gitconfig) or this repository (.git/config, overriding global) */
 export function GitConfigSection({ repoOpen }: { repoOpen: boolean }) {
   const [scope, setScope] = useState<ConfigScope>("global");
-  const [values, setValues] = useState<ConfigValue[] | null>(null);
+  const [values, setValuesState] = useState<ConfigValue[] | null>(gitCache);
+  const setValues = (v: ConfigValue[]) => {
+    gitCache = v;
+    setValuesState(v);
+  };
   const [loadErr, setLoadErr] = useState<string | null>(null);
   useEffect(() => {
     api.gitConfigGet().then(setValues, (e) => setLoadErr(errOf(e).message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoOpen]);
   useEffect(() => {
     if (!repoOpen) setScope("global");
