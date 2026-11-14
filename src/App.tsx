@@ -1304,7 +1304,7 @@ export default function App() {
           <CompareView
             from={compareBase}
             to={selected.id}
-            activePath={tab === "diff" && target?.kind === "compare" && target.to === selected.id ? target.path : null}
+            activePath={target?.kind === "compare" && target.to === selected.id ? target.path : null}
             onPickCommit={jumpToCommit}
             onOpenDiff={(path) => openDiff({ kind: "compare", from: compareBase, to: selected.id, path })}
             onExit={() => setCompareBase(null)}
@@ -1322,7 +1322,7 @@ export default function App() {
           onClearMulti={() => setMulti([])}
           onSquashMany={() => rebase.squashMany(multi)}
           onDropMany={() => rebase.dropMany(multi)}
-          activePath={tab === "diff" && target?.kind === "commit" && target.id === selected?.id ? target.path : null}
+          activePath={target?.kind === "commit" && target.id === selected?.id ? target.path : null}
           onOpenDiff={(c, path) => openDiff({ kind: "commit", id: c.id, path })}
           onBlame={(path, rev) => setBlame({ path, rev })}
           onFileHistory={(p) => openFile(p)}
