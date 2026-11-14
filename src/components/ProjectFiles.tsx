@@ -9,6 +9,7 @@ import { api, errOf } from "../api/commands";
 import type { ProjectSearch, RefsList, WorktreeStatus } from "../api/types";
 import { Picker, type PickItem } from "./Picker";
 import { findRegExp } from "./format";
+import { Found } from "./inlineDiff";
 import { FileTree, StatusBadge } from "./FileRow";
 import { t, tr } from "../i18n";
 
@@ -24,7 +25,7 @@ interface Props {
   /** 内容搜索时选版本用 */
   refs: RefsList | null;
   /** 打开文件；从内容搜索结果打开时带上行号和版本（空是工作区） */
-  onOpen: (path: string, at?: { line: number; rev: string | null }) => void;
+  onOpen: (path: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }) => void;
 }
 
 export function ProjectFiles({ status, active, reloadKey, refs, onOpen }: Props) {
@@ -157,21 +158,6 @@ function ContentSearch({ refs, reloadKey, onOpen }: { refs: RefsList | null; rel
     ...(refs?.tags ?? []).map((g) => ({ key: g.name, label: g.name, sub: t("标签") })),
   ];
 
-  /** 一行里匹配的地方加底色 */
-  const marked = (text: string) => {
-    if (!re) return text;
-    const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
-    const out: React.ReactNode[] = [];
-    let last = 0;
-    for (const m of text.matchAll(g)) {
-      if (m[0] === "") break;
-      out.push(text.slice(last, m.index), <mark key={m.index}>{m[0]}</mark>);
-      last = (m.index ?? 0) + m[0].length;
-    }
-    out.push(text.slice(last));
-    return out;
-  };
-
   const d = res.data;
   return (
     <>
@@ -242,9 +228,11 @@ function ContentSearch({ refs, reloadKey, onOpen }: { refs: RefsList | null; rel
               </button>
               {open &&
                 f.hits.map((h) => (
-                  <button key={h.line} type="button" className="pf-hit mono" title={t("打开 {0} 第 {1} 行", f.path, h.line)} onClick={() => onOpen(f.path, { line: h.line, rev })}>
+                  <button key={h.line} type="button" className="pf-hit mono" title={t("打开 {0} 第 {1} 行", f.path, h.line)} onClick={() => onOpen(f.path, { line: h.line, rev, find: q.trim() ? { text: q.trim(), regex, caseSensitive: cs } : null })}>
                     <span className="ln">{h.line}</span>
-                    <span className="pf-hit-text">{marked(h.text.trim())}</span>
+                    <span className="pf-hit-text">
+                      <Found t={h.text.trim()} find={re} />
+                    </span>
                   </button>
                 ))}
               {open && f.more && <p className="dim small pf-more">{t("这个文件里还有更多匹配")}</p>}

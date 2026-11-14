@@ -13,7 +13,8 @@ import type { FileDiff, FileHistory, FileText } from "../api/types";
 import { DiffView } from "./DiffView";
 import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
-import { relTime, shortId } from "./format";
+import { findRegExp, relTime, shortId } from "./format";
+import { Found } from "./inlineDiff";
 import { settings } from "../settings";
 import { t, tr } from "../i18n";
 
@@ -23,7 +24,7 @@ const MAX_LINES = 20000;
 interface Props {
   path: string;
   /** 打开后跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
-  at?: { line: number; rev: string | null; n: number } | null;
+  at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null;
   /** 工作区里这个文件有没提交的改动（或是未跟踪的） */
   changed: boolean;
   onClose: () => void;
@@ -45,6 +46,8 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
   const [text, setText] = useState<Load<FileText>>(idle);
   const [diff, setDiff] = useState<Load<FileDiff>>(idle);
   const host = useRef<HTMLDivElement>(null);
+  // 从搜索结果打开时：全文和差异里都标出搜索词（换文件后清掉）
+  const findRe = at?.find ? findRegExp(at.find.text, at.find.regex, at.find.caseSensitive) : null;
   /** 内容搜索结果指向的版本（分支名、标签都可以）和行；在修改链里点别的就清掉 */
   const [jump, setJump] = useState<{ line: number; rev: string | null } | null>(null);
   useEffect(() => {
@@ -265,9 +268,9 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
             </div>
           )}
           {req?.kind === "diff" ? (
-            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
+            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
           ) : (
-            <TextView load={text} focus={jump?.line ?? null} />
+            <TextView load={text} focus={jump?.line ?? null} find={findRe} />
           )}
         </div>
       </div>
@@ -295,7 +298,7 @@ function VersionRow({ k, sel, onPick, first, last, children }: { k: string; sel:
 }
 
 /** 文件全文，带行号 */
-function TextView({ load, focus }: { load: Load<FileText>; focus: number | null }) {
+function TextView({ load, focus, find }: { load: Load<FileText>; focus: number | null; find: RegExp | null }) {
   const f = load.data;
   const box = useRef<HTMLDivElement>(null);
   // 跳到指定的行
@@ -319,7 +322,9 @@ function TextView({ load, focus }: { load: Load<FileText>; focus: number | null 
           {lines.slice(0, MAX_LINES).map((l, i) => (
             <div key={i} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
               <span className="ln">{i + 1}</span>
-              <span className="code">{l}</span>
+              <span className="code">
+                <Found t={l} find={find} />
+              </span>
             </div>
           ))}
           {(lines.length > MAX_LINES || f.truncated) && <p className="pad dim">{t("文件太大，只显示了前面一部分")}</p>}

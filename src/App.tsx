@@ -25,7 +25,7 @@ import { FileView } from "./components/FileView";
 import { ProjectFiles } from "./components/ProjectFiles";
 import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
-import { keys, shortId } from "./components/format";
+import { findRegExp, keys, shortId } from "./components/format";
 import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
@@ -110,8 +110,8 @@ export default function App() {
   /** 中间“文件”标签里看的文件（项目文件和修改链） */
   const [fileOpen, setFileOpen] = useState<string | null>(null);
   /** 从内容搜索结果打开时：跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
-  const [fileAt, setFileAt] = useState<{ line: number; rev: string | null; n: number } | null>(null);
-  const openFile = useCallback((p: string, at?: { line: number; rev: string | null }) => {
+  const [fileAt, setFileAt] = useState<{ line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null>(null);
+  const openFile = useCallback((p: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }) => {
     setFileOpen(p);
     setFileAt(at ? { ...at, n: Date.now() } : null);
     setTab("file");
@@ -1239,6 +1239,7 @@ export default function App() {
                 setTarget(null);
                 setTab("log");
               }}
+              find={ui.searchIn === "changes" && ui.text ? findRegExp(ui.text, ui.regex, ui.caseSensitive) : null}
             />
           )}
         </main>

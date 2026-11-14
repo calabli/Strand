@@ -268,7 +268,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
                     <span className="ln">{it.line.new_no ?? ""}</span>
                     <span className="sign">{it.kind === "add" ? "+" : it.kind === "del" ? "−" : ""}</span>
                     <span className="code">
-                      <Hi t={it.line.text} other={it.pair} />
+                      <Hi t={it.line.text} other={it.pair} find={find} />
                     </span>
                   </div>
                 ))
@@ -283,7 +283,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
                         {check(i, it && it.kind !== "context" ? it : undefined)}
                         <span className="ln">{it ? (side === 0 ? it.line.old_no : it.line.new_no) ?? "" : ""}</span>
                         <span className="sign">{it?.kind === "add" ? "+" : it?.kind === "del" ? "−" : ""}</span>
-                        <span className="code">{it ? <Hi t={it.line.text} other={it.pair} /> : ""}</span>
+                        <span className="code">{it ? <Hi t={it.line.text} other={it.pair} find={find} /> : ""}</span>
                       </div>
                     ))}
                   </div>
