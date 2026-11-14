@@ -13,6 +13,7 @@ pub mod commits;
 pub mod conflict;
 mod diff;
 pub mod error;
+pub mod file_history;
 pub mod git_cli;
 pub mod graph;
 mod history;

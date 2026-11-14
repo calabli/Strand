@@ -599,3 +599,34 @@ export interface ConsoleEntry {
   /** 用时（毫秒） */
   ms?: number;
 }
+
+// ---------- 项目文件和文件修改链 ----------
+
+export interface FileText {
+  path: string;
+  /** 文字内容；二进制或不存在时没有 */
+  text?: string;
+  binary: boolean;
+  /** 这个版本（或工作区）里没有这个文件 */
+  missing: boolean;
+  size: number;
+  truncated: boolean;
+}
+
+export interface FileVersion {
+  commit: Commit;
+  /** 这个提交里文件的路径 */
+  path: string;
+  /** 这个提交把文件从哪个路径改名过来 */
+  old_path?: string;
+  status: FileChange["status"];
+  added: number;
+  deleted: number;
+  binary: boolean;
+}
+
+export interface FileHistory {
+  /** 从新到旧 */
+  versions: FileVersion[];
+  truncated: boolean;
+}

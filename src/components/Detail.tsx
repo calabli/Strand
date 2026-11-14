@@ -69,9 +69,11 @@ interface Props {
   onFilterPath: (path: string) => void;
   /** 逐行追溯这个提交里的文件 */
   onBlame: (path: string, rev: string) => void;
+  /** 打开文件视图（内容和修改链） */
+  onFileHistory: (path: string) => void;
 }
 
-export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame }: Props) {
+export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory }: Props) {
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
@@ -166,6 +168,12 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
                   </svg>
                 </button>
               )}
+              <button type="button" className="ib sm frow-act" title={t("文件历史：这个文件的修改链和版本对比")} aria-label={t("文件历史 {0}", f.path)} onClick={() => onFileHistory(f.path)}>
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                  <circle cx="7" cy="7" r="5.5" />
+                  <path d="M7 4v3.2l2 1.3" />
+                </svg>
+              </button>
               <button type="button" className="ib sm frow-act" title={t("只看改过这个文件的提交")} aria-label={t("按这个路径过滤日志")} onClick={() => onFilterPath(f.path)}>
                 <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
                   <path d={FILTER_ICONS.funnel} />

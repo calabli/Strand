@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  FileHistory,
+  FileText,
   ChangeMark,
   ChangeScope,
   FinishResult,
@@ -228,6 +230,14 @@ export const api = {
   /** 把文字写到保存对话框选的路径 */
   fileSave: (path: string, text: string): Promise<null> => (inTauri ? call("file_save", { path, text }) : Promise.resolve(null)),
   commitTree: (id: string): Promise<string[]> => (inTauri ? call("commit_tree", { id }) : mock.commitTree()),
+  // 项目文件和文件修改链
+  projectFiles: (): Promise<string[]> => (inTauri ? call("project_files") : mock.projectFiles()),
+  /** rev 为空时是工作区里的内容 */
+  fileText: (path: string, rev: string | null = null): Promise<FileText> => (inTauri ? call("file_text", { path, rev }) : mock.fileText(path, rev)),
+  fileHistory: (path: string): Promise<FileHistory> => (inTauri ? call("file_history", { path }) : mock.fileHistory(path)),
+  /** from 为空是新增（旧的一边没有），to 为空是工作区 */
+  fileDiffVersions: (from: string | null, fromPath: string, to: string | null, toPath: string): Promise<FileDiff> =>
+    inTauri ? call("file_diff_versions", { from, fromPath, to, toPath }) : mock.fileDiffVersions(from, fromPath, to, toPath),
   stashList: (): Promise<StashEntry[]> => (inTauri ? call("stash_list") : mock.stashList()),
   stashFiles: (index: number): Promise<FileChange[]> => (inTauri ? call("stash_files", { index }) : mock.stashFiles(index)),
   stashPush: (message: string | null = null): Promise<Written<null>> => (inTauri ? call("stash_push", { message }) : mock.stashPush()),

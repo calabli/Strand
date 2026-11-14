@@ -127,17 +127,33 @@ const FOLDER = "M1.5 3.5h4l1.5 1.5h5.5v6.5h-11z";
  * 文件的目录树（说明书 4.7、5.5 的“按目录分组”改为树形）：目录行可以折叠，折叠状态在这个列表里记着，换内容时保留。
  * leaf 画一个文件行，depth 传给 FileRow。
  */
-export function FileTree<T>({ items, pathOf, leaf }: { items: T[]; pathOf: (x: T) => string; leaf: (x: T, depth: number) => ReactNode }) {
-  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+export function FileTree<T>({
+  items,
+  pathOf,
+  leaf,
+  startClosed,
+  forceOpen,
+}: {
+  items: T[];
+  pathOf: (x: T) => string;
+  leaf: (x: T, depth: number) => ReactNode;
+  /** 目录一开始都折叠（项目文件树：文件多） */
+  startClosed?: boolean;
+  /** 全部展开（搜索时） */
+  forceOpen?: boolean;
+}) {
+  // 记的是和默认状态相反的目录：默认展开时记折叠的，默认折叠时记展开的
+  const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
+  const isOpen = (path: string) => forceOpen || flipped.has(path) === !!startClosed;
   const toggle = (path: string) =>
-    setClosed((s) => {
+    setFlipped((s) => {
       const n = new Set(s);
       if (n.has(path)) n.delete(path);
       else n.add(path);
       return n;
     });
   const dir = (d: TreeDir<T>, depth: number): ReactNode => {
-    const open = !closed.has(d.path);
+    const open = isOpen(d.path);
     return (
       <div key={d.path} role="group" aria-label={d.path}>
         <button
@@ -146,7 +162,7 @@ export function FileTree<T>({ items, pathOf, leaf }: { items: T[]; pathOf: (x: T
           style={{ paddingLeft: indentOf(depth) }}
           title={d.path.replace(/\/$/, "")}
           aria-expanded={open}
-          onClick={() => toggle(d.path)}
+          onClick={() => !forceOpen && toggle(d.path)}
         >
           <span className={"fdir-caret" + (open ? " open" : "")} aria-hidden="true">
             ▸

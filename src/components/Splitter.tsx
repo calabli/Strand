@@ -7,7 +7,7 @@ import { useRef } from "react";
 import { DEFAULTS, setSettings, settings, type Settings } from "../settings";
 import { t } from "../i18n";
 
-type Key = "paneLeft" | "paneRight" | "paneTree" | "detailFiles" | "detailInfo";
+type Key = "paneLeft" | "paneRight" | "paneTree" | "detailFiles" | "detailInfo" | "paneHistory";
 
 interface Props {
   /** 设置里的哪个尺寸 */

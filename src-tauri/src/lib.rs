@@ -792,6 +792,41 @@ async fn commit_tree(state: State<'_, AppState>, id: String) -> CmdResult<Vec<St
     with_repo(&state, move |s| s.commit_tree(&id)).await
 }
 
+/// 项目文件（左侧的文件目录树）：已跟踪的和没被忽略的未跟踪文件。在后台跑，不占着仓库
+#[tauri::command]
+async fn project_files(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::Session::open(&path)?.project_files())
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+/// 文件内容：rev 为空时是工作区里的
+#[tauri::command]
+async fn file_text(state: State<'_, AppState>, path: String, rev: Option<String>) -> CmdResult<strand_core::file_history::FileText> {
+    with_repo(&state, move |s| s.file_text(&path, rev.as_deref())).await
+}
+
+/// 文件修改链：git log --follow 在后台跑（长历史上要几秒），跑完再补上引用
+#[tauri::command]
+async fn file_history(state: State<'_, AppState>, path: String) -> CmdResult<strand_core::file_history::FileHistory> {
+    let dir = repo_path(&state)?;
+    let mut h = tauri::async_runtime::spawn_blocking(move || strand_core::file_history::history_at(&dir, &path))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))??;
+    with_repo(&state, move |s| {
+        s.fill_versions(&mut h);
+        Ok(h)
+    })
+    .await
+}
+
+/// 同一个文件两个版本之间的差异：from 为空是新增，to 为空是工作区
+#[tauri::command]
+async fn file_diff_versions(state: State<'_, AppState>, from: Option<String>, from_path: String, to: Option<String>, to_path: String) -> CmdResult<FileDiff> {
+    with_repo(&state, move |s| s.file_diff_versions(from.as_deref(), &from_path, to.as_deref(), &to_path)).await
+}
+
 /// 把文字写到用户在系统保存对话框里选的路径（保存补丁用）
 #[tauri::command]
 async fn file_save(path: String, text: String) -> CmdResult<()> {
@@ -1082,6 +1117,10 @@ pub fn run(adopted: Option<u128>) {
             patch_commit,
             patch_worktree,
             commit_tree,
+            project_files,
+            file_text,
+            file_history,
+            file_diff_versions,
             file_save,
             changes_discard,
             untracked_add,

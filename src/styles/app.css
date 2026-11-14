@@ -743,3 +743,48 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .tooltip { position: fixed; z-index: 1000; max-width: 320px; padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--win);
   font-size: 12px; line-height: 1.45; white-space: pre-line; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
 .tb-lang { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; min-width: 28px; }
+
+/* 项目文件（左侧面板的“文件”标签） */
+.pfiles { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pf-bar { display: flex; align-items: center; gap: 4px; padding: 8px 8px 4px; }
+.pf-bar .pk-q { flex: 1; min-width: 0; }
+.pf-sub { padding: 0 12px 4px; }
+.pf-list { flex: 1; min-height: 0; overflow: auto; padding: 0 4px 8px; }
+.prow .fpath.changed { color: var(--accent-ink); }
+.prow .frow-main { gap: 6px; }
+.prow .st { margin-left: auto; }
+
+/* 文件视图：左边修改链，右边内容或差异 */
+.fview { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.fv-bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.fv-path { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fv-body { flex: 1; min-height: 0; display: flex; position: relative; }
+.fv-list { width: var(--pane-history, 320px); flex-shrink: 0; overflow: auto; user-select: none; border-right: 1px solid var(--line); padding: 6px 6px 12px 0; outline: none; }
+.fv-body > .splitter.paneHistory { left: var(--pane-history, 320px); }
+.fv-tip { margin: 0 0 6px 12px; }
+.fv-row { display: flex; gap: 8px; padding: 6px 8px 6px 0; border-radius: 0 8px 8px 0; cursor: pointer; position: relative; }
+.fv-row:hover { background: var(--hover); }
+.fv-row.on { background: var(--chip); }
+.fv-dot { width: 26px; flex-shrink: 0; position: relative; }
+/* 时间线：竖线串起各个版本，圆点是一个版本；最上面一个不往上画、最下面一个不往下画 */
+.fv-dot::before { content: ""; position: absolute; left: 12px; top: 0; bottom: -6px; width: 2px; background: var(--line2); }
+.fv-row.first .fv-dot::before { top: 12px; }
+.fv-row.last .fv-dot::before { bottom: calc(100% - 12px); }
+.fv-dot::after { content: ""; position: absolute; left: 7px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--win); border: 2px solid var(--accent); }
+.fv-row.first .fv-dot::after { border-style: dashed; }
+.fv-row.on .fv-dot::after { background: var(--accent); }
+.fv-n { position: absolute; left: 0; top: 22px; width: 26px; text-align: center; font-size: 10px; font-weight: 700; color: var(--accent-ink); }
+.fv-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fv-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fv-meta { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.fv-row:hover .frow-act, .fv-row .frow-act:focus-visible { visibility: visible; }
+.fv-ren { overflow: hidden; text-overflow: ellipsis; }
+.fv-tag.warn { padding: 0 5px; border-radius: 4px; background: var(--pend-bg); color: var(--pend-ink); }
+.fv-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.fv-mode { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.fv-text { flex: 1; min-height: 0; overflow: auto; padding: 8px 0; user-select: text; }
+.tv { font-size: 12px; line-height: 20px; min-width: max-content; }
+.tv.stale { opacity: 0.6; }
+.tv-line { display: grid; grid-template-columns: 56px minmax(0, 1fr); }
+.tv-line:hover { background: var(--hover); }
+.tv-line .code { white-space: pre; padding-right: 16px; }

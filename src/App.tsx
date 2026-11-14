@@ -21,6 +21,8 @@ import { Menu, type MenuEntry, type MenuState } from "./components/Menu";
 import { PullPanel, PushDialog, useRemoteOps } from "./components/remoteOps";
 import { CommitPanel } from "./components/CommitPanel";
 import { Detail } from "./components/Detail";
+import { FileView } from "./components/FileView";
+import { ProjectFiles } from "./components/ProjectFiles";
 import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
 import { keys, shortId } from "./components/format";
@@ -104,7 +106,15 @@ export default function App() {
   const panesRef = useRef<HTMLDivElement>(null);
   const logSplitRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<WorktreeStatus | null>(null);
-  const [tab, setTab] = useState<"log" | "console" | "diff">("log");
+  const [tab, setTab] = useState<"log" | "console" | "diff" | "file">("log");
+  /** 中间“文件”标签里看的文件（项目文件和修改链） */
+  const [fileOpen, setFileOpen] = useState<string | null>(null);
+  const openFile = useCallback((p: string) => {
+    setFileOpen(p);
+    setTab("file");
+  }, []);
+  /** 控制台和文件视图用中间加右边的宽度，不显示提交详情 */
+  const wide = tab === "console" || tab === "file";
   const [target, setTarget] = useState<DiffTarget | null>(null);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null }>({
     data: null,
@@ -415,7 +425,7 @@ export default function App() {
   };
 
   // 暂存架和贮藏（说明书 4.9）
-  const [panel, setPanel] = useState<"commit" | "shelf" | "stash">("commit");
+  const [panel, setPanel] = useState<"commit" | "shelf" | "stash" | "files">("commit");
   const ss = useStashShelf({ refreshKey: logKey, ask, done: doneCb, failed: failedCb, say });
   const ssRefresh = useRef(ss.refresh);
   ssRefresh.current = ss.refresh;
@@ -874,6 +884,10 @@ export default function App() {
       { id: "panel", section: m, icon: COMMIT_ICONS.sidebar, label: panelOpen ? t("隐藏提交面板") : t("显示提交面板"), run: togglePanel },
       { id: "shelf", section: m, icon: COMMIT_ICONS.shelf, label: t("打开暂存架"), run: () => setPanel("shelf") },
       { id: "stash", section: m, icon: COMMIT_ICONS.stash, label: t("打开贮藏"), run: () => setPanel("stash") },
+      { id: "files", section: m, icon: COMMIT_ICONS.tree, label: t("项目文件（目录树和文件修改链）"), run: () => {
+        setPanel("files");
+        if (!panelOpen) togglePanel();
+      } },
       { id: "stash-push", section: m, icon: COMMIT_ICONS.stash, label: t("贮藏全部改动"), run: ss.stash, disabled: !normal, why: busyWhy },
       { id: "reload", section: m, icon: COMMIT_ICONS.reload, label: t("重新读取仓库"), run: reload },
       { id: "repos", section: m, icon: COMMIT_ICONS.repo, label: t("切换仓库…"), run: () => setRepoPop({ x: 12, y: 48 }) },
@@ -973,7 +987,7 @@ export default function App() {
           command={conflictCmd}
         />
       ) : (
-      <div ref={panesRef} style={paneVars(settings())} className={"panes" + (tab === "console" ? " no-detail" : "") + (panelOpen ? "" : " no-panel")}>
+      <div ref={panesRef} style={paneVars(settings())} className={"panes" + (wide ? " no-detail" : "") + (panelOpen ? "" : " no-panel")}>
         {/* 分隔线（拖动调整宽度）：中间至少留 420 像素 */}
         {panelOpen && (
           <Splitter
@@ -981,11 +995,11 @@ export default function App() {
             host={panesRef}
             grow="right"
             min={260}
-            max={() => (panesRef.current?.clientWidth ?? 1200) - (tab === "console" ? 0 : settings().paneRight) - 420}
+            max={() => (panesRef.current?.clientWidth ?? 1200) - (wide ? 0 : settings().paneRight) - 420}
             label={t("调整提交面板的宽度")}
           />
         )}
-        {tab !== "console" && (
+        {!wide && (
           <Splitter
             name="paneRight"
             host={panesRef}
@@ -1003,6 +1017,7 @@ export default function App() {
                 ["commit", t("提交"), 0],
                 ["shelf", t("暂存架"), ss.shelves.length],
                 ["stash", t("贮藏"), ss.stashes.length],
+                ["files", t("文件"), 0],
               ] as const
             ).map(([k, label, n]) => (
               <button key={k} type="button" role="tab" aria-selected={panel === k} onClick={() => setPanel(k)}>
@@ -1011,6 +1026,14 @@ export default function App() {
               </button>
             ))}
           </div>
+          {panel === "files" && (
+            <ProjectFiles
+              status={status}
+              active={tab === "file" ? fileOpen : null}
+              reloadKey={`${logKey}|${status?.untracked.length ?? 0}|${status?.changes.length ?? 0}`}
+              onOpen={openFile}
+            />
+          )}
           {panel === "shelf" && (
             <ShelfPanel
               ops={ss}
@@ -1065,6 +1088,11 @@ export default function App() {
             <button type="button" role="tab" aria-selected={tab === "console"} onClick={() => setTab("console")}>
               {t("控制台")}
             </button>
+            {fileOpen && (
+              <button type="button" role="tab" aria-selected={tab === "file"} onClick={() => setTab("file")} title={fileOpen}>
+                {t("文件 ·")} {fileOpen.split("/").pop()}
+              </button>
+            )}
             {target && (
               <button type="button" role="tab" aria-selected={tab === "diff"} onClick={() => setTab("diff")}>
                 {t("差异 ·")} {target.path.split("/").pop()}
@@ -1168,6 +1196,18 @@ export default function App() {
             </div>
           </div>
           {tab === "console" && <ConsoleView onToast={say} />}
+          {tab === "file" && fileOpen && (
+            <FileView
+              path={fileOpen}
+              changed={!!status && (status.changes.some((c) => c.path === fileOpen) || status.untracked.includes(fileOpen))}
+              onClose={() => {
+                setFileOpen(null);
+                setTab("log");
+              }}
+              onLocate={(id) => locate(id)}
+              onBlame={(path, rev) => setBlame({ path, rev })}
+            />
+          )}
           {tab === "diff" && target && (
             <DiffView
               diff={diff.data}
@@ -1198,7 +1238,7 @@ export default function App() {
           )}
         </main>
         {/* 控制台用整个宽度，不显示提交详情 */}
-        {tab === "console" ? null : compareBase && selected && selected.id !== compareBase && multi.length < 2 ? (
+        {wide ? null : compareBase && selected && selected.id !== compareBase && multi.length < 2 ? (
           <CompareView
             from={compareBase}
             to={selected.id}
@@ -1223,6 +1263,7 @@ export default function App() {
           activePath={tab === "diff" && target?.kind === "commit" && target.id === selected?.id ? target.path : null}
           onOpenDiff={(c, path) => openDiff({ kind: "commit", id: c.id, path })}
           onBlame={(path, rev) => setBlame({ path, rev })}
+          onFileHistory={openFile}
           onFilterPath={(path) => {
             setUi((u) => ({ ...u, path }));
             setTab("log");

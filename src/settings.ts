@@ -33,9 +33,11 @@ export interface Settings {
   /** 提交详情里上下拖动的高度（像素）：文件列表、提交信息（显示差异框时）；null 是自动 */
   detailFiles: number | null;
   detailInfo: number | null;
+  /** 文件视图里修改链那一栏的宽度 */
+  paneHistory: number;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320 };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

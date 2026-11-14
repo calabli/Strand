@@ -749,3 +749,48 @@ export const setFavorite = (name: string, favorite: boolean) => {
   refs = { ...refs, branches: refs.branches.map((b) => (b.name === name ? { ...b, favorite } : b)) };
   return delay(null);
 };
+
+// ---------- 项目文件和文件修改链 ----------
+
+const PROJECT = [
+  ".gitignore", "Cargo.lock", "Cargo.toml", "README.md",
+  "benches/graph_layout.rs",
+  "docs/design.md", "docs/images/graph.png",
+  "src/graph/cache.rs", "src/graph/layout.rs", "src/graph/mod.rs",
+  "src/lib.rs", "src/main.rs",
+  "src/sync/fetch.rs", "src/sync/old_log.rs",
+  "src/ui/commit_panel.tsx", "src/ui/graph_view.rs", "src/ui/panel.tsx",
+  "notes/todo.md", "scratch/tmp.log",
+];
+export const projectFiles = () => delay(PROJECT);
+
+export function fileText(path: string, rev: string | null) {
+  const binary = path.endsWith(".png");
+  const n = path.endsWith(".md") ? 24 : 80;
+  const lines = Array.from({ length: n }, (_, i) =>
+    i % 9 === 0 ? `// ${path} 第 ${i + 1} 行${rev ? `（版本 ${rev.slice(0, 7)}）` : ""}` : i % 9 === 4 ? "" : `    let value_${i} = compute(${i}, &state);`,
+  );
+  return delay({ path, text: binary ? undefined : lines.join("\n") + "\n", binary, missing: false, size: binary ? 48213 : lines.join("\n").length, truncated: false });
+}
+
+export function fileHistory(path: string) {
+  // 每隔几个提交改一次；中间改过一次名（layout.rs 以前叫 lanes.rs）
+  const versions = Array.from({ length: 14 }, (_, k) => {
+    const c = commitAt(k * 7 + 1);
+    const last = k === 13;
+    const renamed = path === "src/graph/layout.rs" && k === 8;
+    const old = path === "src/graph/layout.rs" && k > 8;
+    return {
+      commit: c,
+      path: old ? "src/graph/lanes.rs" : path,
+      old_path: renamed ? "src/graph/lanes.rs" : undefined,
+      status: last ? ("A" as const) : renamed ? ("R" as const) : ("M" as const),
+      added: last ? 80 : (k * 7) % 23 + 1,
+      deleted: last ? 0 : (k * 5) % 11,
+      binary: path.endsWith(".png"),
+    };
+  });
+  return delay({ versions, truncated: false });
+}
+
+export const fileDiffVersions = (_from: string | null, _fromPath: string, _to: string | null, toPath: string) => diffFile(toPath);
