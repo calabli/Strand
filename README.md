@@ -36,6 +36,7 @@ pnpm tauri build --bundles app,dmg
 
 - 只打本机架构（arm64）。Intel Mac 用的版本要先 `rustup target add x86_64-apple-darwin`，再加 `--target universal-apple-darwin` 打通用包。
 - 最低系统版本是 macOS 12（`tauri.conf.json` 的 `bundle.macOS.minimumSystemVersion`）。
+- 从访达或程序坞启动时，应用会读一次登录 shell 的 PATH，用和终端里同一个 git（否则会用系统自带的 /usr/bin/git，读钥匙串里的 GitHub 凭据时 macOS 会弹窗要登录密码）。设置环境变量 `STRAND_KEEP_PATH=1` 可以关掉。
 - 现在是临时签名（`signingIdentity: "-"`）：本机能直接运行，`codesign --verify --deep --strict` 能通过。发给别人时，对方第一次打开会被系统拦下，要在 Finder 里右键选“打开”。正式分发需要 Developer ID 证书签名再公证，本机目前只有开发证书。
 
 在真实仓库上测打开速度：

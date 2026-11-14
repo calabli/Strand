@@ -6,5 +6,10 @@ fn main() {
     if let Some(code) = strand_core::askpass::client_main() {
         std::process::exit(code);
     }
-    strand_lib::run()
+    // 从访达、程序坞启动时用终端里的 PATH，这样用的是同一个 git（凭据、配置一致）
+    #[cfg(unix)]
+    let adopted = strand_core::shell_path::adopt_login_path();
+    #[cfg(not(unix))]
+    let adopted: Option<u128> = None;
+    strand_lib::run(adopted)
 }

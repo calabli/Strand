@@ -471,6 +471,7 @@ export const en: Record<string, string> = {
   "Squash Into：并入并修改说明…": "Squash Into: fold in and edit the message…",
   "在这里新建标签…": "New tag here…",
   "已撤销：{0}": "Undone: {0}",
+  "从访达启动：使用登录 shell 的 PATH（读取用了 {0} ms）": "Launched from Finder: using the login shell's PATH (took {0} ms to read)",
   "已退回到“{0}”之前": "Went back to before “{0}”",
   "撤销已经推送的操作": "Undo an operation that was already pushed",
   "这一步之后已经推送过。撤销后本地会和远程不一致，需要强制推送才能让远程也回去。": "Something was pushed after this step. Undoing it makes your local branch differ from the remote, and you'll need to force-push to bring the remote back too.",

@@ -1050,14 +1050,18 @@ fn console_clear() {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+/// `adopted`：启动时并入了登录 shell 的 PATH，用了多少毫秒（写进控制台和日志，方便排查用的是哪个 git）
+pub fn run(adopted: Option<u128>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
-        .setup(|app| {
+        .setup(move |app| {
             setup_askpass(app.handle().clone());
             setup_console(app.handle().clone());
+            if let Some(ms) = adopted {
+                strand_core::console::note(&format!("从访达启动：使用登录 shell 的 PATH（读取用了 {ms} ms）"));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
