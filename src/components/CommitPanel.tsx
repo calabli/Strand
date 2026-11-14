@@ -55,6 +55,10 @@ interface Props {
   onFileMenu: (path: string, x: number, y: number) => void;
   /** Refresh in the tool row: re-read worktree status */
   onRefresh: () => void;
+  /** Changes when the settings window closes: re-read the commit identity */
+  configKey?: number;
+  /** Open the Git settings (no commit identity set) */
+  onOpenGitSettings?: () => void;
 }
 
 const DISCARD_ICON = "M4.5 2 1.5 5l3 3M1.5 5h7a4 4 0 0 1 0 8H6";
@@ -84,7 +88,7 @@ const DIFF_ICON = "M3.5 1.5h7v11h-7zM5.5 5h3M7 3.5v3M5.5 9.5h3";
 const GROUP_ICON = "M1.5 3h4l1 1.5h6V12h-11zM4 7.5h6M4 9.5h4";
 const QUICK_SHELF_ICON = "M1.5 7h11M1.5 10.5h11M3 7v3.5M11 7v3.5M7 1v4M5 3l2 2 2-2";
 
-export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onRefresh }: Props) {
+export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onRefresh, configKey, onOpenGitSettings }: Props) {
   const groupDir = useSettings().groupByDir;
   // Whether the "Changes" node is expanded or collapsed (spec §4.1)
   const [changesOpen, setChangesOpen] = useState(true);
@@ -115,7 +119,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     return () => {
       live = false;
     };
-  }, [repoPath]);
+  }, [repoPath, configKey]);
   /** After committing: the message box goes back to the template and message history is re-read */
   const afterCommit = () => {
     setMsg(template ?? "");
@@ -871,6 +875,16 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                 runStep("check", files, false);
               }}
             />
+          )}
+          {compose && !compose.me && (
+            <div className="cp-ident" role="note">
+              <span>{t("还没有设置提交用的用户名和邮箱，提交会失败")}</span>
+              {onOpenGitSettings && (
+                <button type="button" className="btn sm" onClick={onOpenGitSettings}>
+                  {t("去设置")}
+                </button>
+              )}
+            </div>
           )}
           {showAuthor && <AuthorOptions repoPath={repoPath} me={compose?.me ?? null} author={author} setAuthor={setAuthor} msg={msg} setMsg={setMsg} />}
           {history && (

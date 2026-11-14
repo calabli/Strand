@@ -4,9 +4,9 @@
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { GitInfo, SigningConfig } from "../api/types";
+import type { ConfigScope, ConfigValue, GitInfo, SigningConfig } from "../api/types";
 import { api, errOf } from "../api/commands";
-import { lang, langSetting, setLang, t, tr, type LangSetting } from "../i18n";
+import { lang, langSetting, lazy, setLang, t, tr, type LangSetting } from "../i18n";
 import { forgetRepo, setSettings, togglePin, useRecentRepos, useSettings, type RecentRepo, type Settings } from "../settings";
 import { formatTime } from "./format";
 
@@ -136,8 +136,18 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 }
 
 /** Settings window */
-export function SettingsWindow({ git, onClose, repoOpen, onRemotes }: { git: GitInfo | null; onClose: () => void; repoOpen?: boolean; onRemotes?: () => void }) {
+export function SettingsWindow({ git, onClose, repoOpen, onRemotes, section }: { git: GitInfo | null; onClose: () => void; repoOpen?: boolean; onRemotes?: () => void; section?: "git" }) {
   useReturnFocus();
+  // Opened from the commit panel's "set identity": scroll to the Git settings and focus the user name
+  const gitSec = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (section !== "git") return;
+    const id = window.setTimeout(() => {
+      gitSec.current?.scrollIntoView({ block: "start" });
+      gitSec.current?.querySelector<HTMLInputElement>("input")?.focus();
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [section]);
   const s = useSettings();
   // Commit signing for this repository (git config --local commit.gpgSign); hidden when no repository is open
   const [signing, setSigning] = useState<SigningConfig | null>(null);
@@ -235,6 +245,9 @@ export function SettingsWindow({ git, onClose, repoOpen, onRemotes }: { git: Git
           )}
         <div className="set-sec dim">{t("启动")}</div>
         {row(t("启动时打开上次的仓库"), <Toggle on={s.reopenLast} label={t("启动时打开上次的仓库")} onChange={(v) => set({ reopenLast: v })} />)}
+        <div ref={gitSec}>
+          <GitConfigSection repoOpen={!!repoOpen} />
+        </div>
         <div className="set-sec dim">Git</div>
         {row(t("系统 Git"), <span className="mono dim">{git?.version ?? t("没有找到")}</span>, t("Strand 使用系统里安装的 Git，最低版本 {0}", git?.min_version ?? "2.30"))}
         <div className="modal-btns">
@@ -244,5 +257,210 @@ export function SettingsWindow({ git, onClose, repoOpen, onRemotes }: { git: Git
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- Git settings (user.name, user.email, proxy, line endings, default branch) ----------
+
+type FieldKind = { kind: "text"; placeholder: string } | { kind: "choice"; options: [string, string][] };
+
+/** The editable keys, in display order */
+const GIT_FIELDS = lazy((): { key: string; label: string; hint: string; field: FieldKind; globalOnly?: boolean }[] => [
+  { key: "user.name", label: t("用户名"), hint: t("写进每个提交的作者名"), field: { kind: "text", placeholder: t("如 Lin Xia") } },
+  { key: "user.email", label: t("邮箱"), hint: t("写进每个提交的作者邮箱；托管平台按它认出是谁"), field: { kind: "text", placeholder: "name@example.com" } },
+  {
+    key: "http.proxy",
+    label: t("代理"),
+    hint: t("抓取、拉取、推送和克隆 https 地址时走这个代理（http.proxy）；ssh 地址不走它"),
+    field: { kind: "text", placeholder: "http://127.0.0.1:7890" },
+  },
+  { key: "https.proxy", label: t("HTTPS 代理"), hint: t("只给 https 地址单独设代理时才填；不填时用上面的代理"), field: { kind: "text", placeholder: "socks5://127.0.0.1:1080" } },
+  {
+    key: "core.autocrlf",
+    label: t("换行符"),
+    hint: t("core.autocrlf：Windows 上一般选“提交时转 LF，检出转 CRLF”，macOS 上选“提交时转 LF”"),
+    field: {
+      kind: "choice",
+      options: [
+        ["", t("不设置")],
+        ["true", t("提交时转 LF，检出转 CRLF")],
+        ["input", t("提交时转 LF")],
+        ["false", t("不转换")],
+      ],
+    },
+  },
+  { key: "init.defaultBranch", label: t("新仓库的默认分支"), hint: t("git init 时第一个分支的名字（init.defaultBranch）"), field: { kind: "text", placeholder: "main" }, globalOnly: true },
+]);
+
+/** One text setting: saved on Enter or when focus leaves; Esc reverts */
+function ConfigText({ id, value, placeholder, onSave }: { id: string; value: string; placeholder: string; onSave: (v: string) => Promise<string | null> }) {
+  const [v, setV] = useState(value);
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setV(value), [value]);
+  const save = async () => {
+    if (v.trim() === value) return setV(value);
+    const e = await onSave(v);
+    setErr(e);
+    if (!e) {
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1500);
+    }
+  };
+  return (
+    <div className="gc-field">
+      <div className="gc-input">
+        <input
+          id={id}
+          className="mono"
+          value={v}
+          placeholder={placeholder}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          aria-invalid={!!err}
+          onChange={(e) => {
+            setV(e.target.value);
+            setErr(null);
+          }}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            } else if (e.key === "Escape" && v !== value) {
+              e.stopPropagation();
+              setV(value);
+              setErr(null);
+            }
+          }}
+        />
+        {value && (
+          <button
+            type="button"
+            className="ib xs"
+            title={t("清除")}
+            aria-label={t("清除")}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={async () => {
+              setV("");
+              setErr(await onSave(""));
+            }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {err ? (
+        <span className="err small" role="alert">
+          {tr(err)}
+        </span>
+      ) : saved ? (
+        <span className="ok-ink small">{t("已保存")}</span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Git settings in the settings window: global (~/.gitconfig) or this repository (.git/config, overriding global) */
+export function GitConfigSection({ repoOpen }: { repoOpen: boolean }) {
+  const [scope, setScope] = useState<ConfigScope>("global");
+  const [values, setValues] = useState<ConfigValue[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  useEffect(() => {
+    api.gitConfigGet().then(setValues, (e) => setLoadErr(errOf(e).message));
+  }, [repoOpen]);
+  useEffect(() => {
+    if (!repoOpen) setScope("global");
+  }, [repoOpen]);
+  const of = (key: string) => values?.find((v) => v.key === key);
+  const inScope = (key: string) => (scope === "global" ? of(key)?.global : of(key)?.local) ?? "";
+  // Proxy: on when git's keys are set in this scope; the address is remembered in strand.* keys while off
+  const proxyOn = !!(inScope("http.proxy") || inScope("https.proxy"));
+  const proxyAddr = (real: string, saved: string) => inScope(saved) || inScope(real);
+  const hasProxyAddr = !!(proxyAddr("http.proxy", "strand.httpProxy") || proxyAddr("https.proxy", "strand.httpsProxy"));
+  const [proxyErr, setProxyErr] = useState<string | null>(null);
+  const save = (key: string) => async (v: string) => {
+    const first = (key === "http.proxy" || key === "https.proxy") && !hasProxyAddr;
+    try {
+      let next = await api.gitConfigSet(scope, key, v.trim() || null);
+      // The first address entered turns the proxy on
+      if (first && v.trim()) next = await api.gitProxyEnable(scope, true);
+      setValues(next);
+      return null;
+    } catch (e) {
+      return errOf(e).message;
+    }
+  };
+  const toggleProxy = async (on: boolean) => {
+    setProxyErr(null);
+    try {
+      setValues(await api.gitProxyEnable(scope, on));
+    } catch (e) {
+      setProxyErr(errOf(e).message);
+    }
+  };
+  return (
+    <>
+      <div className="set-sec dim">{t("Git 配置")}</div>
+      {repoOpen && (
+        <div className="set-row">
+          <div>
+            <div>{t("改哪里的配置")}</div>
+            <div className="dim small">{scope === "global" ? t("全局：对这台电脑上所有仓库生效（~/.gitconfig）") : t("这个仓库：只对当前仓库生效，覆盖全局的值（.git/config）")}</div>
+          </div>
+          <Choice<ConfigScope>
+            value={scope}
+            options={[
+              ["global", t("全局")],
+              ["local", t("这个仓库")],
+            ]}
+            onChange={setScope}
+          />
+        </div>
+      )}
+      {loadErr && <p className="err small">{tr(loadErr)}</p>}
+      {!values && !loadErr && <p className="dim small">{t("正在读取…")}</p>}
+      {values &&
+        GIT_FIELDS.filter((f) => scope === "global" || !f.globalOnly).map((f) => {
+          const cv = of(f.key);
+          const isProxy = f.key === "http.proxy" || f.key === "https.proxy";
+          const mine = isProxy ? proxyAddr(f.key, f.key === "http.proxy" ? "strand.httpProxy" : "strand.httpsProxy") : ((scope === "global" ? cv?.global : cv?.local) ?? "");
+          // In the repository scope, show what it falls back to
+          const inherited = scope === "local" ? (cv?.global ?? (cv?.effective && !cv.local ? cv.effective : null)) : null;
+          const id = `gc-${scope}-${f.key}`;
+          return (
+            <div className="set-row gc-row" key={id}>
+              <div>
+                <label htmlFor={f.field.kind === "text" ? id : undefined}>{f.label}</label>
+                <div className="dim small">{f.hint}</div>
+                {scope === "global" && cv?.local && <div className="dim small">{t("当前仓库里另设了：{0}", cv.local)}</div>}
+                {f.key === "http.proxy" &&
+                  (proxyErr ? (
+                    <div className="err small">{tr(proxyErr)}</div>
+                  ) : !proxyOn && hasProxyAddr ? (
+                    <div className="dim small gc-off">
+                      {scope === "local" && of("http.proxy")?.global ? t("已关闭：这个仓库沿用全局的代理，填的地址留着") : t("已关闭：Git 不走代理，填的地址留着，打开就恢复")}
+                    </div>
+                  ) : null)}
+              </div>
+              {f.key === "http.proxy" ? (
+                <div className="gc-proxy">
+                  <Toggle on={proxyOn} label={t("使用代理")} onChange={(v) => void toggleProxy(v)} />
+                  <ConfigText id={id} value={mine} placeholder={inherited ? t("沿用全局：{0}", inherited) : f.field.kind === "text" ? f.field.placeholder : ""} onSave={save(f.key)} />
+                </div>
+              ) : f.field.kind === "text" ? (
+                <ConfigText id={id} value={mine} placeholder={inherited ? t("沿用全局：{0}", inherited) : f.field.placeholder} onSave={save(f.key)} />
+              ) : (
+                <Choice<string>
+                  value={mine}
+                  options={f.field.options.map(([v, l]) => [v, v === "" && inherited ? t("沿用全局（{0}）", inherited) : l] as [string, string])}
+                  onChange={(v) => void save(f.key)(v)}
+                />
+              )}
+            </div>
+          );
+        })}
+    </>
   );
 }

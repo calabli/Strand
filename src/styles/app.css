@@ -1104,3 +1104,23 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .cf-preview { flex: 1 0 100%; padding-bottom: 8px; }
 .cf-preview .imd { padding: 4px 0 0; }
 .imd.sides .imd-pane { border-color: var(--line); }
+
+/* Git settings */
+.modal.settings { max-height: calc(100vh - 32px); overflow: auto; }
+.gc-row > div:first-child { min-width: 0; }
+.gc-row label { display: block; }
+.gc-field { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; width: 256px; }
+.gc-field .err, .gc-field .ok-ink { text-align: right; line-height: 1.4; }
+.gc-input { display: flex; align-items: center; gap: 2px; }
+.gc-input input { width: 230px; height: 28px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 6px; background: var(--side); color: var(--fg); font-size: 12px; }
+.gc-input input[aria-invalid="true"] { border-color: var(--danger); }
+.ok-ink { color: var(--ok-ink); }
+.gc-row .seg { flex-wrap: wrap; justify-content: flex-end; max-width: 300px; }
+.cp-ident { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 8px; border-radius: 6px; background: var(--pend-bg); color: var(--pend-ink); font-size: 12px; }
+.cp-ident span { flex: 1; min-width: 0; }
+.gc-proxy { display: flex; align-items: flex-start; gap: 8px; }
+.gc-proxy .switch { margin-top: 4px; }
+.gc-proxy .gc-input input { width: 190px; }
+.gc-proxy .gc-field { width: 216px; }
+.gc-off { color: var(--pend-ink); }
+.gc-row { align-items: flex-start; }

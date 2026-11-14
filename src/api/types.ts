@@ -772,3 +772,13 @@ export interface Changelists {
   /** path → list id; paths not listed belong to the active list */
   files: Record<string, string>;
 }
+
+/** Git settings scope: global (~/.gitconfig) or this repository (.git/config) */
+export type ConfigScope = "global" | "local";
+/** One editable Git setting: its value in each scope and the value git actually uses */
+export interface ConfigValue {
+  key: string;
+  global?: string | null;
+  local?: string | null;
+  effective?: string | null;
+}

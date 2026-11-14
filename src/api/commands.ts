@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ConfigScope,
+  ConfigValue,
   Changelists,
   ComposeInfo,
   PatchPreview,
@@ -130,6 +132,13 @@ export const api = {
   fileRestore: (id: string, path: string): Promise<Written<null>> => (inTauri ? call("file_restore", { id, path }) : mock.commitOp(t("取回 {0}", path))),
   /** A file's raw bytes at a revision; rev empty means the worktree */
   fileBytes: (path: string, rev: string | null): Promise<ArrayBuffer> => (inTauri ? call("file_bytes", { path, rev }) : mock.fileBytes(path, rev)),
+  /** Common Git settings (identity, proxy, line endings, default branch); works without an open repository */
+  gitConfigGet: (): Promise<ConfigValue[]> => (inTauri ? call("git_config_get") : mock.gitConfigGet()),
+  /** Set a setting in a scope; empty or null removes it from that scope. Returns all settings again */
+  gitConfigSet: (scope: ConfigScope, key: string, value: string | null): Promise<ConfigValue[]> =>
+    inTauri ? call("git_config_set", { scope, key, value }) : mock.gitConfigSet(scope, key, value),
+  /** Turn the proxy on or off in a scope; off keeps the address (strand.httpProxy / strand.httpsProxy) */
+  gitProxyEnable: (scope: ConfigScope, on: boolean): Promise<ConfigValue[]> => (inTauri ? call("git_proxy_enable", { scope, on }) : mock.gitProxyEnable(scope, on)),
   composeInfo: (): Promise<ComposeInfo> => (inTauri ? call("compose_info") : mock.composeInfo()),
   changelistsGet: (): Promise<Changelists> => (inTauri ? call("changelists_get") : mock.changelistsGet()),
   changelistsSet: (lists: Changelists): Promise<Changelists> => (inTauri ? call("changelists_set", { lists }) : mock.changelistsSet(lists)),

@@ -1061,3 +1061,58 @@ export function textDiff(left: string, right: string, name: string): Promise<Fil
   const changed = lines.some((l) => l.kind !== "context");
   return delay({ path: name, binary: false, truncated: false, hunks: changed ? [{ title: "第 1 行起", old_start: 1, new_start: 1, lines }] : [] });
 }
+
+// ---------- Git settings ----------
+import type { ConfigScope, ConfigValue } from "./types";
+const mockConfig: Record<ConfigScope, Record<string, string>> = {
+  global: { "user.name": "林夏", "user.email": "linxia@example.com", "core.autocrlf": "input", "init.defaultBranch": "main" },
+  local: { "user.email": "linxia@corp.example.com" },
+};
+const CONFIG_KEYS = ["user.name", "user.email", "http.proxy", "https.proxy", "core.autocrlf", "init.defaultBranch", "strand.httpProxy", "strand.httpsProxy"];
+const PROXY_PAIRS: [string, string][] = [
+  ["http.proxy", "strand.httpProxy"],
+  ["https.proxy", "strand.httpsProxy"],
+];
+const configNow = (): ConfigValue[] =>
+  CONFIG_KEYS.map((key) => ({ key, global: mockConfig.global[key] ?? null, local: mockConfig.local[key] ?? null, effective: mockConfig.local[key] ?? mockConfig.global[key] ?? null }));
+export function gitConfigGet(): Promise<ConfigValue[]> {
+  return delay(configNow());
+}
+export function gitConfigSet(scope: ConfigScope, key: string, value: string | null): Promise<ConfigValue[]> {
+  const v = value?.trim();
+  const c = mockConfig[scope];
+  const put = (k: string, x: string | undefined) => (x ? (c[k] = x) : delete c[k]);
+  if (key === "user.email" && v && !/^[^@\s<>]+@[^@\s<>]+$/.test(v)) return Promise.reject({ code: "INVALID_NAME", message: "邮箱的格式不对，应该像 name@example.com" });
+  const pair = PROXY_PAIRS.find(([r]) => r === key);
+  if (pair) {
+    if (v && !/^(https?|socks[45]a?h?):\/\/([^@\s/]*@)?([^:\s/@]+|\[[0-9a-fA-F:]+\])(:([1-9]\d{0,4}))?(\/\S*)?$/.test(v)) return Promise.reject({ code: "INVALID_NAME", message: "代理地址要带协议，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" });
+    const on = PROXY_PAIRS.some(([r]) => c[r]);
+    put(pair[1], v);
+    if (c[pair[0]] || (v && on)) put(pair[0], v);
+    return delay(configNow());
+  }
+  put(key, v);
+  return delay(configNow());
+}
+export function gitProxyEnable(scope: ConfigScope, on: boolean): Promise<ConfigValue[]> {
+  const c = mockConfig[scope];
+  if (on) {
+    let any = false;
+    for (const [r, saved] of PROXY_PAIRS) {
+      const a = c[saved] ?? c[r];
+      if (a) {
+        c[r] = a;
+        any = true;
+      }
+    }
+    if (!any) return Promise.reject({ code: "INVALID_NAME", message: "先填写代理地址" });
+  } else {
+    for (const [r, saved] of PROXY_PAIRS) {
+      if (c[r]) {
+        c[saved] ??= c[r];
+        delete c[r];
+      }
+    }
+  }
+  return delay(configNow());
+}

@@ -31,6 +31,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Drag a branch onto another to merge or rebase; merge modes include no-fast-forward and squash.
 - Fetch, pull (merge or rebase, with a dry-run summary when conflicts are expected) and push with a preview, `--force-with-lease`, "push up to here" and tag pushing.
 - Credential prompts for usernames, passwords and SSH passphrases; answers go only to that git process and are never stored.
+- Git settings in the app: user name, email, proxy (with an on/off switch that keeps the address), line endings and the default branch name, globally or per repository. Strand's network operations go through system Git, so they use the proxy too.
 
 **Conflicts**
 - Conflict list and a three-pane merge window: mark each change block, preview the result, undo and redo, continue later.

@@ -17,6 +17,7 @@ mod diff;
 pub mod error;
 pub mod file_history;
 pub mod git_cli;
+pub mod gitconfig;
 pub mod graph;
 mod history;
 pub mod log_filter;

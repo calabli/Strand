@@ -194,6 +194,39 @@ async fn commit_amend(state: State<'_, AppState>, message: Option<String>, selec
     .await
 }
 
+/// Common Git settings (identity, proxy, line endings, default branch) in global and this repository's scope; works without an open repository
+#[tauri::command]
+async fn git_config_get(state: State<'_, AppState>) -> CmdResult<Vec<strand_core::gitconfig::ConfigValue>> {
+    let repo = repo_path(&state).ok();
+    tauri::async_runtime::spawn_blocking(move || strand_core::gitconfig::config_read(repo.as_deref()))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+/// Set one setting; an empty value removes it from that scope. Not recorded in the op log (config isn't undoable)
+#[tauri::command]
+async fn git_config_set(state: State<'_, AppState>, scope: strand_core::gitconfig::ConfigScope, key: String, value: Option<String>) -> CmdResult<Vec<strand_core::gitconfig::ConfigValue>> {
+    let repo = repo_path(&state).ok();
+    tauri::async_runtime::spawn_blocking(move || {
+        strand_core::gitconfig::config_write(repo.as_deref(), scope, &key, value.as_deref())?;
+        strand_core::gitconfig::config_read(repo.as_deref())
+    })
+    .await
+    .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+/// Turn the proxy on or off in a scope; off keeps the address (in strand.httpProxy / strand.httpsProxy)
+#[tauri::command]
+async fn git_proxy_enable(state: State<'_, AppState>, scope: strand_core::gitconfig::ConfigScope, on: bool) -> CmdResult<Vec<strand_core::gitconfig::ConfigValue>> {
+    let repo = repo_path(&state).ok();
+    tauri::async_runtime::spawn_blocking(move || {
+        strand_core::gitconfig::proxy_enable(repo.as_deref(), scope, on)?;
+        strand_core::gitconfig::config_read(repo.as_deref())
+    })
+    .await
+    .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
 /// For writing messages: message history, commit template, current identity
 #[tauri::command]
 async fn compose_info(state: State<'_, AppState>) -> CmdResult<strand_core::compose::ComposeInfo> {
@@ -1382,6 +1415,9 @@ pub fn run(adopted: Option<u128>) {
             commit_create,
             commit_detail,
             compose_info,
+            git_config_get,
+            git_config_set,
+            git_proxy_enable,
             changelists_get,
             changelists_set,
             diff_commit,

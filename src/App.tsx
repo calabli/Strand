@@ -867,6 +867,10 @@ export default function App() {
   // Command palette (spec §12.1): ⌘K opens or closes it globally; ⌘, opens settings
   const [palette, setPalette] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Open settings at a section (the commit panel's "set identity" opens the Git settings) */
+  const [settingsSection, setSettingsSection] = useState<"git" | undefined>(undefined);
+  /** Bumped when settings close, so the commit panel re-reads the commit identity */
+  const [configKey, setConfigKey] = useState(0);
   const [repoPop, setRepoPop] = useState<{ x: number; y: number } | null>(null);
   const [wtDialog, setWtDialog] = useState<{ branch?: string } | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
@@ -1036,6 +1040,7 @@ export default function App() {
       { id: "clone", section: m, icon: COMMIT_ICONS.clone, label: t("克隆仓库…"), run: () => setCloneOpen(true) },
       { id: "worktree-add", section: m, icon: COMMIT_ICONS.folder, label: t("新建工作目录…"), run: () => setWtDialog({}) },
       { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: keys("⌘,"), run: () => setSettingsOpen(true) },
+      { id: "git-config", section: m, icon: COMMIT_ICONS.gear, label: t("Git 配置（用户名、邮箱、代理）…"), run: () => (setSettingsSection("git"), setSettingsOpen(true)) },
       { id: "lang-zh", section: m, icon: COMMIT_ICONS.web, label: "中文", run: () => setLang("zh") },
       { id: "lang-en", section: m, icon: COMMIT_ICONS.web, label: "English", run: () => setLang("en") },
       { id: "keys", section: m, icon: COMMIT_ICONS.keys, label: t("查看快捷键"), run: () =>
@@ -1296,6 +1301,8 @@ export default function App() {
           )}
           {panel === "commit" && (
           <CommitPanel
+            configKey={configKey}
+            onOpenGitSettings={() => (setSettingsSection("git"), setSettingsOpen(true))}
             repoPath={repo.path}
             onRefresh={() => refreshStatus()}
             onWritten={doneCb}
@@ -1635,7 +1642,7 @@ export default function App() {
           }}
         />
       )}
-      {settingsOpen && <SettingsWindow git={git} repoOpen={!!repo} onClose={() => setSettingsOpen(false)} onRemotes={() => (setSettingsOpen(false), setRemotesOpen(true))} />}
+      {settingsOpen && <SettingsWindow git={git} repoOpen={!!repo} section={settingsSection} onClose={() => (setSettingsOpen(false), setSettingsSection(undefined), setConfigKey((k) => k + 1))} onRemotes={() => (setSettingsOpen(false), setRemotesOpen(true))} />}
       {palette && <CommandPalette commands={paletteCommands()} onPickCommit={(id) => locate(id)} onClose={() => setPalette(false)} />}
       {blame && <BlameWindow path={blame.path} rev={blame.rev} onClose={() => setBlame(null)} onJump={(id) => locate(id)} />}
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
