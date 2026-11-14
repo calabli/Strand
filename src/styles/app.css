@@ -689,7 +689,8 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .clone-progress .bar { height: 4px; border-radius: 2px; background: var(--chip); overflow: hidden; }
 .clone-progress .bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
 .clone-progress .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.welcome-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.welcome-btns { display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.welcome-btns > .primary, .welcome-btns > .btn { margin-top: 0; align-self: auto; height: 32px; }
 
 /* Palette (shared by the command palette and branch popup) */
 .pal-row .menu-icon { color: var(--fg2); }
