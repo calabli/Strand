@@ -67,6 +67,15 @@ type Group = "local" | "remote" | "tags" | "worktrees";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
 const FOLDER_ICON = "M1.5 3.5h4l1.5 1.5h5.5v6.5h-11z";
+/** 行首的类型图标：本地分支是标签形（当前分支是黄色），远程分支是分叉，远程是文件夹，标签是吊牌，工作目录是文件夹 */
+const LABEL_ICON = "M2 3.2C2 2.5 2.5 2 3.2 2h4.3l4.5 4.5-5.5 5.5L2 7.5z";
+const DOT = "M5.2 4.4a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6z";
+const KindIcon = ({ d, dot, className }: { d: string; dot?: boolean; className?: string }) => (
+  <svg className={"tkind " + (className ?? "")} width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={d} />
+    {dot && <path d={DOT} fill="currentColor" stroke="none" />}
+  </svg>
+);
 const OPEN_ICON = "M8 2h4v4M12 2 6.5 7.5M10.5 8.5V12H2V3.5h3.5";
 const Icon = ({ d }: { d: string }) => (
   <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -110,6 +119,8 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
   const worktrees = (refs?.worktrees ?? []).filter((w) => match(w.path) || match(w.branch ?? ""));
   // 搜索时自动展开有结果的分组
   const isOpen = (g: Group) => (f ? true : open[g]);
+  /** 折叠起来的远程（如 origin） */
+  const [closedRemotes, setClosedRemotes] = useState<Set<string>>(() => new Set());
   const toggle = (g: Group) => setOpen((o) => ({ ...o, [g]: !o[g] }));
   const allOpen = open.local && open.remote && open.tags && open.worktrees;
 
@@ -286,6 +297,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
               }}
               title={b.upstream ? t("跟踪 {0}", b.upstream) : t("只在本地")}
             >
+              <KindIcon d={LABEL_ICON} dot className={b.is_current ? "cur" : ""} />
               <span className="tname mono">
                 {favs.has(b.name) && <span className="star">★ </span>}
                 {b.name}
@@ -336,8 +348,25 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
         {isOpen("remote") &&
           [...byRemote].map(([remote, list]) => (
             <div key={remote}>
-              <div className="tsub dim">{remote}</div>
-              {list.map((r) => (
+              <button
+                type="button"
+                className="trow tremote"
+                aria-expanded={f ? true : !closedRemotes.has(remote)}
+                onClick={() =>
+                  setClosedRemotes((s) => {
+                    const n = new Set(s);
+                    if (n.has(remote)) n.delete(remote);
+                    else n.add(remote);
+                    return n;
+                  })
+                }
+              >
+                <span className="chev">{f || !closedRemotes.has(remote) ? "▾" : "▸"}</span>
+                <KindIcon d={FOLDER_ICON} />
+                <span className="tname">{remote}</span>
+                <span className="dim">{list.length}</span>
+              </button>
+              {(f || !closedRemotes.has(remote)) && list.map((r) => (
                 <div
                   key={r.name}
                   className={"trow indent" + (picked === r.name ? " picked" : "") + (drag?.src === r.name ? " drag-src" : "")}
@@ -350,6 +379,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                     onMenu(e.clientX, e.clientY, remoteMenu(r));
                   }}
                 >
+                  <KindIcon d={I.branch} />
                   <span className="tname mono">{r.name.slice(remote.length + 1)}</span>
                   <span className="tacts" onClick={(e) => e.stopPropagation()}>
                     <button type="button" className="ib sm" title={t("检出为本地分支")} aria-label={t("把 {0} 检出为本地分支", r.name)} disabled={merging} onClick={() => ops.checkoutRemote(r.name)}>
@@ -375,6 +405,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                 onMenu(e.clientX, e.clientY, tagMenu(tg));
               }}
             >
+              <KindIcon d={I.tag} />
               <span className="tname mono">{tg.name}</span>
               {tg.unpushed && onPushTag && (
                 // 未推送的标签显示推送图标（说明书 6.5），点一下推送
@@ -409,6 +440,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                     onMenu(e.clientX, e.clientY, worktreeActions(w, ops));
                   }}
                 >
+                  <KindIcon d={FOLDER_ICON} />
                   <span className="tname">
                     {baseName(w.path)}
                     <span className="mono dim wt-branch"> {w.branch ?? (w.head ? w.head.slice(0, 7) : "")}</span>

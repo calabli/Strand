@@ -824,3 +824,10 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0 
 .crow.sel .in-body { background: color-mix(in srgb, #fff 25%, transparent); color: inherit; }
 /* 提交说明里也用搜索词的明黄色，和日志标题、差异一致 */
 .crow .title mark { background: #FFD84D; color: #1A1A1A; border-radius: 3px; }
+
+/* 分支树行首的类型图标 */
+.tkind { flex-shrink: 0; color: var(--fg2); }
+.tkind.cur { color: #D9A21B; }
+.tremote { width: 100%; border: 0; background: transparent; text-align: left; padding-left: 14px; color: var(--fg); font: inherit; }
+.tremote .chev { margin: 0; width: 10px; font-size: 10px; color: var(--fg2); }
+.trow.indent { padding-left: 40px; }
