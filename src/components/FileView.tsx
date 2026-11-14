@@ -428,7 +428,7 @@ function TextView({
     const b = side?.get(no);
     if (!b) return <span className="ann" />;
     const heat = b.uncommitted ? "new" : String(tMax > tMin ? Math.round(((b.time - tMin) / (tMax - tMin)) * 4) : 4);
-    // Consecutive lines from the same commit: only the first shows the text, the color runs on
+    // Every line shows its date and author; lines continuing the same commit are dimmer, so commits read as blocks
     const same = side?.get(no - 1)?.id === b.id;
     return (
       <span
@@ -436,7 +436,7 @@ function TextView({
         title={b.uncommitted ? t("还没提交的改动") : `${shortId(b.id)} ${b.title}\n${b.author} · ${formatTime(b.time)}` + (b.inLog ? t("\n点击在日志里定位") : "")}
         onClick={() => !b.uncommitted && b.inLog && onLocate(b.id)}
       >
-        {same ? "" : b.uncommitted ? t("还没提交") : `${formatTime(b.time).slice(0, 10)} ${b.author}`}
+        {b.uncommitted ? t("还没提交") : `${formatTime(b.time).slice(0, 10)} ${b.author}`}
       </span>
     );
   };
@@ -515,7 +515,7 @@ function TextView({
         </div>
       )}
       {f?.text !== undefined && (
-        <div className={"tv mono" + (load.loading ? " stale" : "") + (blame ? " with-ann" : "")}>
+        <div className={"tv mono" + (load.loading ? " stale" : "") + (blame ? " with-ann" : "")} style={{ "--lnw": `${String(Math.min(lines.length, MAX_LINES)).length + 2}ch` } as React.CSSProperties}>
           {lines.slice(0, MAX_LINES).map((l, i) => (
             <div key={i} data-n={i + 1} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
               {blame && ann(i + 1)}

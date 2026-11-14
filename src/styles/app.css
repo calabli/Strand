@@ -818,14 +818,16 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .fv-text { flex: 1; min-height: 0; overflow: auto; padding: 8px 0; user-select: text; }
 .tv { font-size: 12px; line-height: 20px; min-width: max-content; }
 .tv.stale { opacity: 0.6; }
-.tv-line { display: grid; grid-template-columns: 56px minmax(0, 1fr); }
+.tv-line { display: grid; grid-template-columns: max(40px, var(--lnw, 56px)) minmax(0, 1fr); }
 .tv-line:hover { background: var(--hover); }
 .tv-line .code { white-space: pre; padding-right: 16px; }
-.tv.with-ann .tv-line { grid-template-columns: 160px 56px minmax(0, 1fr); }
+.tv.with-ann .tv-line { grid-template-columns: 170px max(36px, var(--lnw, 56px)) minmax(0, 1fr); }
 .tv .ann { width: auto; line-height: 20px; border-right: 1px solid var(--line); }
 .tv-line .ann:empty:not(.cont) { background: var(--side); }
 .tv .ann { user-select: none; }
 .tv .ann:not(.cont) { box-shadow: inset 0 1px 0 var(--line); }
+.tv .ann:not(.cont) { color: var(--fg); }
+.tv .ann.cont { color: color-mix(in srgb, var(--fg) 40%, var(--fg2)); }
 
 /* Log search box: search messages or changes */
 .fs-mode { width: auto !important; padding: 0 5px; font-size: 11px; font-family: inherit; flex-shrink: 0; }
