@@ -36,10 +36,16 @@ pub struct LogFilter {
     pub case_sensitive: bool,
     /// 只看从这个分支（本地或远程分支名，也可以是标签或 HEAD）能到达的提交
     pub branch: Option<String>,
-    /// 作者邮箱，不区分大小写
+    /// 作者邮箱，不区分大小写（只选一个时的旧写法，和 `authors` 合在一起算）
     pub author: Option<String>,
+    /// 选中的作者邮箱（多选），不区分大小写
+    pub authors: Vec<String>,
+    /// 按规则匹配作者：名字或邮箱满足就算。和选中的作者是“或”的关系
+    pub author_match: Option<AuthorMatch>,
     /// 作者时间不早于这个时间（Unix 秒）
     pub since: Option<i64>,
+    /// 作者时间早于这个时间（Unix 秒，不含）
+    pub until: Option<i64>,
     /// 路径子串：只看改过匹配文件的提交
     pub path: Option<String>,
 }
@@ -49,12 +55,55 @@ impl LogFilter {
         self.text.is_empty()
             && self.branch.is_none()
             && self.author.is_none()
+            && self.authors.is_empty()
+            && self.author_match.as_ref().is_none_or(|m| m.text.is_empty())
             && self.since.is_none()
+            && self.until.is_none()
             && self.path.as_deref().is_none_or(str::is_empty)
     }
 
     fn path(&self) -> Option<&str> {
         self.path.as_deref().filter(|p| !p.is_empty())
+    }
+}
+
+/// 作者的匹配规则（说明书 5.1 作者过滤）：对名字和邮箱分别比较，不区分大小写
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct AuthorMatch {
+    pub kind: MatchKind,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchKind {
+    #[default]
+    Contains,
+    Prefix,
+    Suffix,
+    Regex,
+}
+
+impl AuthorMatch {
+    /// 换成一个判断函数；正则写错时返回 `INVALID_REGEX`（detail 里 field 是 author）
+    pub fn matcher(&self) -> Result<impl Fn(&str) -> bool + use<>> {
+        let t = self.text.trim();
+        let pattern = match self.kind {
+            MatchKind::Contains => regex::escape(t),
+            MatchKind::Prefix => format!("^{}", regex::escape(t)),
+            MatchKind::Suffix => format!("{}$", regex::escape(t)),
+            MatchKind::Regex => t.to_string(),
+        };
+        let re = regex::RegexBuilder::new(&pattern).case_insensitive(true).size_limit(1 << 20).build().map_err(|e| {
+            CoreError::new(ErrorCode::InvalidRegex, "作者的正则表达式写得不对").with_detail(serde_json::json!({ "field": "author", "source": e.to_string() }))
+        })?;
+        Ok(move |s: &str| re.is_match(s))
+    }
+
+    /// 这个作者算不算匹配：名字或邮箱满足规则
+    pub fn hits(m: &impl Fn(&str) -> bool, name: &str, email: &str) -> bool {
+        m(name) || m(email)
     }
 }
 
@@ -323,17 +372,26 @@ impl Session {
             Some(b) => self.reachable(b),
             None => (0..n as u32).collect(),
         };
-        if f.since.is_some() || f.author.is_some() {
+        let rule = f.author_match.as_ref().filter(|m| !m.text.trim().is_empty());
+        let by_author = f.author.is_some() || !f.authors.is_empty() || rule.is_some();
+        if f.since.is_some() || f.until.is_some() || by_author {
             let meta = self.meta()?;
             if let Some(since) = f.since {
                 rows.retain(|&r| meta.time[r as usize] >= since);
             }
-            if let Some(email) = &f.author {
-                let email = email.to_lowercase();
-                match meta.authors.iter().position(|a| a.email == email) {
-                    Some(a) => rows.retain(|&r| meta.author[r as usize] == a as u32),
-                    None => rows.clear(),
-                }
+            if let Some(until) = f.until {
+                rows.retain(|&r| meta.time[r as usize] < until);
+            }
+            if by_author {
+                // 先在作者表上算出哪些作者算数（作者通常只有几十到几百个），再按行筛
+                let picked: HashSet<String> = f.authors.iter().chain(f.author.iter()).map(|e| e.to_lowercase()).collect();
+                let m = rule.map(|r| r.matcher()).transpose()?;
+                let ok: Vec<bool> = meta
+                    .authors
+                    .iter()
+                    .map(|a| picked.contains(&a.email) || m.as_ref().is_some_and(|m| AuthorMatch::hits(m, &a.name, &a.email)))
+                    .collect();
+                rows.retain(|&r| ok[meta.author[r as usize] as usize]);
             }
         }
         if f.path().is_some()

@@ -1,5 +1,6 @@
 // 浏览器预览用的示例数据。只在不经过 Tauri 运行时使用。
 
+import { authorRule } from "./authorRule";
 import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState } from "./types";
 
 const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(v), 60));
@@ -78,7 +79,8 @@ function baseGraph(i: number): GraphRow {
   return { lane: 0, edges: i === TOTAL - 1 ? [] : [{ from_lane: 0, to_lane: 0, kind: "straight" }] };
 }
 
-const isEmpty = (f: LogFilter) => !f.text && !f.branch && !f.author && f.since == null && !f.path;
+const isEmpty = (f: LogFilter) => !f.text && !f.branch && !f.author && !f.authors?.length && !f.author_match?.text.trim() && f.since == null && f.until == null && !f.path;
+
 
 /** 示例数据上的过滤：分支按“从这一行往下”近似，路径按每 3 个提交改一次近似 */
 function filtered(f: LogFilter, sort: LogSort): number[] | null {
@@ -91,13 +93,17 @@ function filtered(f: LogFilter, sort: LogSort): number[] | null {
       throw { code: "INVALID_REGEX", message: "正则表达式写得不对" };
     }
   }
+  const rule = authorRule(f.author_match);
+  const picked = new Set([...(f.authors ?? []), ...(f.author ? [f.author] : [])].map((e) => e.toLowerCase()));
+  const byAuthor = picked.size > 0 || !!rule;
   const tip = f.branch ? branchRow(f.branch) : 0;
   const out: number[] = [];
   if (tip == null) return out;
   for (let i = tip; i < TOTAL; i++) {
     const c = commitAt(i);
-    if (f.author && c.author.email !== f.author.toLowerCase()) continue;
+    if (byAuthor && !picked.has(c.author.email.toLowerCase()) && !rule?.(c.author.name, c.author.email)) continue;
     if (f.since != null && c.time < f.since) continue;
+    if (f.until != null && c.time >= f.until) continue;
     if (f.path && i % 3 !== 0) continue;
     if (re && !re.test(c.title) && !(f.text!.length >= 4 && !f.regex && c.id.startsWith(f.text!.toLowerCase()))) continue;
     out.push(i);

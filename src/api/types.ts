@@ -66,16 +66,28 @@ export interface LogPage {
 }
 
 /** 日志过滤条件（说明书 5.1），省略的项不过滤 */
+export type MatchKind = "contains" | "prefix" | "suffix" | "regex";
+export interface AuthorMatch {
+  kind: MatchKind;
+  text: string;
+}
+
 export interface LogFilter {
   text?: string;
   regex?: boolean;
   case_sensitive?: boolean;
   /** 只看从这个分支能到达的提交 */
   branch?: string | null;
-  /** 作者邮箱 */
+  /** 作者邮箱（只选一个时的旧写法） */
   author?: string | null;
+  /** 选中的作者邮箱（多选） */
+  authors?: string[];
+  /** 按规则匹配作者（名字或邮箱），和选中的作者是“或” */
+  author_match?: AuthorMatch | null;
   /** 作者时间不早于（Unix 秒） */
   since?: number | null;
+  /** 作者时间早于（Unix 秒，不含） */
+  until?: number | null;
   /** 路径子串 */
   path?: string | null;
 }

@@ -1123,7 +1123,8 @@ export default function App() {
               }
               compareBase={compareBase}
               onExitCompare={() => setCompareBase(null)}
-              badRegex={log.error?.code === "INVALID_REGEX"}
+              // 作者规则的正则写错时核心层的提示不同，不标红搜索框
+              badRegex={log.error?.code === "INVALID_REGEX" && log.error.message === "正则表达式写得不对"}
               focus={focusSearch}
             />
             <LogView

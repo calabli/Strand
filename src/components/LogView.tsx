@@ -307,7 +307,7 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
       )}
       {!log.loading && !log.partial && log.total === 0 && (filtered || log.error?.code === "INVALID_REGEX") && (
         <div className="log-note">
-          <p className="dim">{log.error?.code === "INVALID_REGEX" ? t("正则表达式写得不对") : t("没有符合条件的提交")}</p>
+          <p className="dim">{log.error?.code === "INVALID_REGEX" ? tr(log.error.message) : t("没有符合条件的提交")}</p>
           <button type="button" className="btn sm" onClick={onClearFilter}>
             {t("清空过滤条件")}
           </button>

@@ -4,13 +4,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/commands";
-import type { LogAuthor, LogFilter, LogSort, RefsList } from "../api/types";
+import type { AuthorMatch, LogAuthor, LogFilter, LogSort, RefsList } from "../api/types";
+import { AuthorPicker, KIND_LABEL } from "./AuthorPicker";
+import { DateRangePicker } from "./DateRangePicker";
 import { Menu, type MenuState } from "./Menu";
 import { Picker, type PickItem } from "./Picker";
 import { t, tr } from "../i18n";
 import { setSettings, useSettings } from "../settings";
 
-export type DateRange = "all" | "today" | "3d" | "6d";
+export type DateRange = "all" | "today" | "3d" | "6d" | "custom";
 
 /** 过滤栏的界面状态；`toFilter` 换算成发给核心层的条件 */
 export interface LogUi {
@@ -18,19 +20,31 @@ export interface LogUi {
   regex: boolean;
   caseSensitive: boolean;
   branch: string | null;
-  author: LogAuthor | null;
+  /** 勾选的作者（多选） */
+  authors: LogAuthor[];
+  /** 按规则匹配的作者，和勾选的是“或” */
+  authorRule: AuthorMatch | null;
   date: DateRange;
+  /** 自定义范围的起止日期（YYYY-MM-DD，两头都含），date 为 custom 时用 */
+  from: string | null;
+  to: string | null;
   path: string | null;
   sort: LogSort;
 }
 
-export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, branch: null, author: null, date: "all", path: null, sort: "topo" };
+export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, branch: null, authors: [], authorRule: null, date: "all", from: null, to: null, path: null, sort: "topo" };
 
-const DATE_LABEL: Record<DateRange, string> = { all: t("所有日期"), today: t("今天"), "3d": t("最近 3 天"), "6d": t("最近 6 天") };
+const DATE_LABEL: Record<Exclude<DateRange, "custom">, string> = { all: t("所有日期"), today: t("今天"), "3d": t("最近 3 天"), "6d": t("最近 6 天") };
+
+/** 本机时区某天 0 点（YYYY-MM-DD），加 days 天 */
+function dayStart(d: string, days = 0): number {
+  const [y, m, dd] = d.split("-").map(Number);
+  return Math.floor(new Date(y, m - 1, dd + days).getTime() / 1000);
+}
 
 /** 今天 0 点往前推 days - 1 天（“最近 3 天”是今天和前两天） */
 function sinceOf(d: DateRange): number | null {
-  if (d === "all") return null;
+  if (d === "all" || d === "custom") return null;
   const days = d === "today" ? 1 : d === "3d" ? 3 : 6;
   const t = new Date();
   t.setHours(0, 0, 0, 0);
@@ -44,13 +58,31 @@ export function toFilter(u: LogUi): LogFilter {
     regex: u.regex,
     case_sensitive: u.caseSensitive,
     branch: u.branch,
-    author: u.author?.email ?? null,
-    since: sinceOf(u.date),
+    authors: u.authors.map((a) => a.email),
+    author_match: u.authorRule,
+    since: u.date === "custom" ? (u.from ? dayStart(u.from) : null) : sinceOf(u.date),
+    until: u.date === "custom" && u.to ? dayStart(u.to, 1) : null,
     path: u.path,
   };
 }
 
-export const isFiltered = (u: LogUi) => !!(u.text || u.branch || u.author || u.date !== "all" || u.path || u.sort !== "topo");
+export const isFiltered = (u: LogUi) => !!(u.text || u.branch || u.authors.length || u.authorRule || u.date !== "all" || u.path || u.sort !== "topo");
+
+/** 作者条件显示成一小段文字：勾选的第一个人的名字（多的显示 +N），有规则时接上规则 */
+function authorText(u: LogUi): string | null {
+  const parts: string[] = [];
+  if (u.authors.length) parts.push(u.authors[0].name + (u.authors.length > 1 ? ` +${u.authors.length - 1}` : ""));
+  if (u.authorRule) parts.push(`${KIND_LABEL[u.authorRule.kind]} ${u.authorRule.text}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** 日期条件的文字 */
+function dateText(u: LogUi): string | null {
+  if (u.date === "all") return null;
+  if (u.date !== "custom") return DATE_LABEL[u.date];
+  if (u.from && u.to) return u.from === u.to ? u.from : `${u.from} – ${u.to}`;
+  return u.from ? t("{0} 起", u.from) : u.to ? t("到 {0}", u.to) : null;
+}
 
 const Icon = ({ d }: { d: string }) => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -96,7 +128,7 @@ interface Props {
   focus: number;
 }
 
-type Open = { kind: "branch" | "author" | "path"; x: number; y: number } | null;
+type Open = { kind: "branch" | "author" | "path" | "dates"; x: number; y: number } | null;
 
 export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJump, onRebase, onRefresh, pick, compareBase, onExitCompare, badRegex, focus }: Props) {
   const opts = useSettings();
@@ -137,7 +169,6 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
     ...(refs?.branches ?? []).map((b) => ({ key: b.name, label: b.name, sub: b.is_current ? t("当前") : undefined })),
     ...(refs?.remotes ?? []).map((r) => ({ key: r.name, label: r.name })),
   ];
-  const authorItems: PickItem[] = (authors ?? []).map((a) => ({ key: a.email, label: `${a.name} <${a.email}>`, sub: String(a.count) }));
 
   const chip = (
     icon: string,
@@ -189,20 +220,24 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
         </button>
       </label>
       {chip(FILTER_ICONS.branch, t("分支"), ui.branch, (e) => at(e, "branch"), () => set({ branch: null }))}
-      {chip(FILTER_ICONS.author, t("作者"), ui.author?.name ?? null, (e) => at(e, "author"), () => set({ author: null }))}
+      {chip(FILTER_ICONS.author, t("作者"), authorText(ui), (e) => at(e, "author"), () => set({ authors: [], authorRule: null }))}
       {chip(
         FILTER_ICONS.date,
         t("日期"),
-        ui.date === "all" ? null : DATE_LABEL[ui.date],
+        dateText(ui),
         (e) => {
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({
             x: r.left,
             y: r.bottom + 4,
-            items: (Object.keys(DATE_LABEL) as DateRange[]).map((d) => ({ label: (ui.date === d ? "✓ " : "　 ") + DATE_LABEL[d], run: () => set({ date: d }) })),
+            items: [
+              ...(Object.keys(DATE_LABEL) as Exclude<DateRange, "custom">[]).map((d) => ({ label: (ui.date === d ? "✓ " : "　 ") + DATE_LABEL[d], run: () => set({ date: d, from: null, to: null }) })),
+              "-" as const,
+              { label: (ui.date === "custom" ? "✓ " : "　 ") + t("自定义范围…"), run: () => setOpen({ kind: "dates", x: r.left, y: r.bottom + 4 }) },
+            ],
           });
         },
-        () => set({ date: "all" }),
+        () => set({ date: "all", from: null, to: null }),
       )}
       {chip(FILTER_ICONS.path, t("路径"), ui.path, (e) => at(e, "path"), () => set({ path: null }))}
       {compareBase && (
@@ -283,15 +318,23 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
         />
       )}
       {open?.kind === "author" && (
-        <Picker
+        <AuthorPicker
           x={open.x}
           y={open.y}
-          items={authorItems}
-          loading={!authors}
-          placeholder={t("搜索作者")}
-          selected={ui.author?.email}
-          clearLabel={t("所有作者")}
-          onPick={(k) => set({ author: k ? authors?.find((a) => a.email === k) ?? null : null })}
+          authors={authors}
+          picked={ui.authors}
+          rule={ui.authorRule}
+          onChange={(picked, rule) => set({ authors: picked, authorRule: rule })}
+          onClose={() => setOpen(null)}
+        />
+      )}
+      {open?.kind === "dates" && (
+        <DateRangePicker
+          x={open.x}
+          y={open.y}
+          from={ui.from}
+          to={ui.to}
+          onApply={(from, to) => set({ date: "custom", from, to })}
           onClose={() => setOpen(null)}
         />
       )}

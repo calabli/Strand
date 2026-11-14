@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use strand_core::log_filter::{LogFilter, LogSort};
+use strand_core::log_filter::{AuthorMatch, LogFilter, LogSort, MatchKind};
 use strand_core::{ErrorCode, Session};
 
 fn git_as(dir: &Path, args: &[&str], who: (&str, &str), t: i64) {
@@ -238,4 +238,45 @@ fn same_time_commits_keep_order_across_reloads() {
     query_all(&mut s, &f, LogSort::Topo);
     s.reload().unwrap();
     assert!(!s.log_query(&f, LogSort::Topo, 0, 10).unwrap().partial);
+}
+
+/// 作者多选、按规则匹配（包含、前缀、后缀、正则，名字或邮箱满足就算）、自定义日期范围
+#[test]
+fn authors_multi_rules_and_date_range() {
+    let dir = sample();
+    let mut s = Session::open(dir.path()).unwrap();
+    // 第三个作者
+    git_as(dir.path(), &["checkout", "-q", "main"], LIN, BASE);
+    commit(dir.path(), "c.txt", "王五的提交", ("王五", "wangwu@corp.cn"), 500);
+    s.reload().unwrap();
+    let rule = |kind, t: &str| LogFilter { author_match: Some(AuthorMatch { kind, text: t.into() }), ..Default::default() };
+
+    // 多选：取并集
+    let two = LogFilter { authors: vec!["ZHOU@example.com".into(), "wangwu@corp.cn".into()], ..Default::default() };
+    assert_eq!(titles(&mut s, &two, LogSort::Topo), ["王五的提交", "Fix button color", "新增按钮"]);
+    // 前缀：名字“周”开头
+    assert_eq!(titles(&mut s, &rule(MatchKind::Prefix, "周"), LogSort::Topo), ["Fix button color", "新增按钮"]);
+    // 后缀：邮箱以 corp.cn 结尾
+    assert_eq!(titles(&mut s, &rule(MatchKind::Suffix, "CORP.CN"), LogSort::Topo), ["王五的提交"]);
+    // 包含：example（林夏和周舟）
+    assert_eq!(titles(&mut s, &rule(MatchKind::Contains, "example"), LogSort::Topo).len(), 6);
+    // 正则：名字是“林夏”或“王五”
+    assert_eq!(titles(&mut s, &rule(MatchKind::Regex, "^(林夏|王五)$"), LogSort::Topo).len(), 5);
+    // 前缀里的特殊字符按字面匹配
+    assert!(titles(&mut s, &rule(MatchKind::Prefix, "lin.ia"), LogSort::Topo).is_empty());
+    // 规则和多选是“或”
+    let mix = LogFilter { authors: vec!["wangwu@corp.cn".into()], author_match: Some(AuthorMatch { kind: MatchKind::Prefix, text: "zhou".into() }), ..Default::default() };
+    assert_eq!(titles(&mut s, &mix, LogSort::Topo), ["王五的提交", "Fix button color", "新增按钮"]);
+    // 空规则不过滤
+    assert_eq!(titles(&mut s, &rule(MatchKind::Regex, "  "), LogSort::Topo).len(), 7);
+    // 正则写错
+    let e = s.log_query(&rule(MatchKind::Regex, "(林"), LogSort::Topo, 0, 10).unwrap_err();
+    assert_eq!(e.code, ErrorCode::InvalidRegex);
+    assert_eq!(e.detail.unwrap()["field"], "author");
+
+    // 日期范围：[since, until)
+    let range = LogFilter { since: Some(BASE + 100), until: Some(BASE + 300), ..Default::default() };
+    assert_eq!(titles(&mut s, &range, LogSort::Topo), ["新增按钮", "修复登录"]);
+    let until = LogFilter { until: Some(BASE + 100), ..Default::default() };
+    assert_eq!(titles(&mut s, &until, LogSort::Date), ["修复 other", "初始提交"]);
 }

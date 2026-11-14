@@ -5,13 +5,14 @@
 // 单击文件在列表下面的框里显示这个文件的差异（可以上下滚动），双击或框上的图标在差异标签页里打开；
 // 和本地比较、创建补丁、查看这个版本时的仓库在下面的操作图标行里；文件行悬停有逐行追溯。
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Splitter, sizeVars } from "./Splitter";
 import { ApiError, api, openUrl } from "../api/commands";
 import type { Cap, Commit, CommitCaps, FileChange, FileDiff } from "../api/types";
 import { DiffView } from "./DiffView";
 import { COMMIT_ICONS as ICON, type CommitOps } from "./commitOps";
 import { FileRow, FileTree } from "./FileRow";
-import { setSettings, useSettings } from "../settings";
+import { setSettings, settings, useSettings } from "../settings";
 import { formatTime, relTime, shortId } from "./format";
 import { FILTER_ICONS } from "./LogFilterBar";
 import { t, tr } from "../i18n";
@@ -74,6 +75,10 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
+  /** 上下拖动的分隔线往这里写高度 */
+  const host = useRef<HTMLElement>(null);
+  const filesBox = useRef<HTMLDivElement>(null);
+  const infoBox = useRef<HTMLDivElement>(null);
   /** 下面差异框里显示的文件；换提交后这个文件还在就接着显示 */
   const [shown, setShown] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null });
@@ -172,8 +177,8 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   );
 
   return (
-    <aside className={"detail" + (shown ? " with-diff" : "")}>
-      <div className="dfiles">
+    <aside ref={host} style={sizeVars(settings(), ["detailFiles", "detailInfo"])} className={"detail" + (shown ? " with-diff" : "")}>
+      <div className="dfiles" ref={filesBox}>
         <div className="dsub dim">
           {files ? t("{0} 个文件", files.length) : error ? "" : t("正在读取改动…")}
           {commit.parents.length > 1 && files && <span>{t("（相对第一个父提交）")}</span>}
@@ -194,6 +199,16 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
         {error && <p className="err">{tr(error)}</p>}
         {files && (groupDir ? <FileTree items={files} pathOf={(f) => f.path} leaf={(f, d) => fileRow(f, d)} /> : files.map((f) => fileRow(f)))}
       </div>
+      {/* 上下拖动：文件列表的高度；显示差异框时还有提交信息的高度，差异框占剩下的 */}
+      <Splitter
+        name="detailFiles"
+        host={host}
+        grow="down"
+        min={60}
+        max={() => (host.current?.clientHeight ?? 800) - (shown ? (infoBox.current?.offsetHeight ?? 0) + 160 : 120)}
+        size={() => filesBox.current?.offsetHeight ?? 200}
+        label={t("调整文件列表的高度")}
+      />
       {shown && (
         <div className="ddiff">
           <DiffView
@@ -207,7 +222,18 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
           />
         </div>
       )}
-      <div className="dinfo">
+      {shown && (
+        <Splitter
+          name="detailInfo"
+          host={host}
+          grow="up"
+          min={80}
+          max={() => (host.current?.clientHeight ?? 800) - (filesBox.current?.offsetHeight ?? 0) - 160}
+          size={() => infoBox.current?.offsetHeight ?? 200}
+          label={t("调整提交信息的高度")}
+        />
+      )}
+      <div className="dinfo" ref={infoBox}>
         <div className="dacts" role="toolbar" aria-label={t("提交操作")}>
           <Act icon={ICON.copy} label={t("复制版本号")} onClick={() => ops.copy(commit)} />
           <Act icon={ICON.cherry} label={t("拣选到当前分支")} cap={caps?.cherry_pick ?? null} onClick={() => ops.cherryPick([commit.id])} />
