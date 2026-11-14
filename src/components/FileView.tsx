@@ -24,6 +24,8 @@ const MAX_LINES = 20000;
 
 interface Props {
   path: string;
+  /** 打开时就显示修改链（从“文件历史”图标打开时）；平时收起，点工具栏的“修改链”再显示 */
+  showHistory?: boolean;
   /** 打开后跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
   at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null;
   /** 工作区里这个文件有没提交的改动（或是未跟踪的） */
@@ -38,7 +40,10 @@ interface Props {
 type Load<T> = { data: T | null; loading: boolean; error: string | null };
 const idle = { data: null, loading: false, error: null };
 
-export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Props) {
+export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHistory }: Props) {
+  /** 修改链那一栏开着没有：默认收起，内容占满宽度 */
+  const [chain, setChain] = useState(!!showHistory);
+  useEffect(() => setChain(!!showHistory), [path, showHistory]);
   const [hist, setHist] = useState<Load<FileHistory>>({ ...idle, loading: true });
   /** 选中的：WORK 或提交哈希；最多两个，按点的先后 */
   const [sel, setSel] = useState<string[]>([WORK]);
@@ -163,8 +168,28 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
         <span className="mono fv-path" title={path}>
           {path}
         </span>
-        {hist.data && <span className="dim small">{t("{0} 个版本", versions.length) + (hist.data.truncated ? t("（只列出最近的）") : "")}</span>}
         <span className="grow" />
+        <button
+          type="button"
+          className={"btn sm fv-chain" + (chain ? " pressed" : "")}
+          aria-pressed={chain}
+          title={chain ? t("收起修改链") : t("显示修改链：改过这个文件的提交，可以看每次的修改、某个版本的内容，或比较两个版本")}
+          onClick={() => {
+            if (chain) {
+              // 收起时回到现在的内容
+              setSel([WORK]);
+              setMode("text");
+            }
+            setChain((c) => !c);
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="5.5" />
+            <path d="M7 4v3.2l2 1.3" />
+          </svg>
+          {t("修改链")}
+          {hist.data && <span className="dim">{versions.length + (hist.data.truncated ? "+" : "")}</span>}
+        </button>
         <button type="button" className="ib" title={t("逐行追溯（看每一行是谁在哪个提交改的）")} aria-label={t("逐行追溯")} onClick={() => onBlame(path, null)}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
             <path d="M2 3h3M2 7h3M2 11h3M7 3h5M7 7h5M7 11h5" />
@@ -175,6 +200,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
         </button>
       </div>
       <div className="fv-body">
+        {chain && (
         <div
           className="fv-list"
           ref={list}
@@ -236,6 +262,8 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
           {hist.error && <p className="err pad">{tr(hist.error)}</p>}
           {hist.data && !versions.length && <p className="dim pad small">{t("这个文件还没有提交过（未跟踪的新文件）")}</p>}
         </div>
+        )}
+        {chain && (
         <Splitter
           name="paneHistory"
           host={host}
@@ -245,6 +273,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
           size={() => list.current?.offsetWidth ?? 320}
           label={t("调整修改链的宽度")}
         />
+        )}
         <div className="fv-main">
           {jump?.rev && (
             <div className="fv-mode">

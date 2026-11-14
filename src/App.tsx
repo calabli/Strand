@@ -137,8 +137,11 @@ export default function App() {
   const [fileOpen, setFileOpen] = useState<string | null>(null);
   /** 从内容搜索结果打开时：跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
   const [fileAt, setFileAt] = useState<{ line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null>(null);
-  const openFile = useCallback((p: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }) => {
+  /** 打开文件视图时是否就显示修改链（从“文件历史”图标打开时） */
+  const [fileChain, setFileChain] = useState(false);
+  const openFile = useCallback((p: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }, history = false) => {
     setFileOpen(p);
+    setFileChain(history);
     setFileAt(at ? { ...at, n: Date.now() } : null);
     setTab("file");
   }, []);
@@ -1326,6 +1329,7 @@ export default function App() {
             <FileView
               path={fileOpen}
               at={fileAt}
+              showHistory={fileChain}
               changed={!!status && (status.changes.some((c) => c.path === fileOpen) || status.untracked.includes(fileOpen))}
               onClose={() => {
                 setFileOpen(null);
@@ -1403,7 +1407,7 @@ export default function App() {
           activePath={target?.kind === "commit" && target.id === selected?.id ? target.path : null}
           onOpenDiff={(c, path) => openDiff({ kind: "commit", id: c.id, path })}
           onBlame={(path, rev) => setBlame({ path, rev })}
-          onFileHistory={(p) => openFile(p)}
+          onFileHistory={(p) => openFile(p, undefined, true)}
           repoName={repo.name}
           find={ui.searchIn === "changes" && ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : null}
           highlight={ui.searchIn === "message" && ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : null}

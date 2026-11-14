@@ -933,3 +933,5 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .tk-deletion { color: var(--danger); }
 /* 搜索词里的着色不要盖掉黄底深字 */
 mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
+.fv-chain { display: inline-flex; align-items: center; gap: 5px; }
+.fv-chain.pressed { background: var(--chip); border-color: var(--accent); color: var(--accent-ink); }
