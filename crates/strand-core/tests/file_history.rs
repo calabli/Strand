@@ -133,3 +133,25 @@ fn full_context_diff_contains_whole_file() {
     assert_eq!(s.diff_compare_ctx(&first, &id, "f.txt", 1_000_000).unwrap().hunks[0].lines.len(), 41);
     assert_eq!(s.file_diff_versions_ctx(Some(&first), "f.txt", Some(&id), "f.txt", 1_000_000).unwrap().hunks[0].lines.len(), 41);
 }
+
+#[test]
+fn save_worktree_file_checks_path_and_concurrent_change() {
+    let d = repo();
+    let p = d.path();
+    let s = Session::open(p).unwrap();
+    let before = s.file_text("src/b.txt", None).unwrap().text.unwrap();
+    s.save_worktree_file("src/b.txt", "改好了\n", &before).unwrap();
+    assert_eq!(std::fs::read_to_string(p.join("src/b.txt")).unwrap(), "改好了\n");
+    // 磁盘上已经变了（和开始编辑时读到的不一样）就不覆盖
+    let err = s.save_worktree_file("src/b.txt", "又改\n", &before).unwrap_err();
+    assert!(matches!(err.code, strand_core::error::ErrorCode::StateDiverged));
+    assert_eq!(std::fs::read_to_string(p.join("src/b.txt")).unwrap(), "改好了\n");
+    // 跳出仓库、写进 .git、不存在的文件都不行
+    for bad in ["../x.txt", ".git/config", "/etc/hosts", "src", "nope.txt"] {
+        assert!(s.save_worktree_file(bad, "x", "").is_err(), "{bad}");
+    }
+    // CRLF 的文件保存后还是 CRLF
+    write(p, "w.txt", "a\r\nb\r\n");
+    s.save_worktree_file("w.txt", "a\nc\n", "a\r\nb\r\n").unwrap();
+    assert_eq!(std::fs::read_to_string(p.join("w.txt")).unwrap(), "a\r\nc\r\n");
+}

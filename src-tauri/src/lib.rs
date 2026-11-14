@@ -807,6 +807,12 @@ async fn file_text(state: State<'_, AppState>, path: String, rev: Option<String>
     with_repo(&state, move |s| s.file_text(&path, rev.as_deref())).await
 }
 
+/// 在差异里编辑后保存工作区文件；expected 是开始编辑时读到的内容（磁盘上的变了就不覆盖）
+#[tauri::command]
+async fn save_worktree_file(state: State<'_, AppState>, path: String, text: String, expected: String) -> CmdResult<()> {
+    with_repo(&state, move |s| s.save_worktree_file(&path, &text, &expected)).await
+}
+
 /// 文件修改链：git log --follow 在后台跑（长历史上要几秒），跑完再补上引用
 #[tauri::command]
 async fn file_history(state: State<'_, AppState>, path: String) -> CmdResult<strand_core::file_history::FileHistory> {
@@ -1134,6 +1140,7 @@ pub fn run(adopted: Option<u128>) {
             commit_tree,
             project_files,
             file_text,
+            save_worktree_file,
             file_history,
             file_diff_versions,
             commit_change_matches,

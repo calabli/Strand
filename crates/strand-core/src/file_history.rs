@@ -131,6 +131,31 @@ impl Session {
         Ok(fd)
     }
 
+    /// 保存工作区里的一个文件（在差异里直接编辑后保存）。
+    /// `expected` 是开始编辑时读到的内容：磁盘上的已经被别处改了就不覆盖（STATE_DIVERGED），免得冲掉别人的改动。
+    /// 原文件用 CRLF 换行时，保存的内容也换成 CRLF（编辑框会把换行统一成 LF）。
+    /// 只能写仓库里已有的普通文件，路径不能跳出仓库，也不能写进 .git。
+    pub fn save_worktree_file(&self, path: &str, text: &str, expected: &str) -> Result<()> {
+        let rel = std::path::Path::new(path);
+        let bad = path.is_empty()
+            || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_)))
+            || rel.components().next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case(".git"));
+        if bad {
+            return Err(CoreError::new(ErrorCode::InvalidName, format!("不能保存这个路径：{path}")));
+        }
+        let full = self.path().join(rel);
+        let meta = std::fs::symlink_metadata(&full).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
+        if !meta.is_file() {
+            return Err(CoreError::new(ErrorCode::InvalidName, format!("不能保存这个路径：{path}")));
+        }
+        let now = std::fs::read(&full).map_err(|e| CoreError::git("读取文件失败", e))?;
+        if now != expected.as_bytes() {
+            return Err(CoreError::new(ErrorCode::StateDiverged, "文件在别处被改过了，重新打开再编辑"));
+        }
+        let out = if expected.contains("\r\n") && !text.contains("\r\n") { text.replace('\n', "\r\n") } else { text.to_string() };
+        std::fs::write(&full, out).map_err(|e| CoreError::git("写入文件失败", e))
+    }
+
     /// 文件在某个版本（或工作区）里的内容；没有这个文件时返回 None
     fn content(&self, repo: &git2::Repository, path: &str, rev: Option<&str>) -> Result<Option<Vec<u8>>> {
         let Some(rev) = rev else {

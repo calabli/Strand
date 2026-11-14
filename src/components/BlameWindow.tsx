@@ -8,6 +8,9 @@ import { api, errOf } from "../api/commands";
 import type { BlamePage } from "../api/types";
 import { t, tr } from "../i18n";
 import { formatTime, shortId } from "./format";
+import { Found } from "./inlineDiff";
+import { highlight, langOf, type Tok } from "../highlight";
+import { useSettings } from "../settings";
 
 const FIRST = 300;
 const REST = 5000;
@@ -56,6 +59,20 @@ export function BlameWindow({ path, rev, onClose, onJump }: { path: string; rev:
       live = false;
     };
   }, [path, rev]);
+
+  // 语法高亮：全部读完后整段着色（在后台线程里）
+  const syntax = useSettings().diffSyntax;
+  const [toks, setToks] = useState<Tok[][] | null>(null);
+  const loaded = total !== null && lines.length >= total;
+  useEffect(() => {
+    if (!loaded || !syntax) return;
+    let live = true;
+    highlight(langOf(path), [lines.map((l) => l.text).join("\n")]).then(([x]) => live && setToks(x));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, syntax, path]);
 
   const tip = (c: Commit) =>
     c.uncommitted ? t("还没提交的改动") : `${shortId(c.id)} · ${c.author} · ${formatTime(c.time)}\n\n${c.title}${c.body ? `\n\n${c.body}` : ""}${c.in_log ? "" : `\n\n${t("这个提交已经不在日志里，不能跳转")}`}`;
@@ -109,7 +126,9 @@ export function BlameWindow({ path, rev, onClose, onJump }: { path: string; rev:
                   <span className="bl-who" title={tip(l.c)} />
                 )}
                 <span className="bl-no dim">{l.no}</span>
-                <span className="bl-code">{l.text}</span>
+                <span className="bl-code">
+                  <Found t={l.text} toks={syntax ? toks?.[i] : null} />
+                </span>
               </div>
             );
           })}

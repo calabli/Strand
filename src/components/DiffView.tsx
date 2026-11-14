@@ -21,7 +21,9 @@ import { formatTime, shortId } from "./format";
 import { highlight, langOf, type Tok } from "../highlight";
 import { t, tr } from "../i18n";
 import { setSettings, useSettings } from "../settings";
-import { Hi } from "./inlineDiff";
+import { Hi, indentStyle, indentUnit } from "./inlineDiff";
+import { EditFile } from "./EditFile";
+import { Crumbs, useTopLine } from "./Crumbs";
 
 interface Props {
   diff: FileDiff | null;
@@ -31,7 +33,12 @@ interface Props {
   source: string;
   onClose: () => void;
   /** 行级勾选：给出时显示勾选框。行的键是“块序号:行序号” */
-  pick?: { excluded: Set<string>; onToggle: (keys: string[], on: boolean, all: string[]) => void };
+  pick?: {
+    excluded: Set<string>;
+    onToggle: (keys: string[], on: boolean, all: string[]) => void;
+    /** 显示的是整个文件、勾选按 3 行上下文的块记录时：改动行（"d:旧行号" / "a:新行号"）→ 它的“块:行” */
+    keys?: Map<string, string>;
+  };
   /** 窄的版本（提交详情里文件下面的差异框）：只显示文件名、行数、上下处和关闭，固定合并视图；onExpand 在标签页里打开 */
   compact?: boolean;
   onExpand?: () => void;
@@ -45,6 +52,8 @@ interface Props {
   blameSides?: { left?: { path: string; rev: string | null } | null; right?: { path: string; rev: string | null } | null } | null;
   /** 点逐行追溯里的提交：在日志里定位 */
   onLocate?: (id: string) => void;
+  /** 工作区的文件：可以在这里直接编辑（铅笔），保存后 onSaved 重新读差异 */
+  editable?: { path: string; onSaved: () => void } | null;
 }
 
 /** 逐行追溯里一行的提交 */
@@ -138,6 +147,7 @@ const ICON = {
   fold: "M4 2l3 3 3-3M4 12l3-3 3 3",
   lock: "M3.5 6.5h7v5.5h-7zM5 6.5V4.5a2 2 0 0 1 4 0v2",
   blame: "M2 3h3M2 7h3M2 11h3M7 3h5M7 7h5M7 11h5",
+  edit: "M9.5 2.5l2 2L5 11H3V9zM8 4l2 2",
 };
 
 function Ico({ d }: { d: string }) {
@@ -148,8 +158,10 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly, blameSides, onLocate }: Props) {
+export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly, blameSides, onLocate, editable }: Props) {
   const [cur, setCur] = useState(0);
+  /** 正在编辑：从第几行打开 */
+  const [editAt, setEditAt] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const settings = useSettings();
   const diffView = compact ? "unified" : settings.diffView;
@@ -159,6 +171,9 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const lineNo = settings.diffLineNo;
   const wrap = settings.diffWrap;
   const syntax = settings.diffSyntax;
+  const guides = settings.diffIndent;
+  // 缩进参考线的单位（2 或 4 列），按这个文件的行判断
+  const unit = useMemo(() => (diff ? indentUnit(diff.hunks.flatMap((h) => h.lines.map((l) => l.text)).slice(0, 4000)) : 4), [diff]);
 
   // 语法高亮：拼出旧版本和新版本（整个文件时就是两个完整的文件），在后台线程里着色，按行号对上
   const [hl, setHl] = useState<{ diff: FileDiff; old: Map<number, Tok[]>; neu: Map<number, Tok[]> } | null>(null);
@@ -187,6 +202,66 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   /** 一行的语法着色：删除行（和左边）按旧版本，其余按新版本 */
   const toksOf = (side: 0 | 1, no: number | undefined | null) => (hlNow && no ? (side === 0 ? hlNow.old : hlNow.neu).get(no) : undefined);
   const blameOn = settings.diffBlame && !!blameSides && !compact;
+
+  // 左右对照不折行时两边各自横向滚动：底下各有一条滚动条，横向滑动（或按住 ⇧ 滚轮）只动指针下面那一边
+  const sheet = useRef<HTMLDivElement>(null);
+  const bars = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)] as const;
+  const [over, setOver] = useState<[number, number]>([0, 0]);
+  const sideScroll = !!diff && !diff.binary && diffView === "split" && !wrap;
+  useLayoutEffect(() => {
+    const el = sheet.current;
+    if (!sideScroll || !el) {
+      setOver([0, 0]);
+      return;
+    }
+    el.style.setProperty("--sx0", "0px");
+    el.style.setProperty("--sx1", "0px");
+    bars.forEach((b) => b.current && (b.current.scrollLeft = 0));
+    // 量实际画出来的宽度（中文等宽字符、制表符都算对）；展开折叠的部分后高度变了也会重量
+    const measure = () => {
+      const o = [0, 1].map((i) => {
+        const code = el.querySelector<HTMLElement>(`.s${i} .code`);
+        if (!code) return 0;
+        let w = 0;
+        el.querySelectorAll<HTMLElement>(`.s${i} .sx`).forEach((x) => (w = Math.max(w, x.offsetWidth)));
+        return Math.max(0, Math.ceil(w - code.clientWidth + 8));
+      });
+      setOver((p) => (p[0] === o[0] && p[1] === o[1] ? p : [o[0], o[1]]));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sideScroll, diff, lineNo, blameOn, !!pick, hlNow]);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || !sideScroll) return;
+    const onWheel = (e: WheelEvent) => {
+      const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+      if (!dx || Math.abs(dx) < Math.abs(e.shiftKey ? 0 : e.deltaY)) return;
+      const side = (e.target as HTMLElement).closest?.(".s0, .s1, .sx-bar");
+      if (!side) return;
+      const i = side.classList.contains("s1") || side.classList.contains("b1") ? 1 : 0;
+      const b = bars[i].current;
+      if (!b) return;
+      e.preventDefault();
+      b.scrollLeft += dx;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sideScroll]);
+  const sxBar = (i: 0 | 1) => (
+    <div
+      ref={bars[i]}
+      className={`sx-bar b${i}`}
+      aria-hidden="true"
+      onScroll={(e) => sheet.current?.style.setProperty(`--sx${i}`, `${e.currentTarget.scrollLeft}px`)}
+    >
+      <div style={{ width: `calc(100% + ${over[i]}px)` }} />
+    </div>
+  );
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   // 逐行追溯：两边各追溯整个文件，按行号对上
@@ -237,6 +312,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         { heading: true, label: t("显示") },
         { label: t("语法高亮"), checked: syntax, run: () => setSettings({ diffSyntax: !syntax }) },
         { label: t("显示空白字符"), checked: showWs, run: () => setSettings({ diffWs: !showWs }) },
+        { label: t("缩进参考线"), checked: guides, run: () => setSettings({ diffIndent: !guides }) },
         { label: t("显示行号"), checked: lineNo, run: () => setSettings({ diffLineNo: !lineNo }) },
         { label: t("自动换行"), checked: wrap, run: () => setSettings({ diffWrap: !wrap }) },
       ],
@@ -246,7 +322,25 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
 
   // 整个文件在一块里（从第 1 行开始）时不显示块标题；逐行勾选时总是显示（块标题上有整块的勾选框）
   const whole = !!diff && diff.hunks.length === 1 && diff.hunks[0].old_start <= 1 && diff.hunks[0].new_start <= 1;
-  const segs = useMemo(() => (diff ? segmentsOf(diff, ignoreWs, !!pick || !whole) : []), [diff, ignoreWs, pick, whole]);
+  // 块标题：只拿到改动附近几行时显示；逐行勾选又没有对照表时也显示（整块的勾选框在上面）
+  const pickKeys = pick?.keys;
+  const segs = useMemo(() => (diff ? segmentsOf(diff, ignoreWs, (!!pick && !pickKeys) || !whole) : []), [diff, ignoreWs, pick, pickKeys, whole]);
+  // 面包屑：按新版本的行（整个文件时就是整个新文件）推断最上面那一行在哪个函数、类里
+  const newText = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const h of diff?.hunks ?? []) for (const l of h.lines) if (l.kind !== "del" && l.new_no) m.set(l.new_no, l.text);
+    return (k: number) => m.get(k);
+  }, [diff]);
+  const top = useTopLine(box, [segs, diffView, opened, fold, wrap]);
+  /** 编辑时从哪一行打开：当前这处改动在新版本里的第一行（只有删除时取后面最近的一行） */
+  const editLine = () => {
+    const i = segs.findIndex((s) => s.kind === "chg" && s.id === cur);
+    for (let k = Math.max(0, i); k < segs.length; k++) {
+      const s = segs[k];
+      if (s.kind !== "gap") for (const r of s.rows) if (r.right?.line.new_no) return r.right.line.new_no;
+    }
+    return 1;
+  };
   const n = segs.filter((s) => s.kind === "chg").length;
 
   useEffect(() => {
@@ -273,7 +367,10 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const added = diff?.hunks.reduce((a, h) => a + h.lines.filter((l) => l.kind === "add").length, 0) ?? 0;
   const deleted = diff?.hunks.reduce((a, h) => a + h.lines.filter((l) => l.kind === "del").length, 0) ?? 0;
   // 所有改动行的键（勾选状态按它记录）
-  const allKeys = diff ? diff.hunks.flatMap((h, i) => h.lines.flatMap((l, j) => (l.kind === "context" ? [] : [key(i, j)]))) : [];
+  const allKeys = pickKeys ? [...pickKeys.values()] : diff ? diff.hunks.flatMap((h, i) => h.lines.flatMap((l, j) => (l.kind === "context" ? [] : [key(i, j)]))) : [];
+  /** 一个改动行在勾选记录里的键；对不上（理论上不会）时返回 null，这一行不能勾选 */
+  const keyOf = (it: Item): string | null =>
+    !pickKeys ? key(it.h, it.j) : pickKeys.get(it.kind === "del" ? `d:${it.line.old_no}` : `a:${it.line.new_no}`) ?? null;
   const picked = pick ? allKeys.filter((k) => !pick.excluded.has(k)).length : 0;
 
   /** 一个改动行前的勾选框（没改的行留空位） */
@@ -285,11 +382,38 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         type="checkbox"
         className="line-check"
         aria-label={t("提交第 {0} 行的改动", it.line.new_no ?? it.line.old_no)}
-        checked={!pick.excluded.has(key(it.h, it.j))}
-        onChange={(e) => pick.onToggle([key(it.h, it.j)], e.target.checked, allKeys)}
+        checked={!pick.excluded.has(keyOf(it) ?? "")}
+        disabled={keyOf(it) === null}
+        onChange={(e) => {
+          const k = keyOf(it);
+          if (k) pick.onToggle([k], e.target.checked, allKeys);
+        }}
       />
     );
-  const off = (it: Item | undefined) => (pick && it && it.kind !== "context" && pick.excluded.has(key(it.h, it.j)) ? " off" : "");
+  const off = (it: Item | undefined) => (pick && it && it.kind !== "context" && pick.excluded.has(keyOf(it) ?? "") ? " off" : "");
+
+  /** 整个文件显示、逐行勾选时：每处改动上面一条，带勾选这一处全部改动行的勾选框 */
+  const chgPick = (s: Seg & { kind: "chg" }) => {
+    if (!pick || !pickKeys) return null;
+    const keys = s.rows.flatMap((r) => [r.left, r.right]).flatMap((it) => (it && it.kind !== "context" ? [keyOf(it)] : [])).filter((k): k is string => !!k);
+    const uniq = [...new Set(keys)];
+    const on = uniq.filter((k) => !pick.excluded.has(k)).length;
+    return (
+      <div className="chg-pick">
+        <input
+          type="checkbox"
+          className="hunk-check"
+          aria-label={t("勾选这一处的全部改动行")}
+          checked={on === uniq.length}
+          ref={(el) => {
+            if (el) el.indeterminate = on > 0 && on < uniq.length;
+          }}
+          onChange={() => pick.onToggle(uniq, on < uniq.length, allKeys)}
+        />
+        <span className="dim">{t("第 {0} 处 · 已选 {1} / {2} 行", s.id + 1, on, uniq.length)}</span>
+      </div>
+    );
+  };
 
   /** 没改的段：太长时中间折起来。返回要显示的行（null 是折叠的那一行） */
   const visibleRows = (s: Seg & { kind: "ctx" }, i: number): (Row | { hidden: number })[] => {
@@ -309,13 +433,13 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
 
   /** 合并视图的一行 */
   const uLine = (it: Item, k: string | number) => (
-    <div key={k} className={`dl dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
+    <div key={k} data-n={it.kind !== "del" ? it.line.new_no ?? undefined : undefined} className={`dl dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
       {check(it)}
       {it.kind === "del" ? ann(0, it.line.old_no) : ann(1, it.line.new_no)}
       <span className="ln">{it.kind === "add" ? "" : it.same ? "" : it.line.old_no ?? ""}</span>
       <span className="ln">{it.kind === "del" ? "" : it.line.new_no ?? ""}</span>
       <span className="sign">{it.kind === "add" ? "+" : it.kind === "del" ? "−" : ""}</span>
-      <span className="code">
+      <span className="code" style={guides ? indentStyle(it.line.text, unit) : undefined}>
         <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} toks={it.kind === "del" ? toksOf(0, it.line.old_no) : toksOf(1, it.line.new_no)} />
       </span>
     </div>
@@ -351,6 +475,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         const items = [...s.rows.flatMap((r) => (r.left ? [r.left] : [])), ...s.rows.flatMap((r) => (r.right ? [r.right] : []))];
         return (
           <div key={i} className={"chg" + (s.id === cur ? " cur" : "")} data-block={s.id} data-kind={chgKind(s.rows)}>
+            {chgPick(s)}
             {items.map((it, k) => uLine(it, k))}
           </div>
         );
@@ -366,13 +491,15 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
 
   /** 左右对比里一边的一行 */
   const sLine = (it: Item, side: 0 | 1, k: string | number) => (
-    <div key={k} className={`sl-line dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
+    <div key={k} data-n={side === 1 ? it.line.new_no ?? undefined : undefined} className={`sl-line s${side} dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
       {check(it.kind !== "context" ? it : undefined)}
       {ann(side, side === 0 ? it.line.old_no : it.line.new_no)}
       <span className="ln">{(side === 0 ? it.line.old_no : it.line.new_no) ?? ""}</span>
       <span className="sign">{it.kind === "add" ? "+" : it.kind === "del" ? "−" : ""}</span>
-      <span className="code">
-        <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} toks={toksOf(side, side === 0 ? it.line.old_no : it.line.new_no)} />
+      <span className="code" style={guides ? indentStyle(it.line.text, unit) : undefined}>
+        <span className="sx">
+          <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} toks={toksOf(side, side === 0 ? it.line.old_no : it.line.new_no)} />
+        </span>
       </span>
     </div>
   );
@@ -380,7 +507,13 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const split = () =>
     segs.map((s, i) => {
       if (s.kind === "gap") return gapRow(s, i);
-      if (s.kind === "chg") return <ChgSeg key={i} id={s.id} cur={s.id === cur} kind={chgKind(s.rows)} left={s.rows.flatMap((r, k) => (r.left ? [sLine(r.left, 0, k)] : []))} right={s.rows.flatMap((r, k) => (r.right ? [sLine(r.right, 1, k)] : []))} />;
+      if (s.kind === "chg")
+        return (
+          <div key={i}>
+            {chgPick(s)}
+            <ChgSeg id={s.id} cur={s.id === cur} kind={chgKind(s.rows)} left={s.rows.flatMap((r, k) => (r.left ? [sLine(r.left, 0, k)] : []))} right={s.rows.flatMap((r, k) => (r.right ? [sLine(r.right, 1, k)] : []))} />
+          </div>
+        );
       return (
         <div key={i} className="sseg ctx">
           {visibleRows(s, i).map((r, k) =>
@@ -442,6 +575,11 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         )}
         {pick && allKeys.length > 0 && <span className="dim">{t("已选 {0} / {1} 行", picked, allKeys.length)}</span>}
         <span className="grow" />
+        {editable && !compact && diff && !diff.binary && (
+          <button type="button" className="ib" title={t("编辑这个文件（工作区）")} aria-label={t("编辑这个文件")} onClick={() => setEditAt(editLine())}>
+            <Ico d={ICON.edit} />
+          </button>
+        )}
         {!compact && (
           <span className="seg diff-seg" role="radiogroup" aria-label={t("差异视图")}>
             <button type="button" role="radio" aria-checked={diffView === "split"} className={diffView === "split" ? "on" : ""} title={t("左右对比")} aria-label={t("左右对比")} onClick={() => setSettings({ diffView: "split" })}>
@@ -522,6 +660,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
           ×
         </button>
       </div>
+      {!compact && diff && !diff.binary && n > 0 && <Crumbs path={diff.path} get={newText} top={top} box={box} />}
       <div className="diff-main">
         <div
           className={"diff-body" + (diffView === "split" ? " split" : "")}
@@ -537,8 +676,15 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
           {diff && diff.binary && <p className="pad dim">{t("二进制文件，不显示差异")}</p>}
           {diff && !diff.binary && n === 0 && !loading && <p className="pad dim">{t("没有内容差异（可能只改了文件权限）")}</p>}
           {diff && !diff.binary && n > 0 && (
-            <div className={"dfile" + (diffView === "split" ? " split" : "") + (wrap ? " wrap" : "") + (lineNo ? "" : " no-ln") + (showWs ? " show-ws" : "") + (blameOn ? " with-ann" : "")}>
+            <div ref={sheet} className={"dfile" + (diffView === "split" ? " split" : "") + (wrap ? " wrap" : "") + (lineNo ? "" : " no-ln") + (showWs ? " show-ws" : "") + (blameOn ? " with-ann" : "")}>
               {diffView === "split" ? split() : unified()}
+            </div>
+          )}
+          {sideScroll && n > 0 && (over[0] > 0 || over[1] > 0) && (
+            <div className={"sx-bars" + (blameOn ? " with-ann" : "")}>
+              {sxBar(0)}
+              <span />
+              {sxBar(1)}
             </div>
           )}
           {diff?.truncated && <p className="pad dim">{t("文件太大，只显示了前 20000 行")}</p>}
@@ -546,6 +692,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         {diff && !diff.binary && n > 0 && <Ruler body={box} deps={[segs, opened, fold, diffView, wrap, lineNo, blameOn]} onPick={(i) => (setCur(i), scrollTo(i, false))} />}
       </div>
       {menu && <Menu menu={menu} onClose={() => setMenu(null)} />}
+      {editable && editAt != null && <EditFile path={editable.path} line={editAt} onClose={() => setEditAt(null)} onSaved={editable.onSaved} />}
     </div>
   );
 }

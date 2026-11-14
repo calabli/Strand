@@ -36,6 +36,8 @@ export interface Settings {
   diffWrap: boolean;
   /** 差异和文件全文里的语法高亮 */
   diffSyntax: boolean;
+  /** 差异和文件全文里的缩进参考线 */
+  diffIndent: boolean;
   /** 文件列表按目录树显示（说明书 4.7）：提交面板和提交详情共用 */
   groupByDir: boolean;
   /** 拖动分隔线调整的宽度（像素）：左边提交面板、右边提交详情、日志左边的分支树 */
@@ -49,7 +51,7 @@ export interface Settings {
   paneHistory: number;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320 };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320 };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

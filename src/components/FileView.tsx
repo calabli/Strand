@@ -7,6 +7,7 @@
 // 差异用差异标签页同一套显示（合并视图或左右对比、忽略空白、上下块跳转）。
 // 从内容搜索结果打开时（at）：显示那个版本（或工作区）的全文，滚到那一行并标出来；在修改链里选别的就回到平常的样子。
 
+import { Crumbs, useTopLine } from "./Crumbs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf, wholeFile } from "../api/commands";
 import type { FileDiff, FileHistory, FileText } from "../api/types";
@@ -14,7 +15,7 @@ import { DiffView } from "./DiffView";
 import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
 import { findRegExp, relTime, shortId } from "./format";
-import { Found } from "./inlineDiff";
+import { Found, indentStyle, indentUnit } from "./inlineDiff";
 import { highlight, langOf, type Tok } from "../highlight";
 import { settings, useSettings } from "../settings";
 import { t, tr, lang } from "../i18n";
@@ -353,7 +354,13 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
     };
   }, [f, syntax]);
   const lineToks = syntax && toks?.f === f ? toks.lines : null;
+  const guides = useSettings().diffIndent;
+  const unit = useMemo(() => indentUnit(lines.slice(0, 4000)), [lines]);
+  const get = useMemo(() => (k: number) => (k <= MAX_LINES ? lines[k - 1] : undefined), [lines]);
+  const top = useTopLine(box, [lines]);
   return (
+    <>
+    {f?.text !== undefined && lines.length > 0 && <Crumbs path={f.path} get={get} top={top} box={box} />}
     <div className="fv-text" ref={box}>
       {load.loading && !f && <p className="pad dim">{t("正在读取…")}</p>}
       {load.error && <p className="pad err">{tr(load.error)}</p>}
@@ -362,9 +369,9 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
       {f?.text !== undefined && (
         <div className={"tv mono" + (load.loading ? " stale" : "")}>
           {lines.slice(0, MAX_LINES).map((l, i) => (
-            <div key={i} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
+            <div key={i} data-n={i + 1} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
               <span className="ln">{i + 1}</span>
-              <span className="code">
+              <span className="code" style={guides ? indentStyle(l, unit) : undefined}>
                 <Found t={l} find={find} toks={lineToks?.[i]} />
               </span>
             </div>
@@ -373,5 +380,6 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
         </div>
       )}
     </div>
+    </>
   );
 }

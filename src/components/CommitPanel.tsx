@@ -181,6 +181,32 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
       return n;
     });
 
+  /** 目录行的勾选框：目录下全部勾选时点击变为全不选，其余情况点击变为全选（和“改动”节点一样） */
+  const dirCheck = (items: (typeof changes)[number][]) => {
+    const on = items.filter((c) => !unchecked.has(c.path) && !allOff(c.path)).length;
+    return (
+      <input
+        type="checkbox"
+        aria-label={t("提交这个目录下的 {0} 个文件", items.length)}
+        title={t("勾选或取消这个目录下的全部文件")}
+        checked={on === items.length}
+        ref={(el) => {
+          if (el) el.indeterminate = on > 0 && on < items.length;
+        }}
+        onChange={() =>
+          setUnchecked((u) => {
+            const n = new Set(u);
+            for (const c of items) {
+              if (on === items.length) n.add(c.path);
+              else n.delete(c.path);
+            }
+            return n;
+          })
+        }
+      />
+    );
+  };
+
   // 全部勾选时点击变为全不选，其余情况点击变为全选（说明书 4.3）
   const toggleAll = () => setUnchecked(picked.length === changes.length ? new Set(changes.map((c) => c.path)) : new Set());
 
@@ -501,7 +527,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
               </span>
             </label>
             {changesOpen &&
-              (groupDir ? <FileTree items={changes} pathOf={(c) => c.path} leaf={(c, d) => changeRow(c, d)} /> : changes.map((c) => changeRow(c)))}
+              (groupDir ? <FileTree items={changes} pathOf={(c) => c.path} leaf={(c, d) => changeRow(c, d)} dirLead={dirCheck} /> : changes.map((c) => changeRow(c)))}
           </>
         )}
         {untracked.length > 0 && (

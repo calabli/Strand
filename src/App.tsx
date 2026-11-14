@@ -123,7 +123,7 @@ export default function App() {
   /** 控制台、文件视图、差异标签页用中间加右边的宽度，不显示提交详情（差异要左右对照，窄了会折行） */
   const wide = tab === "console" || tab === "file" || tab === "diff";
   const [target, setTarget] = useState<DiffTarget | null>(null);
-  const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null }>({
+  const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null; pickKeys?: Map<string, string> }>({
     data: null,
     loading: false,
     error: null,
@@ -215,11 +215,27 @@ export default function App() {
     });
 
   const loadDiff = useCallback((t: DiffTarget, quiet = false) => {
-    setDiff((d) => ({ data: quiet ? d.data : null, loading: !quiet, error: null }));
+    setDiff((d) => ({ data: quiet ? d.data : null, loading: !quiet, error: null, pickKeys: quiet ? d.pickKeys : undefined }));
+    if (t.kind === "worktree") {
+      // 工作区：显示整个文件；逐行勾选按 3 行上下文的块记录（核心层提交时也按这个找行），
+      // 所以另外取一份 3 行上下文的差异，按行号把每个改动行对到它在那里的“块:行”
+      Promise.all([api.diffWorktree(t.path), wholeFile((c) => api.diffWorktree(t.path, false, c))]).then(
+        ([short, full]) => {
+          const pickKeys = new Map<string, string>();
+          short.hunks.forEach((h, i) =>
+            h.lines.forEach((l, j) => {
+              if (l.kind === "del" && l.old_no) pickKeys.set(`d:${l.old_no}`, `${i}:${j}`);
+              if (l.kind === "add" && l.new_no) pickKeys.set(`a:${l.new_no}`, `${i}:${j}`);
+            }),
+          );
+          setDiff({ data: full, loading: false, error: null, pickKeys });
+        },
+        (e) => setDiff({ data: null, loading: false, error: msgOf(e) }),
+      );
+      return;
+    }
     const p =
-      t.kind === "worktree"
-        ? api.diffWorktree(t.path)
-        : t.kind === "compare"
+      t.kind === "compare"
           ? wholeFile((c) => api.diffCompare(t.from, t.to, t.path, c))
           : t.kind === "shelf"
             ? api.shelfDiff(t.id, t.path)
@@ -1290,6 +1306,7 @@ export default function App() {
                   ? {
                       excluded: new Set(lineSel[target.path]?.excluded ?? []),
                       onToggle: (keys, on, all) => toggleLines(target.path, keys, on, all),
+                      keys: diff.pickKeys,
                     }
                   : undefined
               }
@@ -1310,6 +1327,17 @@ export default function App() {
                       : null
               }
               onLocate={(id) => locate(id)}
+              editable={
+                target.kind === "worktree" && status?.changes.find((c) => c.path === target.path)?.status !== "D"
+                  ? {
+                      path: target.path,
+                      onSaved: () => {
+                        loadDiff(target, true);
+                        refreshStatus();
+                      },
+                    }
+                  : null
+              }
             />
           )}
         </main>

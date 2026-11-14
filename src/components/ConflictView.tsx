@@ -8,7 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
 import type { Change, ChangeMark, ConflictFile, MergeSession, OpInfo, RepoState, Side, SideChange } from "../api/types";
 import { formatTime, shortId } from "./format";
-import { Hi } from "./inlineDiff";
+import { Found, Hi } from "./inlineDiff";
+import { highlight, langOf, type Tok } from "../highlight";
+import { useSettings } from "../settings";
 import { t, tr, withNote, lazy } from "../i18n";
 
 type Marks = Record<string, Record<string, ChangeMark>>; // 文件 → 修改处编号 → 标记
@@ -431,6 +433,32 @@ const VIEWS: { id: MwView; label: string; lines: number[] }[] = [
 function MergeWindow(p: WinProps) {
   const { file, marks, checked } = p;
   const changes = useMemo(() => changesOf(file), [file]);
+  // 语法高亮：三栏各自按显示的顺序拼成整段（你的、结果、对方的），在后台线程里着色，按各栏的行号对上；结果栏随标记变化
+  const syntax = useSettings().diffSyntax;
+  const cols = useMemo(() => {
+    const A: string[] = [], B: string[] = [], C: string[] = [];
+    for (const seg of file.segments) {
+      if (seg.type === "context") {
+        for (const x of seg.lines) A.push(x), B.push(x), C.push(x);
+        continue;
+      }
+      const ch = seg as Change;
+      A.push(...(ch.mine ?? ch.base));
+      B.push(...(ch.theirs ?? ch.base));
+      C.push(...resultOf(ch, markOf(marks, ch.id)).lines);
+    }
+    return [A.join("\n"), C.join("\n"), B.join("\n")];
+  }, [file, marks]);
+  const [tk, setTk] = useState<{ cols: string[]; a: Tok[][]; c: Tok[][]; b: Tok[][] } | null>(null);
+  useEffect(() => {
+    if (!syntax) return;
+    let live = true;
+    highlight(langOf(file.path), cols).then(([a, c, b]) => live && a && b && c && setTk({ cols, a, c, b }));
+    return () => {
+      live = false;
+    };
+  }, [cols, syntax, file.path]);
+  const tks = syntax && tk ? tk : null;
   const [cur, setCur] = useState(0);
   const [edit, setEdit] = useState<{ id: string; text: string } | null>(null);
   useReturnFocus(!!edit);
@@ -544,11 +572,17 @@ function MergeWindow(p: WinProps) {
         rows.push(
           <div className="tri-ln" key={`x${y}`}>
             <span className="n">{a}</span>
-            <span className="t">{t}</span>
+            <span className="t">
+              <Found t={t} toks={tks?.a[a - 1]} />
+            </span>
             <span className="n bl">{c}</span>
-            <span className="t">{t}</span>
+            <span className="t">
+              <Found t={t} toks={tks?.c[c - 1]} />
+            </span>
             <span className="n bl">{b}</span>
-            <span className="t">{t}</span>
+            <span className="t">
+              <Found t={t} toks={tks?.b[b - 1]} />
+            </span>
           </div>,
         );
       }
@@ -664,11 +698,11 @@ function MergeWindow(p: WinProps) {
       rows.push(
         <div className="tri-ln" key={`${ch.id}-${i}`}>
           <span className={"n " + ac}>{mt === undefined ? "" : a}</span>
-          <span className={"t " + ac}>{mt === undefined ? "" : pair ? <Hi t={mt} other={tt} /> : mt}</span>
+          <span className={"t " + ac}>{mt === undefined ? "" : <Hi t={mt} other={pair ? tt : undefined} toks={tks?.a[a - 1]} />}</span>
           <span className={"n bl " + cc}>{r !== undefined ? c : ""}</span>
-          <span className={"t " + cc}>{r !== undefined ? r : isNote ? res.note : ""}</span>
+          <span className={"t " + cc}>{r !== undefined ? <Found t={r} toks={tks?.c[c - 1]} /> : isNote ? res.note : ""}</span>
           <span className={"n bl " + bc}>{tt === undefined ? "" : b}</span>
-          <span className={"t " + bc}>{tt === undefined ? "" : pair ? <Hi t={tt} other={mt} /> : tt}</span>
+          <span className={"t " + bc}>{tt === undefined ? "" : <Hi t={tt} other={pair ? mt : undefined} toks={tks?.b[b - 1]} />}</span>
         </div>,
       );
     }

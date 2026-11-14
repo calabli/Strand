@@ -105,8 +105,9 @@ export const api = {
     inTauri ? call("log_query", { filter, sort, offset, limit }) : mock.logQuery(offset, limit, filter, sort),
   logAuthors: (): Promise<LogAuthor[]> => (inTauri ? call("log_authors") : mock.logAuthors()),
   statusGet: (): Promise<WorktreeStatus> => (inTauri ? call("status_get") : mock.statusGet()),
-  diffWorktree: (path: string, ignoreWs = false): Promise<FileDiff> =>
-    inTauri ? call("diff_worktree", { path, ignoreWs }) : mock.diffFile(path),
+  /** context：上下文行数（FULL 是整个文件）；逐行勾选的行号按 3 行上下文的块记录 */
+  diffWorktree: (path: string, ignoreWs = false, context = 3): Promise<FileDiff> =>
+    inTauri ? call("diff_worktree", { path, ignoreWs, context }) : mock.diffFile(path, context),
   commitCreate: (message: string, selection: Selection, signOff = false): Promise<CommitCreated> =>
     inTauri ? call("commit_create", { message, selection, signOff }) : mock.commitCreate(message, selection),
   /** 修订上一次提交；message 为空时保留原说明 */
@@ -236,6 +237,8 @@ export const api = {
   // 项目文件和文件修改链
   projectFiles: (): Promise<string[]> => (inTauri ? call("project_files") : mock.projectFiles()),
   /** rev 为空时是工作区里的内容 */
+  saveWorktreeFile: (path: string, text: string, expected: string): Promise<null> =>
+    inTauri ? call("save_worktree_file", { path, text, expected }) : mock.saveWorktreeFile(path, text, expected),
   fileText: (path: string, rev: string | null = null): Promise<FileText> => (inTauri ? call("file_text", { path, rev }) : mock.fileText(path, rev)),
   fileHistory: (path: string): Promise<FileHistory> => (inTauri ? call("file_history", { path }) : mock.fileHistory(path)),
   /** 按改动内容搜索时，这个提交里改动行有匹配的文件 */

@@ -141,6 +141,11 @@ export function buildTree<T>(items: T[], pathOf: (x: T) => string): TreeDir<T> {
   return tidy(root);
 }
 
+/** 目录下（含子目录）的全部文件 */
+function filesUnder<T>(d: TreeDir<T>): T[] {
+  return [...d.files, ...d.dirs.flatMap(filesUnder)];
+}
+
 /** 按树形显示的顺序排好的文件（“查看差异”取第一个用） */
 export function treeOrder<T>(items: T[], pathOf: (x: T) => string): T[] {
   const out: T[] = [];
@@ -165,6 +170,7 @@ export function FileTree<T>({
   startClosed,
   forceOpen,
   root,
+  dirLead,
 }: {
   items: T[];
   pathOf: (x: T) => string;
@@ -175,6 +181,8 @@ export function FileTree<T>({
   forceOpen?: boolean;
   /** 给出时最上面加一个根节点（如仓库名），显示文件总数 */
   root?: string;
+  /** 目录行最前面的控件（提交面板：勾选整个目录），参数是这个目录下的全部文件 */
+  dirLead?: (items: T[]) => ReactNode;
 }) {
   // 记的是和默认状态相反的目录：默认展开时记折叠的，默认折叠时记展开的
   const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
@@ -189,12 +197,11 @@ export function FileTree<T>({
   const dir = (d: TreeDir<T>, depth: number): ReactNode => {
     const open = isOpen(d.path);
     const isRoot = d.path.startsWith("\u0000");
-    return (
-      <div key={d.path} role="group" aria-label={isRoot ? d.name : d.path}>
+    const head = (
         <button
           type="button"
           className={"fdir mono" + (isRoot ? " froot" : "")}
-          style={{ paddingLeft: indentOf(depth) }}
+          style={dirLead ? undefined : { paddingLeft: indentOf(depth) }}
           title={isRoot ? d.name : d.path.replace(/\/$/, "")}
           aria-expanded={open}
           onClick={() => !forceOpen && toggle(d.path)}
@@ -210,6 +217,17 @@ export function FileTree<T>({
           <span className="fdir-name">{d.name}</span>
           <span className="dim fdir-count">{t("{0} 个文件", d.count)}</span>
         </button>
+    );
+    return (
+      <div key={d.path} role="group" aria-label={isRoot ? d.name : d.path}>
+        {dirLead ? (
+          <div className="fdir-row" style={{ paddingLeft: indentOf(depth) }}>
+            {dirLead(filesUnder(d))}
+            {head}
+          </div>
+        ) : (
+          head
+        )}
         {open && body(d, depth + 1)}
       </div>
     );

@@ -92,3 +92,32 @@ export function Hi({ t, other, find, ws, toks }: { t: string; other?: string; fi
   }
   return <Rich t={t} diff={diff} find={find} ws={ws} toks={toks} />;
 }
+
+/** 一行开头的缩进占几列（制表符算 4 列） */
+export function indentCols(text: string): number {
+  let n = 0;
+  for (const ch of text) {
+    if (ch === " ") n++;
+    else if (ch === "\t") n += 4;
+    else break;
+  }
+  return n;
+}
+
+/** 文件的缩进单位：大部分缩进是 4 的倍数就是 4，否则是 2 */
+export function indentUnit(texts: string[]): number {
+  let four = 0, two = 0;
+  for (const x of texts) {
+    const n = indentCols(x);
+    if (!n || n >= x.length) continue;
+    if (n % 4 === 0) four++;
+    else if (n % 2 === 0) two++;
+  }
+  return two > four / 3 ? 2 : 4;
+}
+
+/** 缩进参考线：放在代码格子上的样式变量（缩进多宽、每级多宽），画线由样式表做 */
+export const indentStyle = (text: string, unit: number): React.CSSProperties | undefined => {
+  const n = indentCols(text);
+  return n >= unit ? ({ "--ig": `${n}ch`, "--igu": `${unit}ch` } as React.CSSProperties) : undefined;
+};

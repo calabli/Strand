@@ -780,6 +780,11 @@ export function fileText(path: string, rev: string | null) {
   return delay({ path, text: binary ? undefined : lines.join("\n") + "\n", binary, missing: false, size: binary ? 48213 : lines.join("\n").length, truncated: false });
 }
 
+export function saveWorktreeFile(path: string, text: string, _expected: string) {
+  console.info("[mock] 保存", path, text.length);
+  return delay(null);
+}
+
 export function fileHistory(path: string) {
   // 每隔几个提交改一次；中间改过一次名（layout.rs 以前叫 lanes.rs）
   const versions = Array.from({ length: 14 }, (_, k) => {

@@ -898,7 +898,19 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 /* 自动换行：两种视图都折行；关掉时合并视图横向滚动，左右对照截断（悬停看整行） */
 .dfile.wrap .code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dfile:not(.wrap):not(.split) .code { flex: 1 0 auto; }
-.dfile.split:not(.wrap) .code { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.dfile.split:not(.wrap) .code { white-space: pre; overflow: hidden; }
+/* 左右对照两边各自横向滚动：代码往左挪（参考线跟着挪），底下各一条滚动条 */
+.dfile.split:not(.wrap) .code > .sx { display: inline-block; }
+.dfile.split:not(.wrap) .s0 .code > .sx { transform: translateX(calc(-1 * var(--sx0, 0px))); }
+.dfile.split:not(.wrap) .s1 .code > .sx { transform: translateX(calc(-1 * var(--sx1, 0px))); }
+.dfile.split:not(.wrap) .s0 .code[style*="--ig"]::before { left: calc(-1 * var(--sx0, 0px)); }
+.dfile.split:not(.wrap) .s1 .code[style*="--ig"]::before { left: calc(-1 * var(--sx1, 0px)); }
+.sx-bars { position: sticky; bottom: 0; display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); margin-top: -24px; z-index: 1; }
+.sx-bar { overflow-x: auto; overflow-y: hidden; height: 12px; background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.sx-bar > div { height: 1px; }
+.sx-bar::-webkit-scrollbar { height: 8px; }
+.sx-bar::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 4px; }
+.sx-bar::-webkit-scrollbar-thumb:hover { background: var(--fg2); }
 /* 显示空白字符：空格和制表符原样留着（复制出来不变），上面叠一个灰色的点或箭头 */
 .wsd { position: relative; }
 .wsd::before { content: attr(data-ch); position: absolute; left: 0; right: 0; text-align: center; color: var(--fg2); opacity: 0.55; pointer-events: none; }
@@ -935,3 +947,36 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .fv-chain { display: inline-flex; align-items: center; gap: 5px; }
 .fv-chain.pressed { background: var(--chip); border-color: var(--accent); color: var(--accent-ink); }
+/* 整个文件显示、逐行勾选时每处改动上面的一条 */
+.chg-pick { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; background: var(--side); border-top: 1px solid var(--line); font-size: 11px; font-family: var(--sans, inherit); }
+.chg-pick .hunk-check { margin: 0; }
+
+/* 缩进参考线：代码格子带着 --ig（缩进宽度）和 --igu（每级宽度），在缩进范围里每级画一条细竖线 */
+.dfile .code, .tv .code { position: relative; }
+.dfile .code[style*="--ig"]::before, .tv .code[style*="--ig"]::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--ig); pointer-events: none;
+  background: repeating-linear-gradient(to right, var(--line2) 0 1px, transparent 1px var(--igu));
+  opacity: 0.55;
+}
+/* 提交面板目录行：最前面是勾选整个目录的勾选框 */
+.fdir-row { display: flex; align-items: center; gap: 4px; }
+.fdir-row > input { margin: 0; flex-shrink: 0; }
+.fdir-row > .fdir { padding-left: 2px; }
+
+/* 在差异里编辑工作区文件 */
+.modal.editf { width: min(1000px, calc(100vw - 32px)); }
+.editf-dirty { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-ink); }
+.editf-ask { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); background: var(--side); }
+.editf-body { flex: 1; min-height: 0; display: flex; font-size: 12px; line-height: 20px; }
+.editf-ln { width: 52px; flex-shrink: 0; overflow: hidden; padding: 8px 8px 8px 0; text-align: right; background: var(--side); border-right: 1px solid var(--line); user-select: none; }
+.editf-body textarea { flex: 1; min-width: 0; margin: 0; padding: 8px 12px; border: 0; outline: none; resize: none; background: var(--win); color: var(--fg);
+  font: inherit; line-height: 20px; white-space: pre; overflow: auto; tab-size: 4; user-select: text; }
+
+/* 面包屑：文件 › 外层 › 里层 */
+.crumbs { display: flex; align-items: center; gap: 2px; height: 24px; padding: 0 10px; flex-shrink: 0; overflow: hidden; white-space: nowrap; font-size: 11px;
+  border-bottom: 1px solid var(--line); background: var(--side); color: var(--fg2); }
+.crumb-wrap { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.crumb-sep { opacity: 0.6; padding: 0 2px; }
+.crumb { border: 0; background: none; padding: 1px 4px; border-radius: 4px; color: inherit; font: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.crumb:hover { background: var(--hover); color: var(--fg); }
+.crumb-wrap:last-child .crumb { color: var(--fg); }
