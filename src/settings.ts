@@ -20,6 +20,8 @@ export interface Settings {
   dimMerges: boolean;
   /** Open the last repository on startup */
   reopenLast: boolean;
+  /** Check for a new version on startup */
+  autoUpdate: boolean;
   /** Diff view: unified (top and bottom) or side by side (spec §10.1) */
   diffView: "unified" | "split";
   /** Ignore whitespace in diffs: display only */
@@ -51,7 +53,7 @@ export interface Settings {
   paneHistory: number;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320 };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320 };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

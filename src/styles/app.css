@@ -1124,3 +1124,15 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .gc-proxy .gc-field { width: 216px; }
 .gc-off { color: var(--pend-ink); }
 .gc-row { align-items: flex-start; }
+
+/* App updates */
+.update-card { position: fixed; right: 16px; bottom: 16px; z-index: var(--z-toast); width: 300px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--win); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow); font-size: 13px; }
+.uc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.uc-title { font-weight: 600; }
+.uc-notes { margin: 0; max-height: 160px; overflow: auto; padding: 8px; border-radius: 6px; background: var(--side); font: 12px/1.5 var(--mono); white-space: pre-wrap; }
+.uc-bar { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+.uc-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
+.uc-bar span.indet { animation: uc-indet 1.2s ease-in-out infinite; }
+@keyframes uc-indet { from { margin-left: -30%; } to { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .uc-bar span { transition: none; } .uc-bar span.indet { animation: none; } }
+.uc-btns { display: flex; align-items: center; gap: 6px; margin-top: 4px; }

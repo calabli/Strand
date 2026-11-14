@@ -32,6 +32,8 @@ struct AppState {
     tasks: Mutex<HashMap<String, Cancel>>,
     /// Only one network operation at a time
     net_busy: AtomicBool,
+    /// The update found by the last check, kept for installing
+    update: Mutex<Option<tauri_plugin_updater::Update>>,
 }
 
 /// The `repo_changed` event the core layer pushes to the frontend (spec §2.2)
@@ -1318,12 +1320,92 @@ fn console_clear() {
     strand_core::console::clear();
 }
 
+// ---------- App updates ----------
+// Releases on GitHub carry latest.json and signed update packages; the updater checks it, verifies the signature
+// with the public key in tauri.conf.json, installs, and restarts. STRAND_UPDATE_ENDPOINT overrides the endpoint (for testing).
+
+#[derive(Clone, Serialize)]
+struct UpdateInfo {
+    version: String,
+    current: String,
+    notes: Option<String>,
+    /// RFC 3339
+    date: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct UpdateProgress {
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+fn updater(app: &AppHandle) -> CmdResult<tauri_plugin_updater::Updater> {
+    use tauri_plugin_updater::UpdaterExt;
+    let err = |e: tauri_plugin_updater::Error| CoreError::new(ErrorCode::Network, "检查更新失败").with_detail(serde_json::json!({ "source": e.to_string() }));
+    let mut b = app.updater_builder().timeout(Duration::from_secs(30));
+    if let Some(u) = std::env::var("STRAND_UPDATE_ENDPOINT").ok().and_then(|u| u.parse().ok()) {
+        b = b.endpoints(vec![u]).map_err(err)?;
+    }
+    b.build().map_err(err)
+}
+
+/// Check for a newer version; None when up to date
+#[tauri::command]
+async fn update_check(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Option<UpdateInfo>> {
+    let found = updater(&app)?
+        .check()
+        .await
+        .map_err(|e| CoreError::new(ErrorCode::Network, "检查更新失败，可能是网络不通").with_detail(serde_json::json!({ "source": e.to_string() })))?;
+    let info = found.as_ref().map(|u| UpdateInfo {
+        version: u.version.clone(),
+        current: u.current_version.clone(),
+        notes: u.body.clone(),
+        date: u.raw_json.get("pub_date").and_then(|v| v.as_str()).map(String::from),
+    });
+    *state.update.lock().map_err(|_| CoreError::new(ErrorCode::RepoBusy, "更新状态不可用"))? = found;
+    Ok(info)
+}
+
+/// Download and install the update found by the last check, reporting `update_progress`, then restart
+#[tauri::command]
+async fn update_install(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let update = state
+        .update
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::RepoBusy, "更新状态不可用"))?
+        .take()
+        .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "没有可以安装的更新，先检查更新"))?;
+    let mut downloaded: u64 = 0;
+    let mut last = Instant::now() - Duration::from_secs(1);
+    let a = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                if last.elapsed() >= Duration::from_millis(100) || total == Some(downloaded) {
+                    last = Instant::now();
+                    let _ = a.emit("update_progress", UpdateProgress { downloaded, total });
+                }
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| {
+            let source = e.to_string();
+            let msg = if source.to_lowercase().contains("signature") { "更新包的签名对不上，没有安装（可能被替换过）" } else { "下载或安装更新失败" };
+            CoreError::new(ErrorCode::Network, msg).with_detail(serde_json::json!({ "source": source }))
+        })?;
+    strand_core::console::note("已安装更新，重新启动");
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// `adopted`: the login shell's PATH was merged in at startup, and how many ms it took (written to the console and log to help tell which git is used)
 pub fn run(adopted: Option<u128>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .setup(move |app| {
             setup_askpass(app.handle().clone());
@@ -1418,6 +1500,8 @@ pub fn run(adopted: Option<u128>) {
             git_config_get,
             git_config_set,
             git_proxy_enable,
+            update_check,
+            update_install,
             changelists_get,
             changelists_set,
             diff_commit,

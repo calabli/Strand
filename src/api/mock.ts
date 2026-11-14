@@ -1116,3 +1116,22 @@ export function gitProxyEnable(scope: ConfigScope, on: boolean): Promise<ConfigV
   }
   return delay(configNow());
 }
+
+// ---------- App updates (browser preview: a pretend 0.2.0) ----------
+import type { UpdateInfo, UpdateProgress } from "./types";
+const updateListeners = new Set<(p: UpdateProgress) => void>();
+export function onUpdateProgress(cb: (p: UpdateProgress) => void): () => void {
+  updateListeners.add(cb);
+  return () => updateListeners.delete(cb);
+}
+export function updateCheck(): Promise<UpdateInfo | null> {
+  return delay({ version: "0.2.0", current: "0.1.0", notes: "- Git settings: user name, email, proxy\n- Automatic updates", date: "2026-11-15T08:00:00Z" });
+}
+export async function updateInstall(): Promise<void> {
+  const total = 5_300_000;
+  for (let d = 0; d <= total; d += 530_000) {
+    updateListeners.forEach((cb) => cb({ downloaded: d, total }));
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  // The real app restarts here; the preview just stays
+}

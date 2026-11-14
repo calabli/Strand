@@ -31,6 +31,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Drag a branch onto another to merge or rebase; merge modes include no-fast-forward and squash.
 - Fetch, pull (merge or rebase, with a dry-run summary when conflicts are expected) and push with a preview, `--force-with-lease`, "push up to here" and tag pushing.
 - Credential prompts for usernames, passwords and SSH passphrases; answers go only to that git process and are never stored.
+- In-app updates: on startup (can be turned off in Settings) Strand checks GitHub Releases for a new version; you can download and install it from a card in the corner, and the app restarts. Packages are signed, and a package whose signature doesn't match is not installed.
 - Git settings in the app: user name, email, proxy (with an on/off switch that keeps the address), line endings and the default branch name, globally or per repository. Strand's network operations go through system Git, so they use the proxy too.
 
 **Conflicts**
@@ -116,6 +117,17 @@ Output goes to `target/release/bundle/`; the plain executable is `target/release
 - **Build (Windows x64)**: builds the NSIS installer, the MSI and the portable exe on `windows-latest`.
 
 Artifacts are uploaded for every run. Pushing a tag such as `v0.1.0` also creates a GitHub Release with all the files.
+
+### Releasing a new version
+
+1. Bump `version` in `src-tauri/tauri.conf.json`, `package.json` and `Cargo.toml` (they should match).
+2. Commit, then tag and push: `git tag -a v0.2.0 -m "Strand 0.2.0" && git push origin main v0.2.0`.
+
+The release job then also uploads the in-app update packages and `latest.json`, which installed copies read from `https://github.com/calabli/Strand/releases/latest/download/latest.json`.
+
+Update packages are signed with the updater key; its public half is `plugins.updater.pubkey` in `tauri.conf.json`. CI signs with the repository secret `TAURI_SIGNING_PRIVATE_KEY` (the key has no password). Without that secret, builds still succeed but contain no update packages, so installed copies won't see the release. Keep the private key safe: if it's lost, releases signed with a new key can't update copies that shipped with the old public key.
+
+To test an update locally, point a debug build at your own `latest.json` with `STRAND_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json` (plain http only works in debug builds).
 
 ### Performance
 

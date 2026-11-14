@@ -782,3 +782,16 @@ export interface ConfigValue {
   local?: string | null;
   effective?: string | null;
 }
+
+/** A newer version found by the update check */
+export interface UpdateInfo {
+  version: string;
+  current: string;
+  notes?: string | null;
+  /** RFC 3339 */
+  date?: string | null;
+}
+export interface UpdateProgress {
+  downloaded: number;
+  total?: number | null;
+}

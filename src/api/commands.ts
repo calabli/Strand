@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  UpdateInfo,
+  UpdateProgress,
   ConfigScope,
   ConfigValue,
   Changelists,
@@ -139,6 +141,12 @@ export const api = {
     inTauri ? call("git_config_set", { scope, key, value }) : mock.gitConfigSet(scope, key, value),
   /** Turn the proxy on or off in a scope; off keeps the address (strand.httpProxy / strand.httpsProxy) */
   gitProxyEnable: (scope: ConfigScope, on: boolean): Promise<ConfigValue[]> => (inTauri ? call("git_proxy_enable", { scope, on }) : mock.gitProxyEnable(scope, on)),
+  /** Check for a newer version; null when up to date */
+  updateCheck: (): Promise<UpdateInfo | null> => (inTauri ? call("update_check") : mock.updateCheck()),
+  /** Download and install the update found by the last check, then restart (progress via onUpdateProgress) */
+  updateInstall: (): Promise<void> => (inTauri ? call("update_install") : mock.updateInstall()),
+  /** The app's version */
+  appVersion: (): Promise<string> => (inTauri ? import("@tauri-apps/api/app").then((m) => m.getVersion()) : Promise.resolve("0.1.0")),
   composeInfo: (): Promise<ComposeInfo> => (inTauri ? call("compose_info") : mock.composeInfo()),
   changelistsGet: (): Promise<Changelists> => (inTauri ? call("changelists_get") : mock.changelistsGet()),
   changelistsSet: (lists: Changelists): Promise<Changelists> => (inTauri ? call("changelists_set", { lists }) : mock.changelistsSet(lists)),
@@ -330,6 +338,23 @@ export const api = {
   mergeFinish: (): Promise<Written<FinishResult>> => (inTauri ? call("merge_finish") : mock.mergeFinish()),
   mergeSkip: (): Promise<Written<FinishResult>> => (inTauri ? call("merge_skip") : mock.mergeFinish()),
 };
+
+/** Subscribe to update download progress */
+export function onUpdateProgress(cb: (p: UpdateProgress) => void): () => void {
+  if (!inTauri) return mock.onUpdateProgress(cb);
+  let off: (() => void) | null = null;
+  let cancelled = false;
+  import("@tauri-apps/api/event").then(({ listen }) =>
+    listen<UpdateProgress>("update_progress", (e) => cb(e.payload)).then((u) => {
+      if (cancelled) u();
+      else off = u;
+    }),
+  );
+  return () => {
+    cancelled = true;
+    off?.();
+  };
+}
 
 /** Subscribe to progress events of long tasks */
 export function onTaskProgress(cb: (p: TaskProgress) => void): () => void {

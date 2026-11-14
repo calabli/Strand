@@ -8,6 +8,7 @@ import { useRebase } from "./components/RebaseWindow";
 import { CompareView, PatchWindow, TreeWindow } from "./components/compareTools";
 import { ApplyPatch } from "./components/ApplyPatch";
 import { PickFiles } from "./components/PickFiles";
+import { UpdateCard, useUpdates } from "./components/updates";
 import { isImage } from "./components/ImageDiff";
 import { ReflogWindow } from "./components/ReflogWindow";
 import { RemotesWindow } from "./components/RemotesWindow";
@@ -920,6 +921,9 @@ export default function App() {
     return () => window.removeEventListener("keydown", key);
   }, [undoKeys]);
 
+  // App updates: checked on startup when enabled; the card shows the new version and download progress
+  const updates = useUpdates({ say });
+
   if (!git) return <div className="center dim">{t("正在检测 Git…")}</div>;
 
   if (!git.ok) {
@@ -961,6 +965,7 @@ export default function App() {
           )}
         </div>
         {cloneDialog}
+        <UpdateCard u={updates} />
       </div>
     );
   }
@@ -1040,6 +1045,7 @@ export default function App() {
       { id: "clone", section: m, icon: COMMIT_ICONS.clone, label: t("克隆仓库…"), run: () => setCloneOpen(true) },
       { id: "worktree-add", section: m, icon: COMMIT_ICONS.folder, label: t("新建工作目录…"), run: () => setWtDialog({}) },
       { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: keys("⌘,"), run: () => setSettingsOpen(true) },
+      { id: "update-check", section: m, icon: COMMIT_ICONS.gear, label: t("检查更新…"), run: () => updates.check(true) },
       { id: "git-config", section: m, icon: COMMIT_ICONS.gear, label: t("Git 配置（用户名、邮箱、代理）…"), run: () => (setSettingsSection("git"), setSettingsOpen(true)) },
       { id: "lang-zh", section: m, icon: COMMIT_ICONS.web, label: "中文", run: () => setLang("zh") },
       { id: "lang-en", section: m, icon: COMMIT_ICONS.web, label: "English", run: () => setLang("en") },
@@ -1642,13 +1648,14 @@ export default function App() {
           }}
         />
       )}
-      {settingsOpen && <SettingsWindow git={git} repoOpen={!!repo} section={settingsSection} onClose={() => (setSettingsOpen(false), setSettingsSection(undefined), setConfigKey((k) => k + 1))} onRemotes={() => (setSettingsOpen(false), setRemotesOpen(true))} />}
+      {settingsOpen && <SettingsWindow git={git} repoOpen={!!repo} section={settingsSection} version={updates.version} onCheckUpdate={() => updates.check(true)} onClose={() => (setSettingsOpen(false), setSettingsSection(undefined), setConfigKey((k) => k + 1))} onRemotes={() => (setSettingsOpen(false), setRemotesOpen(true))} />}
       {palette && <CommandPalette commands={paletteCommands()} onPickCommit={(id) => locate(id)} onClose={() => setPalette(false)} />}
       {blame && <BlameWindow path={blame.path} rev={blame.rev} onClose={() => setBlame(null)} onJump={(id) => locate(id)} />}
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
       {dialog}
       {remote.push && <PushDialog p={remote.push} onPush={remote.doPush} onClose={remote.closePush} onRemote={remote.pickPushRemote} />}
       {remote.pullPanel && <PullPanel p={remote.pullPanel} onMode={remote.previewMode} onStart={remote.startPull} onAbort={remote.abortPull} />}
+      <UpdateCard u={updates} />
       {toast && (
         <div className="toast" role="status">
           {tr(toast.text)}

@@ -136,7 +136,7 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 }
 
 /** Settings window */
-export function SettingsWindow({ git, onClose, repoOpen, onRemotes, section }: { git: GitInfo | null; onClose: () => void; repoOpen?: boolean; onRemotes?: () => void; section?: "git" }) {
+export function SettingsWindow({ git, onClose, repoOpen, onRemotes, section, version, onCheckUpdate }: { git: GitInfo | null; onClose: () => void; repoOpen?: boolean; onRemotes?: () => void; section?: "git"; version?: string | null; onCheckUpdate?: () => void }) {
   useReturnFocus();
   // Opened from the commit panel's "set identity": scroll to the Git settings and focus the user name
   const gitSec = useRef<HTMLDivElement>(null);
@@ -245,6 +245,16 @@ export function SettingsWindow({ git, onClose, repoOpen, onRemotes, section }: {
           )}
         <div className="set-sec dim">{t("启动")}</div>
         {row(t("启动时打开上次的仓库"), <Toggle on={s.reopenLast} label={t("启动时打开上次的仓库")} onChange={(v) => set({ reopenLast: v })} />)}
+        <div className="set-sec dim">{t("更新")}</div>
+        {row(t("自动检查更新"), <Toggle on={s.autoUpdate} label={t("自动检查更新")} onChange={(v) => set({ autoUpdate: v })} />, t("启动时检查 GitHub 上有没有新版本，有的话提示你下载安装；不会自动安装"))}
+        {onCheckUpdate &&
+          row(
+            t("当前版本 {0}", version ?? "…"),
+            <button type="button" className="btn" onClick={onCheckUpdate}>
+              {t("检查更新")}
+            </button>,
+            t("更新包带签名，安装前会核对，装好后自动重新启动"),
+          )}
         <div ref={gitSec}>
           <GitConfigSection repoOpen={!!repoOpen} />
         </div>
