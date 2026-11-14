@@ -6,15 +6,18 @@
 // - ⌘ or Shift click a second one: compare the two versions (old on the left, new on the right; works across renames).
 // Diffs use the same display as the diff tab (unified or side by side, ignore whitespace, block navigation).
 // When opened from content search results (at): shows that revision's (or the worktree's) full text, scrolled to and marking that line; choosing something else in the chain returns to normal.
+// Blame (toolbar toggle, or right-click the text): the full text shows on the left of each line the date and author that last changed it,
+// darker when newer; hover for the commit, click to locate it in the log. Applies to whichever revision's text is shown.
 
 import { Crumbs, useTopLine } from "./Crumbs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf, wholeFile } from "../api/commands";
 import type { FileDiff, FileHistory, FileText } from "../api/types";
-import { DiffView } from "./DiffView";
+import { DiffView, blameSide, type BSide } from "./DiffView";
+import { Menu, type MenuState } from "./Menu";
 import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
-import { findRegExp, relTime, shortId } from "./format";
+import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { Found, indentStyle, indentUnit } from "./inlineDiff";
 import { highlight, langOf, type Tok } from "../highlight";
 import { settings, useSettings } from "../settings";
@@ -31,17 +34,16 @@ interface Props {
   at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null;
   /** This file has uncommitted changes in the worktree (or is untracked) */
   changed: boolean;
-  onClose: () => void;
   /** Locate this commit in the log */
   onLocate: (id: string) => void;
-  /** Blame; rev empty is the worktree */
-  onBlame: (path: string, rev: string | null) => void;
 }
 
 type Load<T> = { data: T | null; loading: boolean; error: string | null };
 const idle = { data: null, loading: false, error: null };
 
-export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHistory }: Props) {
+export function FileView({ path, at, changed, onLocate, showHistory }: Props) {
+  /** Blame annotations on the left of the full text (per tab, off by default) */
+  const [annot, setAnnot] = useState(false);
   /** Whether the change chain column is open: collapsed by default, content takes the full width */
   const [chain, setChain] = useState(!!showHistory);
   useEffect(() => setChain(!!showHistory), [path, showHistory]);
@@ -191,13 +193,20 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
           {t("修改链")}
           {hist.data && <span className="dim">{versions.length + (hist.data.truncated ? "+" : "")}</span>}
         </button>
-        <button type="button" className="ib" title={t("逐行追溯（看每一行是谁在哪个提交改的）")} aria-label={t("逐行追溯")} onClick={() => onBlame(path, null)}>
+        <button
+          type="button"
+          className={"ib" + (annot ? " pressed" : "")}
+          aria-pressed={annot}
+          title={annot ? t("隐藏每行的修改人") : t("逐行追溯：每行左边显示最后改它的日期和作者")}
+          aria-label={t("逐行追溯")}
+          onClick={() => {
+            if (!annot && req?.kind === "diff") setMode("text");
+            setAnnot((a) => !a);
+          }}
+        >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
             <path d="M2 3h3M2 7h3M2 11h3M7 3h5M7 7h5M7 11h5" />
           </svg>
-        </button>
-        <button type="button" className="ib" title={t("关闭文件")} aria-label={t("关闭文件")} onClick={onClose}>
-          ×
         </button>
       </div>
       <div className="fv-body">
@@ -292,7 +301,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
                 </button>
               </span>
               {singleV && (
-                <button type="button" className="btn sm" title={t("逐行追溯这个版本")} onClick={() => onBlame(singleV.path, singleV.commit.id)}>
+                <button type="button" className="btn sm" title={t("逐行追溯这个版本")} onClick={() => (setMode("text"), setAnnot(true))}>
                   {t("逐行追溯这个版本")}
                 </button>
               )}
@@ -301,7 +310,14 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
           {req?.kind === "diff" ? (
             <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} readOnly={req.to !== null} blameSides={{ left: req.from ? { path: req.fromPath, rev: req.from } : null, right: { path: req.toPath, rev: req.to } }} onLocate={onLocate} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
           ) : (
-            <TextView load={text} focus={jump?.line ?? null} find={findRe} />
+            <TextView
+              load={text}
+              focus={jump?.line ?? null}
+              find={findRe}
+              blame={annot && req?.kind === "text" ? { path: req.path, rev: req.rev } : null}
+              onToggleBlame={() => setAnnot((a) => !a)}
+              onLocate={onLocate}
+            />
           )}
         </div>
       </div>
@@ -329,8 +345,80 @@ function VersionRow({ k, sel, onPick, first, last, children }: { k: string; sel:
 }
 
 /** The file's full text with line numbers */
-function TextView({ load, focus, find }: { load: Load<FileText>; focus: number | null; find: RegExp | null }) {
+function TextView({
+  load,
+  focus,
+  find,
+  blame,
+  onToggleBlame,
+  onLocate,
+}: {
+  load: Load<FileText>;
+  focus: number | null;
+  find: RegExp | null;
+  /** Which revision to blame (rev empty is the worktree); null hides the annotations */
+  blame: { path: string; rev: string | null } | null;
+  onToggleBlame: () => void;
+  onLocate: (id: string) => void;
+}) {
   const f = load.data;
+  // Blame the whole file once per revision; lines are matched by number
+  const blameKey = blame ? JSON.stringify(blame) : "";
+  const [bl, setBl] = useState<{ key: string; side: BSide | null } | null>(null);
+  useEffect(() => {
+    if (!blameKey) return;
+    let live = true;
+    blameSide(blame).then((side) => live && setBl({ key: blameKey, side }));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blameKey]);
+  const side = bl?.key === blameKey ? bl.side : null;
+  // Age coloring: 5 levels between the earliest and latest commit times in this file
+  const [tMin, tMax] = useMemo(() => {
+    const ts = [...(side?.values() ?? [])].filter((b) => !b.uncommitted).map((b) => b.time);
+    return ts.length ? [Math.min(...ts), Math.max(...ts)] : [0, 0];
+  }, [side]);
+  const ann = (no: number) => {
+    const b = side?.get(no);
+    if (!b) return <span className="ann" />;
+    const heat = b.uncommitted ? "new" : String(tMax > tMin ? Math.round(((b.time - tMin) / (tMax - tMin)) * 4) : 4);
+    // Consecutive lines from the same commit: only the first shows the text, the color runs on
+    const same = side?.get(no - 1)?.id === b.id;
+    return (
+      <span
+        className={"ann heat-" + heat + (b.inLog ? " link" : "") + (same ? " cont" : "")}
+        title={b.uncommitted ? t("还没提交的改动") : `${shortId(b.id)} ${b.title}\n${b.author} · ${formatTime(b.time)}` + (b.inLog ? t("\n点击在日志里定位") : "")}
+        onClick={() => !b.uncommitted && b.inLog && onLocate(b.id)}
+      >
+        {same ? "" : b.uncommitted ? t("还没提交") : `${formatTime(b.time).slice(0, 10)} ${b.author}`}
+      </span>
+    );
+  };
+  // Right-click: blame on/off, and for an annotated line locate or copy its commit
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const onMenu = (e: React.MouseEvent) => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return; // Leave copying selected text to the system menu
+    e.preventDefault();
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".tv-line");
+    const b = row ? side?.get(Number(row.dataset.n)) : undefined;
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: t("逐行追溯（每行显示修改人）"), checked: !!blame, run: onToggleBlame },
+        ...(b && !b.uncommitted
+          ? [
+              "-" as const,
+              { label: t("在日志里定位 {0}", shortId(b.id)), disabled: !b.inLog, why: t("这个提交不在当前日志里"), run: () => onLocate(b.id) },
+              { label: t("复制版本号"), run: () => void navigator.clipboard.writeText(b.id) },
+            ]
+          : []),
+      ],
+    });
+  };
   const box = useRef<HTMLDivElement>(null);
   // Jump to the given line
   useEffect(() => {
@@ -361,15 +449,16 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
   return (
     <>
     {f?.text !== undefined && lines.length > 0 && <Crumbs path={f.path} get={get} top={top} box={box} />}
-    <div className="fv-text" ref={box}>
+    <div className="fv-text" ref={box} onContextMenu={onMenu}>
       {load.loading && !f && <p className="pad dim">{t("正在读取…")}</p>}
       {load.error && <p className="pad err">{tr(load.error)}</p>}
       {f?.missing && <p className="pad dim">{t("这个版本里没有这个文件（已删除或还没创建）")}</p>}
       {f?.binary && <p className="pad dim">{t("二进制文件，不显示内容（{0} 字节）", f.size)}</p>}
       {f?.text !== undefined && (
-        <div className={"tv mono" + (load.loading ? " stale" : "")}>
+        <div className={"tv mono" + (load.loading ? " stale" : "") + (blame ? " with-ann" : "")}>
           {lines.slice(0, MAX_LINES).map((l, i) => (
             <div key={i} data-n={i + 1} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
+              {blame && ann(i + 1)}
               <span className="ln">{i + 1}</span>
               <span className="code" style={guides ? indentStyle(l, unit) : undefined}>
                 <Found t={l} find={find} toks={lineToks?.[i]} />
@@ -380,6 +469,7 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
         </div>
       )}
     </div>
+    {menu && <Menu menu={menu} onClose={() => setMenu(null)} />}
     </>
   );
 }

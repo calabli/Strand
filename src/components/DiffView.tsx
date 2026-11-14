@@ -60,12 +60,12 @@ interface Props {
 }
 
 /** The commit of one line in blame */
-type BInfo = { id: string; title: string; author: string; time: number; uncommitted: boolean; inLog: boolean };
+export type BInfo = { id: string; title: string; author: string; time: number; uncommitted: boolean; inLog: boolean };
 /** One side's blame result: line number → commit */
-type BSide = Map<number, BInfo>;
+export type BSide = Map<number, BInfo>;
 
 /** Blame one side's whole file */
-function blameSide(side: { path: string; rev: string | null } | null | undefined): Promise<BSide | null> {
+export function blameSide(side: { path: string; rev: string | null } | null | undefined): Promise<BSide | null> {
   if (!side) return Promise.resolve(null);
   return api.blameFile(side.path, side.rev, 0, 1_000_000).then(
     (p) => new Map(p.lines.map((l) => { const c = p.commits[l.commit]; return [l.no, { id: c.id, title: c.title, author: c.author, time: c.time, uncommitted: c.uncommitted, inLog: c.in_log }] as const; })),

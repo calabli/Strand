@@ -46,19 +46,37 @@ pub struct ConfigValue {
 /// Read every editable key. `repo` is the open repository, if any.
 pub fn config_read(repo: Option<&Path>) -> Result<Vec<ConfigValue>> {
     let dir = work_dir(repo);
-    let get = |args: &[&str]| -> Option<String> {
-        let mut a = vec!["config"];
-        a.extend_from_slice(args);
-        git_cli::run(&dir, &a, None).ok().map(|s| s.trim_end_matches(['\n', '\r']).to_string()).filter(|s| !s.is_empty())
+    // One `git config --list` per scope instead of one call per key and scope (that was 24 processes, about half a
+    // second before the settings window could show the Git section). A missing file or no repository lists nothing.
+    let list = |scope: Option<&str>| -> Vec<(String, String)> {
+        let mut a = vec!["config", "--null", "--list"];
+        if let Some(s) = scope {
+            a.insert(1, s);
+        }
+        git_cli::run(&dir, &a, None).map(|out| parse_list(&out)).unwrap_or_default()
+    };
+    let global = list(Some("--global"));
+    let local = if repo.is_some() { list(Some("--local")) } else { Vec::new() };
+    let all = list(None);
+    // Like `git config --get`: the last occurrence wins. Section and key names are case-insensitive.
+    let last = |entries: &[(String, String)], key: &str| -> Option<String> {
+        entries.iter().rev().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.clone()).filter(|v| !v.is_empty())
     };
     Ok(read_keys()
-        .map(|k| ConfigValue {
-            key: k.to_string(),
-            global: get(&["--global", "--get", k]),
-            local: repo.and_then(|_| get(&["--local", "--get", k])),
-            effective: get(&["--get", k]),
-        })
+        .map(|k| ConfigValue { key: k.to_string(), global: last(&global, k), local: last(&local, k), effective: last(&all, k) })
         .collect())
+}
+
+/// Parse `git config --null --list`: entries end with NUL, the key and value are split by the first newline
+/// (a key with no value has no newline).
+fn parse_list(out: &str) -> Vec<(String, String)> {
+    out.split('\0')
+        .filter(|e| !e.is_empty())
+        .map(|e| match e.split_once('\n') {
+            Some((k, v)) => (k.to_string(), v.to_string()),
+            None => (e.to_string(), String::new()),
+        })
+        .collect()
 }
 
 /// Set a key in a scope; `value` empty or `None` removes it from that scope.

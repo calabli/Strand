@@ -4,20 +4,56 @@
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ConfigScope, ConfigValue, GitInfo, SigningConfig } from "../api/types";
+import type {
+  ConfigScope,
+  ConfigValue,
+  GitInfo,
+  SigningConfig,
+} from "../api/types";
 import { api, errOf } from "../api/commands";
-import { lang, langSetting, lazy, setLang, t, tr, type LangSetting } from "../i18n";
-import { forgetRepo, setSettings, togglePin, useRecentRepos, useSettings, type RecentRepo, type Settings } from "../settings";
+import {
+  lang,
+  langSetting,
+  lazy,
+  setLang,
+  t,
+  tr,
+  type LangSetting,
+} from "../i18n";
+import {
+  forgetRepo,
+  setSettings,
+  togglePin,
+  useRecentRepos,
+  useSettings,
+  type RecentRepo,
+  type Settings,
+} from "../settings";
 import { formatTime } from "./format";
 
 /** Recently opened repositories (shared by the toolbar popup and the "open a repository" page) */
-export function RepoList({ current, onOpen, onClose, autoFocus = true }: { current: string | null; onOpen: (path: string) => void; onClose?: () => void; autoFocus?: boolean }) {
+export function RepoList({
+  current,
+  onOpen,
+  onClose,
+  autoFocus = true,
+}: {
+  current: string | null;
+  onOpen: (path: string) => void;
+  onClose?: () => void;
+  autoFocus?: boolean;
+}) {
   const repos = useRecentRepos();
   const [q, setQ] = useState("");
   const [hi, setHi] = useState(0);
   const shown = useMemo(() => {
     const f = q.trim().toLowerCase();
-    return repos.filter((r) => !f || r.name.toLowerCase().includes(f) || r.path.toLowerCase().includes(f));
+    return repos.filter(
+      (r) =>
+        !f ||
+        r.name.toLowerCase().includes(f) ||
+        r.path.toLowerCase().includes(f),
+    );
   }, [repos, q]);
   useEffect(() => setHi(0), [q]);
 
@@ -43,43 +79,103 @@ export function RepoList({ current, onOpen, onClose, autoFocus = true }: { curre
         }
       }}
     >
-      {repos.length > 0 && <input className="pk-q" placeholder={t("搜索仓库")} value={q} onChange={(e) => setQ(e.target.value)} autoFocus={autoFocus} spellCheck={false} />}
+      {repos.length > 0 && (
+        <input
+          className="pk-q"
+          placeholder={t("搜索仓库")}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          autoFocus={autoFocus}
+          spellCheck={false}
+        />
+      )}
       <div className="repo-rows">
         {shown.map((r, i) => (
-          <div key={r.path} className={"repo-row" + (i === hi ? " hi" : "") + (r.path === current ? " cur" : "")} onMouseEnter={() => setHi(i)}>
-            <button type="button" className="repo-main" onClick={() => open(r)} title={r.path}>
+          <div
+            key={r.path}
+            className={
+              "repo-row" +
+              (i === hi ? " hi" : "") +
+              (r.path === current ? " cur" : "")
+            }
+            onMouseEnter={() => setHi(i)}
+          >
+            <button
+              type="button"
+              className="repo-main"
+              onClick={() => open(r)}
+              title={r.path}
+            >
               <span className="repo-name">
                 {r.pinned && <span className="star">★ </span>}
                 {r.name}
-                {r.path === current && <span className="cur-tag">{t("当前")}</span>}
+                {r.path === current && (
+                  <span className="cur-tag">{t("当前")}</span>
+                )}
               </span>
               <span className="repo-path dim">{r.path}</span>
             </button>
             <span className="repo-acts">
-              <span className="dim small repo-time">{formatTime(r.opened).slice(0, 10)}</span>
-              <button type="button" className="ib sm" title={r.pinned ? t("取消固定") : t("固定在上面")} aria-label={r.pinned ? t("取消固定") : t("固定在上面")} onClick={() => togglePin(r.path)}>
+              <span className="dim small repo-time">
+                {formatTime(r.opened).slice(0, 10)}
+              </span>
+              <button
+                type="button"
+                className="ib sm"
+                title={r.pinned ? t("取消固定") : t("固定在上面")}
+                aria-label={r.pinned ? t("取消固定") : t("固定在上面")}
+                onClick={() => togglePin(r.path)}
+              >
                 {r.pinned ? "★" : "☆"}
               </button>
-              <button type="button" className="ib sm" title={t("从列表里移除（不删除文件）")} aria-label={t("从列表里移除")} onClick={() => forgetRepo(r.path)}>
+              <button
+                type="button"
+                className="ib sm"
+                title={t("从列表里移除（不删除文件）")}
+                aria-label={t("从列表里移除")}
+                onClick={() => forgetRepo(r.path)}
+              >
                 ×
               </button>
             </span>
           </div>
         ))}
-        {repos.length > 0 && shown.length === 0 && <p className="dim pad">{t("没有匹配的仓库")}</p>}
+        {repos.length > 0 && shown.length === 0 && (
+          <p className="dim pad">{t("没有匹配的仓库")}</p>
+        )}
       </div>
     </div>
   );
 }
 
 /** The repository list popping up under the repository name in the toolbar */
-export function RepoPopup({ x, y, current, onOpen, onBrowse, onClone, onClose }: { x: number; y: number; current: string | null; onOpen: (path: string) => void; onBrowse: () => void; onClone: () => void; onClose: () => void }) {
+export function RepoPopup({
+  x,
+  y,
+  current,
+  onOpen,
+  onBrowse,
+  onClone,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  current: string | null;
+  onOpen: (path: string) => void;
+  onBrowse: () => void;
+  onClone: () => void;
+  onClose: () => void;
+}) {
   useReturnFocus();
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   useLayoutEffect(() => {
     const r = box.current?.getBoundingClientRect();
-    if (r) setPos({ left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)), top: y });
+    if (r)
+      setPos({
+        left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
+        top: y,
+      });
   }, [x, y]);
   useEffect(() => {
     const down = (e: MouseEvent) => {
@@ -89,7 +185,14 @@ export function RepoPopup({ x, y, current, onOpen, onBrowse, onClone, onClose }:
     return () => window.removeEventListener("mousedown", down);
   }, [onClose]);
   return (
-    <div className="picker repo-pop" ref={box} style={pos} role="dialog" aria-label={t("仓库")} onKeyDown={(e) => e.key === "Escape" && onClose()}>
+    <div
+      className="picker repo-pop"
+      ref={box}
+      style={pos}
+      role="dialog"
+      aria-label={t("仓库")}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+    >
       <RepoList current={current} onOpen={onOpen} onClose={onClose} />
       <button
         type="button"
@@ -115,11 +218,26 @@ export function RepoPopup({ x, y, current, onOpen, onBrowse, onClone, onClose }:
   );
 }
 
-function Choice<T extends string | number>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+function Choice<T extends string | number>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: [T, string][];
+  onChange: (v: T) => void;
+}) {
   return (
     <span className="seg" role="radiogroup">
       {options.map(([v, label]) => (
-        <button key={String(v)} type="button" role="radio" aria-checked={value === v} className={value === v ? "on" : ""} onClick={() => onChange(v)}>
+        <button
+          key={String(v)}
+          type="button"
+          role="radio"
+          aria-checked={value === v}
+          className={value === v ? "on" : ""}
+          onClick={() => onChange(v)}
+        >
           {label}
         </button>
       ))}
@@ -127,16 +245,47 @@ function Choice<T extends string | number>({ value, options, onChange }: { value
   );
 }
 
-function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
+function Toggle({
+  on,
+  onChange,
+  label,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
   return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} className={"switch" + (on ? " on" : "")} onClick={() => onChange(!on)}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={"switch" + (on ? " on" : "")}
+      onClick={() => onChange(!on)}
+    >
       <span />
     </button>
   );
 }
 
 /** Settings window */
-export function SettingsWindow({ git, onClose, repoOpen, onRemotes, section, version, onCheckUpdate }: { git: GitInfo | null; onClose: () => void; repoOpen?: boolean; onRemotes?: () => void; section?: "git"; version?: string | null; onCheckUpdate?: () => void }) {
+export function SettingsWindow({
+  git,
+  onClose,
+  repoOpen,
+  onRemotes,
+  section,
+  version,
+  onCheckUpdate,
+}: {
+  git: GitInfo | null;
+  onClose: () => void;
+  repoOpen?: boolean;
+  onRemotes?: () => void;
+  section?: "git";
+  version?: string | null;
+  onCheckUpdate?: () => void;
+}) {
   useReturnFocus();
   // Opened from the commit panel's "set identity": scroll to the Git settings and focus the user name
   const gitSec = useRef<HTMLDivElement>(null);
@@ -167,101 +316,195 @@ export function SettingsWindow({ git, onClose, repoOpen, onRemotes, section, ver
     </div>
   );
   return (
-    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal settings" role="dialog" aria-modal="true" aria-label={t("设置")} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-        <h2>{t("设置")}</h2>
-        <div className="set-sec dim">{t("外观")}</div>
-        {row(
-          t("语言"),
-          <Choice<LangSetting>
-            value={langV}
-            options={[
-              ["auto", t("跟随系统")],
-              ["zh", "中文"],
-              ["en", "English"],
-            ]}
-            onChange={(v) => {
-              setLangV(v);
-              if (v !== langSetting()) setLang(v);
-            }}
-          />,
-          t("当前是{0}", lang === "zh" ? "中文" : "English"),
-        )}
-        {row(
-          t("主题"),
-          <Choice
-            value={s.theme}
-            options={[
-              ["auto", t("跟随系统")],
-              ["light", t("浅色")],
-              ["dark", t("深色")],
-            ]}
-            onChange={(v) => set({ theme: v })}
-          />,
-        )}
-        {row(t("显示精确日期"), <Toggle on={s.exactDates} label={t("显示精确日期")} onChange={(v) => set({ exactDates: v })} />, t("关闭后日志里显示“3 小时前”这样的相对时间"))}
-        <div className="set-sec dim">{t("远程")}</div>
-        {repoOpen &&
-          onRemotes &&
-          row(
-            t("这个仓库的远程"),
-            <button type="button" className="btn" onClick={onRemotes}>
-              {t("管理远程…")}
-            </button>,
-            t("添加、改地址、重命名、删除远程"),
-          )}
-        {row(t("自动抓取"), <Toggle on={s.autoFetch} label={t("自动抓取")} onChange={(v) => set({ autoFetch: v })} />, t("打开仓库时和窗口重新获得焦点时抓取，更新领先落后数"))}
-        {s.autoFetch &&
-          row(
-            t("最短间隔"),
-            <Choice
-              value={s.fetchMinutes}
+    <div
+      className="modal-back"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="modal settings"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("设置")}
+        onKeyDown={(e) => e.key === "Escape" && onClose()}
+      >
+        <div className="set-head">
+          <h2>{t("设置")}</h2>
+          <button
+            type="button"
+            className="ib set-close"
+            onClick={onClose}
+            title={t("关闭设置（Esc）")}
+            aria-label={t("关闭设置")}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
+            </svg>
+          </button>
+        </div>
+        <div className="set-body">
+          <div className="set-sec dim">{t("外观")}</div>
+          {row(
+            t("语言"),
+            <Choice<LangSetting>
+              value={langV}
               options={[
-                [5, t("{0} 分钟", 5)],
-                [15, t("{0} 分钟", 15)],
-                [30, t("{0} 分钟", 30)],
+                ["auto", t("跟随系统")],
+                ["zh", "中文"],
+                ["en", "English"],
               ]}
-              onChange={(v) => set({ fetchMinutes: v })}
-            />,
-          )}
-        <div className="set-sec dim">{t("提交")}</div>
-        {row(t("加签名行"), <Toggle on={s.signOff} label={t("加签名行")} onChange={(v) => set({ signOff: v })} />, t("在提交说明末尾加 Signed-off-by"))}
-        {signing &&
-          row(
-            t("签名提交（这个仓库）"),
-            <Toggle
-              on={signing.commit}
-              label={t("签名提交（这个仓库）")}
               onChange={(v) => {
-                setSignErr(null);
-                api.signingSet(v).then(setSigning, (e) => setSignErr(errOf(e).message));
+                setLangV(v);
+                if (v !== langSetting()) setLang(v);
               }}
             />,
-            signErr
-              ? tr(signErr)
-              : signing.key
-                ? t("提交、合并、变基时用 {0} 密钥 {1} 签名（Git 的 commit.gpgSign，只改这个仓库）", signing.format === "ssh" ? "SSH" : "GPG", signing.key)
-                : t("还没有配置签名密钥（user.signingKey），打开后由 Git 用默认的 GPG 密钥签名"),
+            t("当前是{0}", lang === "zh" ? "中文" : "English"),
           )}
-        <div className="set-sec dim">{t("启动")}</div>
-        {row(t("启动时打开上次的仓库"), <Toggle on={s.reopenLast} label={t("启动时打开上次的仓库")} onChange={(v) => set({ reopenLast: v })} />)}
-        <div className="set-sec dim">{t("更新")}</div>
-        {row(t("自动检查更新"), <Toggle on={s.autoUpdate} label={t("自动检查更新")} onChange={(v) => set({ autoUpdate: v })} />, t("启动时检查 GitHub 上有没有新版本，有的话提示你下载安装；不会自动安装"))}
-        {onCheckUpdate &&
-          row(
-            t("当前版本 {0}", version ?? "…"),
-            <button type="button" className="btn" onClick={onCheckUpdate}>
-              {t("检查更新")}
-            </button>,
-            t("更新包带签名，安装前会核对，装好后自动重新启动"),
+          {row(
+            t("主题"),
+            <Choice
+              value={s.theme}
+              options={[
+                ["auto", t("跟随系统")],
+                ["light", t("浅色")],
+                ["dark", t("深色")],
+              ]}
+              onChange={(v) => set({ theme: v })}
+            />,
           )}
-        <div ref={gitSec}>
-          <GitConfigSection repoOpen={!!repoOpen} />
+          {row(
+            t("显示精确日期"),
+            <Toggle
+              on={s.exactDates}
+              label={t("显示精确日期")}
+              onChange={(v) => set({ exactDates: v })}
+            />,
+            t("关闭后日志里显示“3 小时前”这样的相对时间"),
+          )}
+          <div className="set-sec dim">{t("远程")}</div>
+          {repoOpen &&
+            onRemotes &&
+            row(
+              t("这个仓库的远程"),
+              <button type="button" className="btn" onClick={onRemotes}>
+                {t("管理远程…")}
+              </button>,
+              t("添加、改地址、重命名、删除远程"),
+            )}
+          {row(
+            t("自动抓取"),
+            <Toggle
+              on={s.autoFetch}
+              label={t("自动抓取")}
+              onChange={(v) => set({ autoFetch: v })}
+            />,
+            t("打开仓库时和窗口重新获得焦点时抓取，更新领先落后数"),
+          )}
+          {s.autoFetch &&
+            row(
+              t("最短间隔"),
+              <Choice
+                value={s.fetchMinutes}
+                options={[
+                  [5, t("{0} 分钟", 5)],
+                  [15, t("{0} 分钟", 15)],
+                  [30, t("{0} 分钟", 30)],
+                ]}
+                onChange={(v) => set({ fetchMinutes: v })}
+              />,
+            )}
+          <div className="set-sec dim">{t("提交")}</div>
+          {row(
+            t("加签名行"),
+            <Toggle
+              on={s.signOff}
+              label={t("加签名行")}
+              onChange={(v) => set({ signOff: v })}
+            />,
+            t("在提交说明末尾加 Signed-off-by"),
+          )}
+          {signing &&
+            row(
+              t("签名提交（这个仓库）"),
+              <Toggle
+                on={signing.commit}
+                label={t("签名提交（这个仓库）")}
+                onChange={(v) => {
+                  setSignErr(null);
+                  api
+                    .signingSet(v)
+                    .then(setSigning, (e) => setSignErr(errOf(e).message));
+                }}
+              />,
+              signErr
+                ? tr(signErr)
+                : signing.key
+                  ? t(
+                      "提交、合并、变基时用 {0} 密钥 {1} 签名（Git 的 commit.gpgSign，只改这个仓库）",
+                      signing.format === "ssh" ? "SSH" : "GPG",
+                      signing.key,
+                    )
+                  : t(
+                      "还没有配置签名密钥（user.signingKey），打开后由 Git 用默认的 GPG 密钥签名",
+                    ),
+            )}
+          <div className="set-sec dim">{t("启动")}</div>
+          {row(
+            t("启动时打开上次的仓库"),
+            <Toggle
+              on={s.reopenLast}
+              label={t("启动时打开上次的仓库")}
+              onChange={(v) => set({ reopenLast: v })}
+            />,
+          )}
+          <div className="set-sec dim">{t("更新")}</div>
+          {row(
+            t("自动检查更新"),
+            <Toggle
+              on={s.autoUpdate}
+              label={t("自动检查更新")}
+              onChange={(v) => set({ autoUpdate: v })}
+            />,
+            t(
+              "启动时检查 GitHub 上有没有新版本，有的话提示你下载安装；不会自动安装",
+            ),
+          )}
+          {onCheckUpdate &&
+            row(
+              t("当前版本 {0}", version ?? "…"),
+              <button type="button" className="btn" onClick={onCheckUpdate}>
+                {t("检查更新")}
+              </button>,
+              t("更新包带签名，安装前会核对，装好后自动重新启动"),
+            )}
+          <div ref={gitSec}>
+            <GitConfigSection repoOpen={!!repoOpen} />
+          </div>
+          <div className="set-sec dim">Git</div>
+          {row(
+            t("系统 Git"),
+            <span className="mono dim">{git?.version ?? t("没有找到")}</span>,
+            t(
+              "Strand 使用系统里安装的 Git，最低版本 {0}",
+              git?.min_version ?? "2.30",
+            ),
+          )}
         </div>
-        <div className="set-sec dim">Git</div>
-        {row(t("系统 Git"), <span className="mono dim">{git?.version ?? t("没有找到")}</span>, t("Strand 使用系统里安装的 Git，最低版本 {0}", git?.min_version ?? "2.30"))}
-        <div className="modal-btns">
-          <button type="button" className="btn primary" onClick={onClose} autoFocus>
+        <div className="modal-btns set-foot">
+          <button
+            type="button"
+            className="btn primary"
+            onClick={onClose}
+            autoFocus
+          >
             {t("完成")}
           </button>
         </div>
@@ -272,38 +515,83 @@ export function SettingsWindow({ git, onClose, repoOpen, onRemotes, section, ver
 
 // ---------- Git settings (user.name, user.email, proxy, line endings, default branch) ----------
 
-type FieldKind = { kind: "text"; placeholder: string } | { kind: "choice"; options: [string, string][] };
+type FieldKind =
+  | { kind: "text"; placeholder: string }
+  | { kind: "choice"; options: [string, string][] };
 
 /** The editable keys, in display order */
-const GIT_FIELDS = lazy((): { key: string; label: string; hint: string; field: FieldKind; globalOnly?: boolean }[] => [
-  { key: "user.name", label: t("用户名"), hint: t("写进每个提交的作者名"), field: { kind: "text", placeholder: t("如 Lin Xia") } },
-  { key: "user.email", label: t("邮箱"), hint: t("写进每个提交的作者邮箱；托管平台按它认出是谁"), field: { kind: "text", placeholder: "name@example.com" } },
-  {
-    key: "http.proxy",
-    label: t("代理"),
-    hint: t("抓取、拉取、推送和克隆 https 地址时走这个代理（http.proxy）；ssh 地址不走它"),
-    field: { kind: "text", placeholder: "http://127.0.0.1:7890" },
-  },
-  { key: "https.proxy", label: t("HTTPS 代理"), hint: t("只给 https 地址单独设代理时才填；不填时用上面的代理"), field: { kind: "text", placeholder: "socks5://127.0.0.1:1080" } },
-  {
-    key: "core.autocrlf",
-    label: t("换行符"),
-    hint: t("core.autocrlf：Windows 上一般选“提交时转 LF，检出转 CRLF”，macOS 上选“提交时转 LF”"),
-    field: {
-      kind: "choice",
-      options: [
-        ["", t("不设置")],
-        ["true", t("提交时转 LF，检出转 CRLF")],
-        ["input", t("提交时转 LF")],
-        ["false", t("不转换")],
-      ],
+const GIT_FIELDS = lazy(
+  (): {
+    key: string;
+    label: string;
+    hint: string;
+    field: FieldKind;
+    globalOnly?: boolean;
+  }[] => [
+    {
+      key: "user.name",
+      label: t("用户名"),
+      hint: t("写进每个提交的作者名"),
+      field: { kind: "text", placeholder: t("如 Lin Xia") },
     },
-  },
-  { key: "init.defaultBranch", label: t("新仓库的默认分支"), hint: t("git init 时第一个分支的名字（init.defaultBranch）"), field: { kind: "text", placeholder: "main" }, globalOnly: true },
-]);
+    {
+      key: "user.email",
+      label: t("邮箱"),
+      hint: t("写进每个提交的作者邮箱；托管平台按它认出是谁"),
+      field: { kind: "text", placeholder: "name@example.com" },
+    },
+    {
+      key: "http.proxy",
+      label: t("代理"),
+      hint: t(
+        "抓取、拉取、推送和克隆 https 地址时走这个代理（http.proxy）；ssh 地址不走它",
+      ),
+      field: { kind: "text", placeholder: "http://127.0.0.1:7890" },
+    },
+    {
+      key: "https.proxy",
+      label: t("HTTPS 代理"),
+      hint: t("只给 https 地址单独设代理时才填；不填时用上面的代理"),
+      field: { kind: "text", placeholder: "socks5://127.0.0.1:1080" },
+    },
+    {
+      key: "core.autocrlf",
+      label: t("换行符"),
+      hint: t(
+        "core.autocrlf：Windows 上一般选“提交时转 LF，检出转 CRLF”，macOS 上选“提交时转 LF”",
+      ),
+      field: {
+        kind: "choice",
+        options: [
+          ["", t("不设置")],
+          ["true", t("提交时转 LF，检出转 CRLF")],
+          ["input", t("提交时转 LF")],
+          ["false", t("不转换")],
+        ],
+      },
+    },
+    {
+      key: "init.defaultBranch",
+      label: t("新仓库的默认分支"),
+      hint: t("git init 时第一个分支的名字（init.defaultBranch）"),
+      field: { kind: "text", placeholder: "main" },
+      globalOnly: true,
+    },
+  ],
+);
 
 /** One text setting: saved on Enter or when focus leaves; Esc reverts */
-function ConfigText({ id, value, placeholder, onSave }: { id: string; value: string; placeholder: string; onSave: (v: string) => Promise<string | null> }) {
+function ConfigText({
+  id,
+  value,
+  placeholder,
+  onSave,
+}: {
+  id: string;
+  value: string;
+  placeholder: string;
+  onSave: (v: string) => Promise<string | null>;
+}) {
   const [v, setV] = useState(value);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -384,14 +672,20 @@ export function GitConfigSection({ repoOpen }: { repoOpen: boolean }) {
     if (!repoOpen) setScope("global");
   }, [repoOpen]);
   const of = (key: string) => values?.find((v) => v.key === key);
-  const inScope = (key: string) => (scope === "global" ? of(key)?.global : of(key)?.local) ?? "";
+  const inScope = (key: string) =>
+    (scope === "global" ? of(key)?.global : of(key)?.local) ?? "";
   // Proxy: on when git's keys are set in this scope; the address is remembered in strand.* keys while off
   const proxyOn = !!(inScope("http.proxy") || inScope("https.proxy"));
-  const proxyAddr = (real: string, saved: string) => inScope(saved) || inScope(real);
-  const hasProxyAddr = !!(proxyAddr("http.proxy", "strand.httpProxy") || proxyAddr("https.proxy", "strand.httpsProxy"));
+  const proxyAddr = (real: string, saved: string) =>
+    inScope(saved) || inScope(real);
+  const hasProxyAddr = !!(
+    proxyAddr("http.proxy", "strand.httpProxy") ||
+    proxyAddr("https.proxy", "strand.httpsProxy")
+  );
   const [proxyErr, setProxyErr] = useState<string | null>(null);
   const save = (key: string) => async (v: string) => {
-    const first = (key === "http.proxy" || key === "https.proxy") && !hasProxyAddr;
+    const first =
+      (key === "http.proxy" || key === "https.proxy") && !hasProxyAddr;
     try {
       let next = await api.gitConfigSet(scope, key, v.trim() || null);
       // The first address entered turns the proxy on
@@ -417,7 +711,11 @@ export function GitConfigSection({ repoOpen }: { repoOpen: boolean }) {
         <div className="set-row">
           <div>
             <div>{t("改哪里的配置")}</div>
-            <div className="dim small">{scope === "global" ? t("全局：对这台电脑上所有仓库生效（~/.gitconfig）") : t("这个仓库：只对当前仓库生效，覆盖全局的值（.git/config）")}</div>
+            <div className="dim small">
+              {scope === "global"
+                ? t("全局：对这台电脑上所有仓库生效（~/.gitconfig）")
+                : t("这个仓库：只对当前仓库生效，覆盖全局的值（.git/config）")}
+            </div>
           </div>
           <Choice<ConfigScope>
             value={scope}
@@ -432,45 +730,98 @@ export function GitConfigSection({ repoOpen }: { repoOpen: boolean }) {
       {loadErr && <p className="err small">{tr(loadErr)}</p>}
       {!values && !loadErr && <p className="dim small">{t("正在读取…")}</p>}
       {values &&
-        GIT_FIELDS.filter((f) => scope === "global" || !f.globalOnly).map((f) => {
-          const cv = of(f.key);
-          const isProxy = f.key === "http.proxy" || f.key === "https.proxy";
-          const mine = isProxy ? proxyAddr(f.key, f.key === "http.proxy" ? "strand.httpProxy" : "strand.httpsProxy") : ((scope === "global" ? cv?.global : cv?.local) ?? "");
-          // In the repository scope, show what it falls back to
-          const inherited = scope === "local" ? (cv?.global ?? (cv?.effective && !cv.local ? cv.effective : null)) : null;
-          const id = `gc-${scope}-${f.key}`;
-          return (
-            <div className="set-row gc-row" key={id}>
-              <div>
-                <label htmlFor={f.field.kind === "text" ? id : undefined}>{f.label}</label>
-                <div className="dim small">{f.hint}</div>
-                {scope === "global" && cv?.local && <div className="dim small">{t("当前仓库里另设了：{0}", cv.local)}</div>}
-                {f.key === "http.proxy" &&
-                  (proxyErr ? (
-                    <div className="err small">{tr(proxyErr)}</div>
-                  ) : !proxyOn && hasProxyAddr ? (
-                    <div className="dim small gc-off">
-                      {scope === "local" && of("http.proxy")?.global ? t("已关闭：这个仓库沿用全局的代理，填的地址留着") : t("已关闭：Git 不走代理，填的地址留着，打开就恢复")}
+        GIT_FIELDS.filter((f) => scope === "global" || !f.globalOnly).map(
+          (f) => {
+            const cv = of(f.key);
+            const isProxy = f.key === "http.proxy" || f.key === "https.proxy";
+            const mine = isProxy
+              ? proxyAddr(
+                  f.key,
+                  f.key === "http.proxy"
+                    ? "strand.httpProxy"
+                    : "strand.httpsProxy",
+                )
+              : ((scope === "global" ? cv?.global : cv?.local) ?? "");
+            // In the repository scope, show what it falls back to
+            const inherited =
+              scope === "local"
+                ? (cv?.global ??
+                  (cv?.effective && !cv.local ? cv.effective : null))
+                : null;
+            const id = `gc-${scope}-${f.key}`;
+            return (
+              <div className="set-row gc-row" key={id}>
+                <div>
+                  <label htmlFor={f.field.kind === "text" ? id : undefined}>
+                    {f.label}
+                  </label>
+                  <div className="dim small">{f.hint}</div>
+                  {scope === "global" && cv?.local && (
+                    <div className="dim small">
+                      {t("当前仓库里另设了：{0}", cv.local)}
                     </div>
-                  ) : null)}
-              </div>
-              {f.key === "http.proxy" ? (
-                <div className="gc-proxy">
-                  <Toggle on={proxyOn} label={t("使用代理")} onChange={(v) => void toggleProxy(v)} />
-                  <ConfigText id={id} value={mine} placeholder={inherited ? t("沿用全局：{0}", inherited) : f.field.kind === "text" ? f.field.placeholder : ""} onSave={save(f.key)} />
+                  )}
+                  {f.key === "http.proxy" &&
+                    (proxyErr ? (
+                      <div className="err small">{tr(proxyErr)}</div>
+                    ) : !proxyOn && hasProxyAddr ? (
+                      <div className="dim small gc-off">
+                        {scope === "local" && of("http.proxy")?.global
+                          ? t("已关闭：这个仓库沿用全局的代理，填的地址留着")
+                          : t("已关闭：Git 不走代理，填的地址留着，打开就恢复")}
+                      </div>
+                    ) : null)}
                 </div>
-              ) : f.field.kind === "text" ? (
-                <ConfigText id={id} value={mine} placeholder={inherited ? t("沿用全局：{0}", inherited) : f.field.placeholder} onSave={save(f.key)} />
-              ) : (
-                <Choice<string>
-                  value={mine}
-                  options={f.field.options.map(([v, l]) => [v, v === "" && inherited ? t("沿用全局（{0}）", inherited) : l] as [string, string])}
-                  onChange={(v) => void save(f.key)(v)}
-                />
-              )}
-            </div>
-          );
-        })}
+                {f.key === "http.proxy" ? (
+                  <div className="gc-proxy">
+                    <Toggle
+                      on={proxyOn}
+                      label={t("使用代理")}
+                      onChange={(v) => void toggleProxy(v)}
+                    />
+                    <ConfigText
+                      id={id}
+                      value={mine}
+                      placeholder={
+                        inherited
+                          ? t("沿用全局：{0}", inherited)
+                          : f.field.kind === "text"
+                            ? f.field.placeholder
+                            : ""
+                      }
+                      onSave={save(f.key)}
+                    />
+                  </div>
+                ) : f.field.kind === "text" ? (
+                  <ConfigText
+                    id={id}
+                    value={mine}
+                    placeholder={
+                      inherited
+                        ? t("沿用全局：{0}", inherited)
+                        : f.field.placeholder
+                    }
+                    onSave={save(f.key)}
+                  />
+                ) : (
+                  <Choice<string>
+                    value={mine}
+                    options={f.field.options.map(
+                      ([v, l]) =>
+                        [
+                          v,
+                          v === "" && inherited
+                            ? t("沿用全局（{0}）", inherited)
+                            : l,
+                        ] as [string, string],
+                    )}
+                    onChange={(v) => void save(f.key)(v)}
+                  />
+                )}
+              </div>
+            );
+          },
+        )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
-import { treeOrder } from "./components/FileRow";
+import { treeOrder, TypeIcon } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
 import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Worktree, WorktreeStatus } from "./api/types";
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
@@ -73,6 +73,11 @@ function writeLast(p: string | null) {
   }
 }
 
+/** One file open in the middle: where to jump (from search results) and whether the change chain opens with it */
+type FileTab = { path: string; at: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null; chain: boolean };
+/** Open file tabs at most; past this the least recently shown closes */
+const MAX_FILE_TABS = 15;
+
 export default function App() {
   const [git, setGit] = useState<GitInfo | null>(null);
   const [repo, setRepo] = useState<RepoState | null>(null);
@@ -118,18 +123,62 @@ export default function App() {
   const logSplitRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<WorktreeStatus | null>(null);
   const [tab, setTab] = useState<"log" | "console" | "diff" | "file">("log");
-  /** The file viewed in the middle "Files" tab (project files and change chain) */
+  /** Files open in the middle, one tab each (like an IDE's editor tabs); each keeps its own state while another is shown */
+  const [files, setFiles] = useState<FileTab[]>([]);
+  /** The file tab shown when the "file" tab is active */
   const [fileOpen, setFileOpen] = useState<string | null>(null);
-  /** When opened from content search results: which line to jump to and which revision (empty is the worktree); n differs every time */
-  const [fileAt, setFileAt] = useState<{ line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null>(null);
-  /** Whether the change chain shows right away when the file view opens (when opened from the "file history" icon) */
-  const [fileChain, setFileChain] = useState(false);
-  const openFile = useCallback((p: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }, history = false) => {
+  /** When each file tab was last shown: closing the active tab returns to the most recent one, and past the limit the least recent closes */
+  const fileUsed = useRef(new Map<string, number>());
+  const showFile = useCallback((p: string) => {
+    fileUsed.current.set(p, Date.now());
     setFileOpen(p);
-    setFileChain(history);
-    setFileAt(at ? { ...at, n: Date.now() } : null);
     setTab("file");
   }, []);
+  const openFile = useCallback(
+    (p: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }, history = false) => {
+      const jump = at ? { ...at, n: Date.now() } : null;
+      setFiles((fs) => {
+        const i = fs.findIndex((f) => f.path === p);
+        if (i >= 0) {
+          const next = [...fs];
+          next[i] = { ...fs[i], at: jump ?? fs[i].at, chain: history || fs[i].chain };
+          return next;
+        }
+        // A new tab goes right of the one being shown
+        const from = fs.findIndex((f) => f.path === fileOpenRef.current);
+        const next = [...fs];
+        next.splice(from >= 0 ? from + 1 : fs.length, 0, { path: p, at: jump, chain: history });
+        if (next.length <= MAX_FILE_TABS) return next;
+        const used = fileUsed.current;
+        const oldest = next.filter((f) => f.path !== p).sort((a, b) => (used.get(a.path) ?? 0) - (used.get(b.path) ?? 0))[0];
+        used.delete(oldest.path);
+        return next.filter((f) => f !== oldest);
+      });
+      showFile(p);
+    },
+    [showFile],
+  );
+  const fileOpenRef = useRef(fileOpen);
+  fileOpenRef.current = fileOpen;
+  /** Close file tabs; when the shown one closes, show the most recently used of the rest, or go back to the log */
+  const closeFiles = useCallback(
+    (paths: string[]) => {
+      const gone = new Set(paths);
+      setFiles((fs) => {
+        const rest = fs.filter((f) => !gone.has(f.path));
+        gone.forEach((p) => fileUsed.current.delete(p));
+        const cur = fileOpenRef.current;
+        if (cur && gone.has(cur)) {
+          const used = fileUsed.current;
+          const back = [...rest].sort((a, b) => (used.get(b.path) ?? 0) - (used.get(a.path) ?? 0))[0];
+          setFileOpen(back?.path ?? null);
+          if (!back) setTab((tb) => (tb === "file" ? "log" : tb));
+        }
+        return rest;
+      });
+    },
+    [],
+  );
   /** Console, file view and diff tab use the middle plus right width without commit details (diffs compare side by side and would wrap if narrow) */
   const wide = tab === "console" || tab === "file" || tab === "diff";
   const [target, setTarget] = useState<DiffTarget | null>(null);
@@ -309,6 +358,9 @@ export default function App() {
       setRepo(st);
       setSelected(null);
       setTarget(null);
+      setFiles([]);
+      setFileOpen(null);
+      fileUsed.current.clear();
       setTab("log");
       setStatus(null);
       setRefs(null);
@@ -1346,11 +1398,73 @@ export default function App() {
             <button type="button" role="tab" aria-selected={tab === "console"} onClick={() => setTab("console")}>
               {t("控制台")}
             </button>
-            {fileOpen && (
-              <button type="button" role="tab" aria-selected={tab === "file"} onClick={() => setTab("file")} title={fileOpen}>
-                {t("文件 ·")} {fileOpen.split("/").pop()}
-              </button>
-            )}
+            {files.map((f, i) => {
+              const name = f.path.slice(f.path.lastIndexOf("/") + 1);
+              // Two open files with the same name: show the folder too
+              const dup = files.some((g) => g !== f && g.path.slice(g.path.lastIndexOf("/") + 1) === name);
+              const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
+              const on = tab === "file" && fileOpen === f.path;
+              return (
+                <div
+                  key={f.path}
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={on}
+                  className={"ftab" + (on ? " on" : "")}
+                  title={f.path}
+                  onClick={() => showFile(f.path)}
+                  onMouseDown={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      closeFiles([f.path]);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") (e.preventDefault(), showFile(f.path));
+                    if (e.key === "Delete" || e.key === "Backspace") (e.preventDefault(), closeFiles([f.path]));
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    const others = files.filter((g) => g !== f).map((g) => g.path);
+                    const left = files.slice(0, i).map((g) => g.path);
+                    const right = files.slice(i + 1).map((g) => g.path);
+                    setMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      items: [
+                        { label: t("关闭"), hint: t("鼠标中键"), run: () => closeFiles([f.path]) },
+                        { label: t("关闭其他标签页"), disabled: !others.length, run: () => closeFiles(others) },
+                        { label: t("关闭左侧的标签页"), disabled: !left.length, run: () => closeFiles(left) },
+                        { label: t("关闭右侧的标签页"), disabled: !right.length, run: () => closeFiles(right) },
+                        { label: t("关闭全部文件"), run: () => closeFiles(files.map((g) => g.path)) },
+                        "-",
+                        { label: t("复制路径"), icon: COMMIT_ICONS.copy, run: () => void navigator.clipboard.writeText(f.path) },
+                        { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(f.path, undefined, true) },
+                      ],
+                    });
+                  }}
+                >
+                  <TypeIcon path={f.path} />
+                  <span className="ftab-name">{name}</span>
+                  {dup && dir && <span className="ftab-dir dim">{dir.slice(dir.lastIndexOf("/") + 1)}</span>}
+                  <button
+                    type="button"
+                    className="ftab-x"
+                    tabIndex={-1}
+                    title={t("关闭（鼠标中键）")}
+                    aria-label={t("关闭 {0}", name)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeFiles([f.path]);
+                    }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                      <path d="M2.5 2.5l5 5M7.5 2.5l-5 5" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
             {target && (
               <button type="button" role="tab" aria-selected={tab === "diff"} onClick={() => setTab("diff")}>
                 {t("差异 ·")} {target.path.split("/").pop()}
@@ -1457,20 +1571,17 @@ export default function App() {
             </div>
           </div>
           {tab === "console" && <ConsoleView onToast={say} />}
-          {tab === "file" && fileOpen && (
-            <FileView
-              path={fileOpen}
-              at={fileAt}
-              showHistory={fileChain}
-              changed={!!status && (status.changes.some((c) => c.path === fileOpen) || status.untracked.includes(fileOpen))}
-              onClose={() => {
-                setFileOpen(null);
-                setTab("log");
-              }}
-              onLocate={(id) => locate(id)}
-              onBlame={(path, rev) => setBlame({ path, rev })}
-            />
-          )}
+          {files.map((f) => (
+            <div key={f.path} className="tabpanel ftab-panel" hidden={!(tab === "file" && fileOpen === f.path)}>
+              <FileView
+                path={f.path}
+                at={f.at}
+                showHistory={f.chain}
+                changed={!!status && (status.changes.some((c) => c.path === f.path) || status.untracked.includes(f.path))}
+                onLocate={(id) => locate(id)}
+              />
+            </div>
+          ))}
           {tab === "diff" && target && (
             <DiffView
               diff={diff.data}

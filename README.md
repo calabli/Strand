@@ -13,6 +13,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Filter by text (regex, case sensitivity), branch, author (multi-select or rules), date range and path; search inside historical changes (`git log -S` / `-G`).
 - Sort by time or graph order, first-parent only, hide merges, collapse linear branches.
 - Blame, file history that follows renames, comparing any two versions of a file.
+- Files open in tabs, one per file, with close, close others, close left/right and close all; the file view can show who last changed each line on the left.
 - Bisect with a progress bar above the log, and a reflog window to recover lost commits.
 
 **Committing**
