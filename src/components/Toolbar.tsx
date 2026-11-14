@@ -3,7 +3,7 @@
 import type { RepoState } from "../api/types";
 import type { RemoteKind, RemoteOps } from "./remoteOps";
 import { keys, shortId } from "./format";
-import { t } from "../i18n";
+import { lang, setLang, t } from "../i18n";
 
 const Icon = ({ d }: { d: string }) => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -184,6 +184,16 @@ export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onSho
         >
           <Icon d={ICONS.panel} />
           {panel.count > 0 && <span className="badge">{panel.count}</span>}
+        </button>
+        {/* 中英文切换（说明书 15 语言）：切换后窗口重新加载，自动打开当前仓库 */}
+        <button
+          type="button"
+          className="ib tb-lang"
+          title={lang === "zh" ? "Switch to English" : "切换到中文"}
+          aria-label={lang === "zh" ? "Switch to English" : "切换到中文"}
+          onClick={() => setLang(lang === "zh" ? "en" : "zh")}
+        >
+          {lang === "zh" ? "EN" : "中"}
         </button>
         <button type="button" className="ib" title={t("设置（{0}）", keys("⌘,"))} aria-label={t("设置")} onClick={onSettings}>
           <Icon d={ICONS.gear} />

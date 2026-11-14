@@ -632,9 +632,11 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
               className="primary cp-commit"
               onClick={() => commit()}
               disabled={(busy && !phase) || disabled}
-              title={phase ? t("点击取消") : undefined}
+              title={phase ? t("点击取消") : t("{0}（⌘↵）", busy ? t("正在提交…") : amend ? t("修订") : t("提交 {0} 个文件", picked.length))}
             >
-              {phase ? (phase.kind === "format" ? t("正在格式化… 点击取消") : t("正在检查… 点击取消")) : busy ? t("正在提交…") : amend ? t("修订") : t("提交 {0} 个文件", picked.length)}
+              <span className="cp-commit-label">
+                {phase ? (phase.kind === "format" ? t("正在格式化… 点击取消") : t("正在检查… 点击取消")) : busy ? t("正在提交…") : amend ? t("修订") : t("提交 {0} 个文件", picked.length)}
+              </span>
               <span className="kbd">⌘↵</span>
             </button>
             <button

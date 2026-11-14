@@ -980,7 +980,7 @@ export default function App() {
             name="paneLeft"
             host={panesRef}
             grow="right"
-            min={220}
+            min={260}
             max={() => (panesRef.current?.clientWidth ?? 1200) - (tab === "console" ? 0 : settings().paneRight) - 420}
             label={t("调整提交面板的宽度")}
           />

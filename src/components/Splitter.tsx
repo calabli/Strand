@@ -29,7 +29,7 @@ export const cssVar = (name: Key) => `--${name.replace(/[A-Z]/g, (c) => "-" + c.
 /** 设置里的尺寸换成 CSS 变量；自动（null）的不写 */
 export const sizeVars = (s: Settings, keys: Key[]) =>
   Object.fromEntries(keys.filter((k) => s[k] != null).map((k) => [cssVar(k), `${s[k]}px`])) as React.CSSProperties;
-export const paneVars = (s: Settings) => sizeVars(s, ["paneLeft", "paneRight", "paneTree"]);
+export const paneVars = (s: Settings) => sizeVars({ ...s, paneLeft: Math.max(260, s.paneLeft) }, ["paneLeft", "paneRight", "paneTree"]);
 
 export function Splitter({ name, host, grow, min, max, size, label }: Props) {
   const drag = useRef<{ at: number; w: number; now: number } | null>(null);

@@ -490,6 +490,10 @@ button.tb-mode { border: 0; cursor: pointer; }
 .frow-main.static { cursor: default; }
 .cp-btns { gap: 4px; }
 .cp-btns .cp-commit { min-width: 0; white-space: nowrap; overflow: hidden; }
+/* 提交面板拖窄时（英文的按钮文字更长）：文字放不下用省略号，先藏起快捷键提示 */
+.cp-commit-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.commit-panel { container-type: inline-size; }
+@container (max-width: 270px) { .cp-commit .kbd { display: none; } }
 .cp-btns .cp-push { width: 32px; flex-shrink: 0; }
 .cp-node .cp-node-name { flex: 0 0 auto; }
 .cp-node > .dim { flex: 1; }
@@ -734,3 +738,8 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .mw.view-result .tri > :nth-child(1), .mw.view-result .tri > :nth-child(3) { display: none; }
 .mw.view-result .tri-ln { grid-template-columns: 44px minmax(0, 1fr); }
 .mw.view-result .tri-ln > :nth-child(1), .mw.view-result .tri-ln > :nth-child(2), .mw.view-result .tri-ln > :nth-child(5), .mw.view-result .tri-ln > :nth-child(6) { display: none; }
+
+/* 悬停提示（Tooltip.tsx）：深色小气泡，跟随主题 */
+.tooltip { position: fixed; z-index: 1000; max-width: 320px; padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--win);
+  font-size: 12px; line-height: 1.45; white-space: pre-line; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.tb-lang { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; min-width: 28px; }

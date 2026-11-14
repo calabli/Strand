@@ -40,6 +40,8 @@ export const en: Record<string, string> = {
   "合并方式：生成一个合并提交": "Merge: create a merge commit",
   "变基方式：本地提交接到远程提交之后": "Rebase: put local commits after the remote ones",
   "关闭": "Close",
+  "确定": "OK",
+  "{0}（⌘↵）": "{0} (⌘↵)",
   "提交": "Commit",
   "暂存架": "Shelf",
   "贮藏": "Stash",
