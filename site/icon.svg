@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Strand's app icon: a main line in a commit graph with a branch splitting off and merging back; the main line fades at both ends, meaning history continues.
+       Drawn on the macOS icon grid: an 824 rounded square centered, leaving room for the shadow around it.
+       To regenerate all sizes after editing:
+         rsvg-convert -w 1024 -h 1024 src-tauri/icons/icon.svg -o /tmp/strand-icon.png
+         pnpm tauri icon /tmp/strand-icon.png -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B8CFF"/>
+      <stop offset="1" stop-color="#0743B0"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="trunk" gradientUnits="userSpaceOnUse" x1="0" y1="190" x2="0" y2="834">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.2" stop-color="#FFFFFF"/>
+      <stop offset="0.8" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="branch" gradientUnits="userSpaceOnUse" x1="0" y1="700" x2="0" y2="324">
+      <stop offset="0" stop-color="#FFC772"/>
+      <stop offset="1" stop-color="#FF9636"/>
+    </linearGradient>
+    <filter id="shadow" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="lift" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dy="8" result="b"/>
+      <feFlood flood-color="#021A4D" flood-opacity="0.32"/>
+      <feComposite in2="b" operator="in" result="s"/>
+      <feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Shadow underneath -->
+  <rect x="112" y="128" width="800" height="800" rx="180" fill="#000" opacity="0.26" filter="url(#shadow)"/>
+  <!-- Rounded square -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
+
+  <g filter="url(#lift)" fill="none" stroke-linecap="round">
+    <!-- Branch: splits off the lower commit, runs straight through a commit, merges back into the upper commit -->
+    <path d="M404 686 C404 616 624 636 624 566 V458 C624 388 404 408 404 338" stroke="url(#branch)" stroke-width="46"/>
+    <!-- Main line -->
+    <path d="M404 190 V834" stroke="url(#trunk)" stroke-width="46"/>
+    <!-- Commits: the merge and fork points on the main line, and one commit on the branch -->
+    <circle cx="404" cy="330" r="50" fill="#1D6BEA" stroke="#FFFFFF" stroke-width="34"/>
+    <circle cx="404" cy="694" r="50" fill="#0D52C6" stroke="#FFFFFF" stroke-width="34"/>
+    <circle cx="624" cy="512" r="50" fill="#1460D8" stroke="#FFB04A" stroke-width="34"/>
+  </g>
+</svg>

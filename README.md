@@ -4,6 +4,8 @@ A cross-platform desktop Git client for macOS and Windows, built with Tauri 2 an
 
 Strand is a working name. The current version is 0.1.0.
 
+Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHub Pages by `.github/workflows/pages.yml`).
+
 ## Features
 
 **History**

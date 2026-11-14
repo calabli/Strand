@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Strand 的应用图标：提交图谱里的一条主线，分出一条分支又合回来；主线两端渐隐，表示历史还在继续。
-       按 macOS 图标网格画：824 的圆角方形居中，四周留出阴影的位置。
-       改了以后重新生成各尺寸：
+  <!-- Strand's app icon: a main line in a commit graph with a branch splitting off and merging back; the main line fades at both ends, meaning history continues.
+       Drawn on the macOS icon grid: an 824 rounded square centered, leaving room for the shadow around it.
+       To regenerate all sizes after editing:
          rsvg-convert -w 1024 -h 1024 src-tauri/icons/icon.svg -o /tmp/strand-icon.png
          pnpm tauri icon /tmp/strand-icon.png -->
   <defs>
@@ -35,18 +35,18 @@
     </filter>
   </defs>
 
-  <!-- 底下的阴影 -->
+  <!-- Shadow underneath -->
   <rect x="112" y="128" width="800" height="800" rx="180" fill="#000" opacity="0.26" filter="url(#shadow)"/>
-  <!-- 圆角方形 -->
+  <!-- Rounded square -->
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
 
   <g filter="url(#lift)" fill="none" stroke-linecap="round">
-    <!-- 分支：从下面的提交分出去，竖直走一段经过一个提交，再合回上面的提交 -->
+    <!-- Branch: splits off the lower commit, runs straight through a commit, merges back into the upper commit -->
     <path d="M404 686 C404 616 624 636 624 566 V458 C624 388 404 408 404 338" stroke="url(#branch)" stroke-width="46"/>
-    <!-- 主线 -->
+    <!-- Main line -->
     <path d="M404 190 V834" stroke="url(#trunk)" stroke-width="46"/>
-    <!-- 提交点：主线上的合并点和分叉点，分支上的一个提交 -->
+    <!-- Commits: the merge and fork points on the main line, and one commit on the branch -->
     <circle cx="404" cy="330" r="50" fill="#1D6BEA" stroke="#FFFFFF" stroke-width="34"/>
     <circle cx="404" cy="694" r="50" fill="#0D52C6" stroke="#FFFFFF" stroke-width="34"/>
     <circle cx="624" cy="512" r="50" fill="#1460D8" stroke="#FFB04A" stroke-width="34"/>
