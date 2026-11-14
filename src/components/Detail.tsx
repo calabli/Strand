@@ -12,6 +12,7 @@ import type { Cap, ChangeMatch, Commit, CommitCaps, FileChange, FileDiff } from 
 import { DiffView } from "./DiffView";
 import { COMMIT_ICONS as ICON, type CommitOps } from "./commitOps";
 import { FileRow, FileTree } from "./FileRow";
+import { Found } from "./inlineDiff";
 import { setSettings, settings, useSettings } from "../settings";
 import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { FILTER_ICONS } from "./LogFilterBar";
@@ -73,9 +74,11 @@ interface Props {
   onFileHistory: (path: string) => void;
   /** 日志在按改动内容搜索：只列改动行有匹配的文件，差异里标出匹配的行 */
   find?: { text: string; regex: boolean; caseSensitive: boolean } | null;
+  /** 日志在按说明搜索：标题和正文里标出搜索词 */
+  highlight?: { text: string; regex: boolean; caseSensitive: boolean } | null;
 }
 
-export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory, find }: Props) {
+export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiPick, onClearMulti, onSquashMany, onDropMany, activePath, onOpenDiff, onFilterPath, onBlame, onFileHistory, find, highlight }: Props) {
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +132,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commitId, findKey]);
   const findRe = find ? findRegExp(find.text, find.regex, find.caseSensitive) : null;
+  const msgRe = highlight ? findRegExp(highlight.text, highlight.regex, highlight.caseSensitive) : null;
   const hitCount = new Map((matches ?? []).map((m) => [m.path, m.lines] as const));
   useEffect(() => {
     if (!commitId || !shown) return;
@@ -309,8 +313,14 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
           <Act icon={ICON.child} label={t("跳到子提交（←）")} cap={caps ? { ok: !!caps.child, why: t("没有子提交") } : null} onClick={() => caps?.child && onJump(caps.child)} />
           {caps?.web_url && <Act icon={ICON.web} label={t("在浏览器中查看")} onClick={() => openUrl(caps.web_url!)} />}
         </div>
-        <h1>{commit.title}</h1>
-        {commit.body && <p className="body">{commit.body}</p>}
+        <h1>
+          <Found t={commit.title} find={msgRe} />
+        </h1>
+        {commit.body && (
+          <p className="body">
+            <Found t={commit.body} find={msgRe} />
+          </p>
+        )}
         <dl>
           <dt>{t("作者")}</dt>
           <dd className="who-line">

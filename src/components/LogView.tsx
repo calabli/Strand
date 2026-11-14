@@ -145,6 +145,20 @@ function useMarker(h: Props["highlight"]) {
   }, [h?.text, h?.regex, h?.caseSensitive]);
 }
 
+/** 标题里有没有匹配 */
+function hits(title: string, re: RegExp): boolean {
+  re.lastIndex = 0;
+  const m = re.test(title);
+  re.lastIndex = 0;
+  return m;
+}
+
+/** 搜索文字是不是这个提交的版本号前缀（4 位以上的十六进制，和核心层一样） */
+const hashHit = (id: string, text: string) => {
+  const t = text.trim().toLowerCase();
+  return t.length >= 4 && /^[0-9a-f]+$/.test(t) && id.startsWith(t);
+};
+
 function marked(title: string, re: RegExp | null): ReactNode {
   if (!re) return title;
   const out: ReactNode[] = [];
@@ -278,7 +292,15 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
         {r.graph ? <GraphCell g={r.graph} width={graphW} isHead={c.id === headId} onJump={onJumpRow} /> : <span />}
         <span className={"msg" + (c.is_merge && dimMerges ? " merge" : "")}>
           <RefChips c={c} merge={mergeRefs} current={currentBranch ?? null} />
-          <span className="title">{marked(c.title, marker)}</span>
+          <span className="title">
+            {marked(c.title, marker)}
+            {/* 搜到了但标题里没有：匹配在正文里，或匹配的是版本号 */}
+            {marker && highlight && !hits(c.title, marker) && (
+              <span className="in-body" title={hashHit(c.id, highlight.text) ? t("版本号以“{0}”开头", highlight.text.trim()) : t("搜索的文字在提交说明的正文里，选中后在右边的详情里标出")}>
+                {hashHit(c.id, highlight.text) ? t("版本号") : t("正文")}
+              </span>
+            )}
+          </span>
           {c.unpushed && (
             <span className="unpushed" title={t("未推送")}>
               ↑

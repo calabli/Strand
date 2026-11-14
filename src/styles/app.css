@@ -391,8 +391,6 @@ button.tb-mode { border: 0; cursor: pointer; }
 .fchip-x:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
 .log-note { position: absolute; inset: 40px 0 auto 0; display: grid; justify-items: center; gap: 8px; text-align: center; z-index: 2; }
 .log-note p { margin: 0; }
-.crow .title mark { background: var(--pend-bg); color: inherit; border-radius: 3px; }
-.crow.sel .title mark { background: color-mix(in srgb, #fff 30%, transparent); }
 .msg.merge .title { color: var(--fg2); }
 .crow.sel .msg.merge .title { color: #fff; }
 .frow-act { visibility: hidden; flex-shrink: 0; color: var(--fg2); }
@@ -822,3 +820,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 /* 搜索词高亮（搜索结果、差异、文件全文）：明黄底深色字，和差异的红绿、行内加深都能区分开，深浅色主题一样 */
 mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0 1px; box-shadow: 0 0 0 1px rgba(160, 120, 0, 0.35); }
 .dl-add mark mark.find, .dl-del mark mark.find { background: #FFD84D; }
+.in-body { margin-left: 8px; padding: 0 5px; border-radius: 4px; background: var(--chip); color: var(--fg2); font-size: 10px; font-weight: 600; vertical-align: 1px; }
+.crow.sel .in-body { background: color-mix(in srgb, #fff 25%, transparent); color: inherit; }
+/* 提交说明里也用搜索词的明黄色，和日志标题、差异一致 */
+.crow .title mark { background: #FFD84D; color: #1A1A1A; border-radius: 3px; }

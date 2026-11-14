@@ -195,7 +195,7 @@ struct Run {
     done: bool,
 }
 
-/// 后台运行的 git 查询（路径过滤的 `git rev-list --all -- <路径>`、改动内容的 `git log -S`）：
+/// 后台运行的 git 查询（路径过滤的 `git rev-list <日志的引用> -- <路径>`、改动内容的 `git log -S`）：
 /// 边读输出边记下命中的提交（每行一个哈希）
 struct PathJob {
     /// 这组参数的标识，条件变了就换一个查询
@@ -216,7 +216,10 @@ impl Drop for PathJob {
 impl PathJob {
     fn start(dir: &Path, pattern: &str, case_sensitive: bool) -> PathJob {
         let spec = path_spec(pattern, case_sensitive);
-        PathJob::run(dir, format!("path:{case_sensitive}:{pattern}"), &["rev-list".to_string(), "--all".into(), "--".into(), spec], "按路径过滤失败")
+        let mut args = vec!["rev-list".to_string()];
+        args.extend(log_roots(dir));
+        args.extend(["--".into(), spec]);
+        PathJob::run(dir, format!("path:{case_sensitive}:{pattern}"), &args, "按路径过滤失败")
     }
 
     fn run(dir: &Path, key: String, args: &[String], fail_msg: &'static str) -> PathJob {
@@ -281,9 +284,12 @@ fn path_spec(pattern: &str, case_sensitive: bool) -> String {
 
 /// 按改动内容搜索的 `git log` 参数：普通文字用 -S（出现次数变了的提交），正则用 -G（改动的行匹配，POSIX 扩展正则）。
 /// 分支、日期、路径也交给 git，范围小了快得多（10 万提交上全量 5 秒，限定路径或日期 0.3 秒以内）。
-fn changes_args(f: &LogFilter, text: &str) -> Vec<String> {
+fn changes_args(dir: &Path, f: &LogFilter, text: &str) -> Vec<String> {
     let mut a: Vec<String> = vec!["log".into(), "--format=%H".into()];
-    a.push(f.branch.clone().unwrap_or_else(|| "--all".into()));
+    match &f.branch {
+        Some(b) => a.push(b.clone()),
+        None => a.extend(log_roots(dir)),
+    }
     a.push(if f.regex { format!("-G{text}") } else { format!("-S{text}") });
     if !f.case_sensitive {
         a.push("--regexp-ignore-case".into());
@@ -299,6 +305,16 @@ fn changes_args(f: &LogFilter, text: &str) -> Vec<String> {
         a.push(path_spec(p, f.case_sensitive));
     }
     a
+}
+
+/// 后台查询从哪些引用开始找：和日志一样，本地分支、远程分支、标签，分离头指针时加上 HEAD。
+/// 不用 `--all`：那样会把 Strand 自己存撤销快照的 `refs/strand/ops/*`、贮藏也扫一遍（白费时间，结果也不在日志里）
+fn log_roots(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = vec!["--branches".into(), "--remotes".into(), "--tags".into()];
+    if git2::Repository::open(dir).is_ok_and(|r| r.head_detached().unwrap_or(false)) {
+        v.push("HEAD".into());
+    }
+    v
 }
 
 /// 仓库是不是部分克隆（文件内容没有全部下载）
@@ -318,7 +334,7 @@ pub fn is_partial_clone(dir: &Path) -> bool {
     hit
 }
 
-/// 改过匹配路径的提交（在全部引用上运行 `git rev-list`，等它结束）。测试和工具用；日志过滤走后台查询。
+/// 改过匹配路径的提交（在日志的引用上运行 `git rev-list`，等它结束）。测试和工具用；日志过滤走后台查询。
 pub fn path_commits(dir: &Path, pattern: &str, case_sensitive: bool) -> Result<HashSet<gix::ObjectId>> {
     let job = PathJob::start(dir, pattern, case_sensitive);
     while !job.done.load(Ordering::SeqCst) {
@@ -387,7 +403,7 @@ impl Session {
                 let job = if slot == 0 {
                     PathJob::start(&dir, f.path().unwrap_or(""), f.case_sensitive)
                 } else {
-                    PathJob::run(&dir, key, &changes_args(f, f.changes().unwrap_or("")), "按改动内容搜索失败")
+                    PathJob::run(&dir, key, &changes_args(&dir, f, f.changes().unwrap_or("")), "按改动内容搜索失败")
                 };
                 // 刚开始的查询还没有结果：最多等 FIRST_WAIT，攒够一页或结束就返回，第一次查询就能带回首批结果
                 let t0 = Instant::now();

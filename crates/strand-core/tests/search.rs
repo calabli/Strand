@@ -144,3 +144,20 @@ fn project_search_worktree_and_versions() {
     // 正则写错
     assert_eq!(project_search(p, "(x", true, true, None).unwrap_err().code, ErrorCode::InvalidRegex);
 }
+
+/// 搜索和路径过滤只扫日志里的引用：Strand 存撤销快照的 refs/strand/ops/* 不扫
+#[test]
+fn background_queries_skip_internal_snapshots() {
+    let d = repo();
+    let p = d.path();
+    let mut s = Session::open(p).unwrap();
+    // 做一步写操作，留下一个快照提交（树里有 before-worktree/src/a.js 之类的路径）
+    s.run_op("新建分支 x", strand_core::oplog::OpKind::Branch, |s| s.branch_create("x", None, false)).unwrap();
+    assert!(!git(p, &["for-each-ref", "refs/strand/ops"]).is_empty(), "应该有快照引用");
+    let snapshots: Vec<String> = git(p, &["log", "--format=%H", "--glob=refs/strand/ops/*", "--no-walk"]).lines().map(str::to_string).collect();
+    let hits = strand_core::log_filter::path_commits(p, "a.js", false).unwrap();
+    assert!(!hits.is_empty());
+    assert!(hits.iter().all(|h| !snapshots.contains(&h.to_string())), "路径过滤扫到了内部快照");
+    // 改动内容搜索的结果也都在日志里
+    assert_eq!(titles(&mut s, &changes("fetchUser")), ["改名成 loadUser", "b 里调用", "加 fetchUser"]);
+}

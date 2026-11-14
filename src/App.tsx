@@ -1271,6 +1271,7 @@ export default function App() {
           onBlame={(path, rev) => setBlame({ path, rev })}
           onFileHistory={(p) => openFile(p)}
           find={ui.searchIn === "changes" && ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : null}
+          highlight={ui.searchIn === "message" && ui.text ? { text: ui.text, regex: ui.regex, caseSensitive: ui.caseSensitive } : null}
           onFilterPath={(path) => {
             setUi((u) => ({ ...u, path }));
             setTab("log");
