@@ -633,7 +633,7 @@ fn classify_net_error(e: CoreError) -> CoreError {
 }
 
 /// Run a network-related git command: read progress, support cancel, time out on no-output duration.
-fn run_net(dir: &Path, args: &[&str], cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<String> {
+pub(crate) fn run_net(dir: &Path, args: &[&str], cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<String> {
     run_git_net(dir, args, None, &[], cancel, progress)
 }
 

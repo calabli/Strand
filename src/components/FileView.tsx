@@ -8,6 +8,9 @@
 // When opened from content search results (at): shows that revision's (or the worktree's) full text, scrolled to and marking that line; choosing something else in the chain returns to normal.
 // Blame (toolbar toggle, or right-click the text): the full text shows on the left of each line the date and author that last changed it,
 // darker when newer; hover for the commit, click to locate it in the log. Applies to whichever revision's text is shown.
+// Right-click a line → "blame the revision before this change": shows the file as it was just before the commit that last
+// changed the line (following renames), blamed, near the same line; "back" returns step by step.
+// Git LFS files whose content hasn't been downloaded show a note with a download button.
 
 import { Crumbs, useTopLine } from "./Crumbs";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +27,7 @@ import { settings, useSettings } from "../settings";
 import { t, tr, lang } from "../i18n";
 
 const WORK = "work";
+const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`);
 const MAX_LINES = 20000;
 
 interface Props {
@@ -36,12 +40,16 @@ interface Props {
   changed: boolean;
   /** Locate this commit in the log */
   onLocate: (id: string) => void;
+  /** Changes when contents should be read again (after downloading LFS files) */
+  reloadKey?: number;
+  /** Download the repository's LFS files; absent when it doesn't use LFS */
+  onLfsPull?: () => void;
 }
 
 type Load<T> = { data: T | null; loading: boolean; error: string | null };
 const idle = { data: null, loading: false, error: null };
 
-export function FileView({ path, at, changed, onLocate, showHistory }: Props) {
+export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, onLfsPull }: Props) {
   /** Blame annotations on the left of the full text (per tab, off by default) */
   const [annot, setAnnot] = useState(false);
   /** Whether the change chain column is open: collapsed by default, content takes the full width */
@@ -58,7 +66,13 @@ export function FileView({ path, at, changed, onLocate, showHistory }: Props) {
   // When opened from search results: mark the search term in full text and diffs (cleared when switching files)
   const findRe = at?.find ? findRegExp(at.find.text, at.find.regex, at.find.caseSensitive) : null;
   /** The revision (branch or tag names work) and line a content search result points to; cleared when clicking something else in the chain */
-  const [jump, setJump] = useState<{ line: number; rev: string | null } | null>(null);
+  const [jump, setJumpState] = useState<{ line: number; rev: string | null; path?: string; blame?: boolean } | null>(null);
+  /** Revisions passed through with "blame the revision before this change", for "back" */
+  const [trail, setTrail] = useState<(typeof jump)[]>([]);
+  const setJump = (j: typeof jump) => {
+    setTrail([]);
+    setJumpState(j);
+  };
   useEffect(() => {
     if (!at) return;
     setJump({ line: at.line, rev: at.rev });
@@ -91,7 +105,7 @@ export function FileView({ path, at, changed, onLocate, showHistory }: Props) {
   // What to show on the right
   type Req = { kind: "text"; rev: string | null; path: string } | { kind: "diff"; from: string | null; fromPath: string; to: string | null; toPath: string; label: string };
   const req: Req | null = useMemo(() => {
-    if (jump?.rev) return { kind: "text", rev: jump.rev, path };
+    if (jump?.rev) return { kind: "text", rev: jump.rev, path: jump.path ?? path };
     if (sel.length === 2) {
       const [a, b] = [...sel].sort((x, y) => order(y) - order(x)); // Older first
       const va = byId(a);
@@ -140,7 +154,7 @@ export function FileView({ path, at, changed, onLocate, showHistory }: Props) {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reqKey]);
+  }, [reqKey, reloadKey]);
 
   /** Click to select one; ⌘ / Shift click to add a second (compare); clicking a selected one deselects it */
   const pick = (k: string, add: boolean) => {
@@ -287,7 +301,26 @@ export function FileView({ path, at, changed, onLocate, showHistory }: Props) {
         <div className="fv-main">
           {jump?.rev && (
             <div className="fv-mode">
-              <span className="dim small">{t("{0} 时的内容（从搜索结果打开）", jump.rev)}</span>
+              {jump.blame ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onClick={() => {
+                      const prev = trail[trail.length - 1] ?? null;
+                      setTrail((tr) => tr.slice(0, -1));
+                      setJumpState(prev);
+                    }}
+                  >
+                    {t("← 返回")}
+                  </button>
+                  <span className="dim small">
+                    {t("{0} 时的 {1}（改动之前的版本）", shortId(jump.rev), jump.path ?? path)}
+                  </span>
+                </>
+              ) : (
+                <span className="dim small">{t("{0} 时的内容（从搜索结果打开）", jump.rev)}</span>
+              )}
             </div>
           )}
           {!jump?.rev && sel.length === 1 && (single === WORK ? changed && !!head : !!singleV) && (
@@ -317,6 +350,12 @@ export function FileView({ path, at, changed, onLocate, showHistory }: Props) {
               blame={annot && req?.kind === "text" ? { path: req.path, rev: req.rev } : null}
               onToggleBlame={() => setAnnot((a) => !a)}
               onLocate={onLocate}
+              onPrevious={(rev, p, line) => {
+                setTrail((tr) => [...tr, jump]);
+                setJumpState({ rev, path: p, line, blame: true });
+                setAnnot(true);
+              }}
+              onLfsPull={onLfsPull}
             />
           )}
         </div>
@@ -352,6 +391,8 @@ function TextView({
   blame,
   onToggleBlame,
   onLocate,
+  onPrevious,
+  onLfsPull,
 }: {
   load: Load<FileText>;
   focus: number | null;
@@ -360,6 +401,9 @@ function TextView({
   blame: { path: string; rev: string | null } | null;
   onToggleBlame: () => void;
   onLocate: (id: string) => void;
+  /** Show the revision before the commit that changed a line (rev, path there, the line's number in that commit) */
+  onPrevious: (rev: string, path: string, line: number) => void;
+  onLfsPull?: () => void;
 }) {
   const f = load.data;
   // Blame the whole file once per revision; lines are matched by number
@@ -412,6 +456,12 @@ function TextView({
         ...(b && !b.uncommitted
           ? [
               "-" as const,
+              {
+                label: t("追溯改动之前的版本"),
+                disabled: !b.previous,
+                why: t("这一行是 {0} 新建文件时加的，没有更早的版本", shortId(b.id)),
+                run: () => b.previous && onPrevious(b.previous, b.previousPath ?? f?.path ?? "", b.orig),
+              },
               { label: t("在日志里定位 {0}", shortId(b.id)), disabled: !b.inLog, why: t("这个提交不在当前日志里"), run: () => onLocate(b.id) },
               { label: t("复制版本号"), run: () => void navigator.clipboard.writeText(b.id) },
             ]
@@ -454,6 +504,16 @@ function TextView({
       {load.error && <p className="pad err">{tr(load.error)}</p>}
       {f?.missing && <p className="pad dim">{t("这个版本里没有这个文件（已删除或还没创建）")}</p>}
       {f?.binary && <p className="pad dim">{t("二进制文件，不显示内容（{0} 字节）", f.size)}</p>}
+      {f?.lfs_missing && (
+        <div className="fv-lfs">
+          <span>{t("这是 Git LFS 文件，内容还没下载（{0}），下面是它的指针。", fmtSize(f.lfs_missing.size))}</span>
+          {onLfsPull && (
+            <button type="button" className="btn sm" onClick={onLfsPull}>
+              {t("下载 LFS 文件")}
+            </button>
+          )}
+        </div>
+      )}
       {f?.text !== undefined && (
         <div className={"tv mono" + (load.loading ? " stale" : "") + (blame ? " with-ann" : "")}>
           {lines.slice(0, MAX_LINES).map((l, i) => (

@@ -17,6 +17,10 @@ export interface RepoState {
   state: RepoMode;
   /** Bisect in progress */
   bisecting?: boolean;
+  /** Uses Git LFS (filter=lfs in .gitattributes) */
+  lfs?: boolean;
+  /** Has submodules (.gitmodules) */
+  submodules?: boolean;
 }
 
 export type RefKind = "head" | "branch" | "remote" | "tag";
@@ -234,8 +238,10 @@ export type ResetMode = "soft" | "mixed" | "hard";
 export interface BlamePage {
   total: number;
   offset: number;
-  lines: { no: number; text: string; commit: number }[];
-  commits: { id: string; title: string; body: string; author: string; email: string; time: number; in_log: boolean; uncommitted: boolean }[];
+  /** orig: the line's number in its commit's version of the file */
+  lines: { no: number; text: string; commit: number; orig: number }[];
+  /** previous / previous_path: the revision before this commit for this file and its path there (absent when the commit added the file) */
+  commits: { id: string; title: string; body: string; author: string; email: string; time: number; in_log: boolean; uncommitted: boolean; previous?: string; previous_path?: string }[];
 }
 
 /** Comparison result (spec §10.3) */
@@ -630,6 +636,8 @@ export interface FileText {
   missing: boolean;
   size: number;
   truncated: boolean;
+  /** A Git LFS file whose content hasn't been downloaded (text is the pointer) */
+  lfs_missing?: { oid: string; size: number };
 }
 
 export interface FileVersion {
@@ -794,4 +802,22 @@ export interface UpdateInfo {
 export interface UpdateProgress {
   downloaded: number;
   total?: number | null;
+}
+
+// ---------- Submodules ----------
+
+export type SubmoduleState = "uninitialized" | "clean" | "moved" | "dirty" | "conflict";
+
+export interface Submodule {
+  /** Relative to the superproject root */
+  path: string;
+  name: string;
+  url?: string;
+  /** The commit the superproject records */
+  recorded?: string;
+  /** The commit checked out inside; absent when not initialized */
+  current?: string;
+  state: SubmoduleState;
+  /** Uncommitted or untracked changes inside */
+  dirty: boolean;
 }

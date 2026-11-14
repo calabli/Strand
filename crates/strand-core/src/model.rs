@@ -44,6 +44,12 @@ pub struct RepoState {
     /// Bisect in progress (git bisect); HEAD sits on the commit to test, other operations work as usual
     #[serde(default)]
     pub bisecting: bool,
+    /// The repository uses Git LFS (`filter=lfs` in .gitattributes)
+    #[serde(default)]
+    pub lfs: bool,
+    /// The repository has submodules (a .gitmodules file)
+    #[serde(default)]
+    pub submodules: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]

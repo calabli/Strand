@@ -86,7 +86,7 @@ impl Session {
         opts.include_typechange(true).pathspec(path).disable_pathspec_match(true).context_lines(context);
         let d = repo.diff_tree_to_tree(Some(&ta), Some(&tb), Some(&mut opts)).map_err(|e| CoreError::git("读取差异失败", e))?;
         diff::prefetch(&repo, &d, usize::MAX);
-        diff::first_file(&d, path)
+        diff::first_file_lfs(&repo, &d, path, context)
     }
 
     /// Commit contents; ones in the log carry refs and unpushed markers, ones not in it (e.g. rewritten) carry only basic info

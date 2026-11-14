@@ -280,7 +280,9 @@ impl Session {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.path.display().to_string());
-        Ok(RepoState { path: self.path.display().to_string(), name, head, state, bisecting })
+        let lfs = crate::lfs::uses_lfs(&self.path);
+        let submodules = self.path.join(".gitmodules").is_file();
+        Ok(RepoState { path: self.path.display().to_string(), name, head, state, bisecting, lfs, submodules })
     }
 
     /// The row of a commit (full hash, hash prefix, branch name or tag name) in the log, for jumping and locating.

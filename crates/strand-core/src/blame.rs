@@ -20,6 +20,8 @@ pub struct BlameLine {
     pub text: String,
     /// Index into `commits`
     pub commit: u32,
+    /// The line's number in that commit's version of the file (to follow it into the previous revision)
+    pub orig: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +36,11 @@ pub struct BlameCommit {
     pub in_log: bool,
     /// Uncommitted changes
     pub uncommitted: bool,
+    /// The revision before this commit for this file (its parent) and the file's path there; absent when the commit added the file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,6 +70,7 @@ impl Session {
         args.push(path);
         let out = git_cli::run(self.path(), &args, None)?;
         let (lines, ids) = parse(&out);
+        let prev = parse_previous(&out);
         let repo = self.git2()?;
         let commits = ids
             .iter()
@@ -77,10 +85,13 @@ impl Session {
                         time: 0,
                         in_log: false,
                         uncommitted: true,
+                        previous: None,
+                        previous_path: None,
                     };
                 }
                 let c = git2::Oid::from_str(id).ok().and_then(|o| repo.find_commit(o).ok());
                 let in_log = gix::ObjectId::from_hex(id.as_bytes()).ok().is_some_and(|o| self.index.contains_key(&o));
+                let (previous, previous_path) = prev.get(id).cloned().map_or((None, None), |(r, p)| (Some(r), Some(p)));
                 match c {
                     Some(c) => BlameCommit {
                         id: id.clone(),
@@ -91,8 +102,10 @@ impl Session {
                         time: c.author().when().seconds(),
                         in_log,
                         uncommitted: false,
+                        previous,
+                        previous_path,
                     },
-                    None => BlameCommit { id: id.clone(), title: String::new(), body: String::new(), author: String::new(), email: String::new(), time: 0, in_log, uncommitted: false },
+                    None => BlameCommit { id: id.clone(), title: String::new(), body: String::new(), author: String::new(), email: String::new(), time: 0, in_log, uncommitted: false, previous, previous_path },
                 }
             })
             .collect();
@@ -129,27 +142,48 @@ pub(crate) fn parse(out: &str) -> (Vec<BlameLine>, Vec<String>) {
     let mut ids: Vec<String> = Vec::new();
     let mut pos: HashMap<String, u32> = HashMap::new();
     let mut lines = Vec::new();
-    let mut cur: Option<(u32, u32)> = None; // (commit index, final line)
+    let mut cur: Option<(u32, u32, u32)> = None; // (commit index, final line, original line)
     for l in out.lines() {
         if let Some(text) = l.strip_prefix('\t') {
-            if let Some((commit, no)) = cur.take() {
-                lines.push(BlameLine { no, text: text.trim_end_matches('\r').to_string(), commit });
+            if let Some((commit, no, orig)) = cur.take() {
+                lines.push(BlameLine { no, text: text.trim_end_matches('\r').to_string(), commit, orig });
             }
             continue;
         }
         let mut parts = l.split(' ');
         let first = parts.next().unwrap_or("");
         if first.len() == 40 && first.bytes().all(|b| b.is_ascii_hexdigit()) {
-            let no: u32 = parts.nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let orig: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let no: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
             let next = ids.len() as u32;
             let p = *pos.entry(first.to_string()).or_insert_with(|| {
                 ids.push(first.to_string());
                 next
             });
-            cur = Some((p, no));
+            cur = Some((p, no, orig));
         }
     }
     (lines, ids)
+}
+
+/// The "previous <id> <path>" header of each commit in `git blame --porcelain`: the parent revision and the file's path there
+fn parse_previous(out: &str) -> HashMap<String, (String, String)> {
+    let mut map = HashMap::new();
+    let mut commit: Option<&str> = None;
+    for l in out.lines() {
+        if l.starts_with('\t') {
+            continue;
+        }
+        let first = l.split(' ').next().unwrap_or("");
+        if first.len() == 40 && first.bytes().all(|b| b.is_ascii_hexdigit()) {
+            commit = Some(first);
+        } else if let (Some(rest), Some(c)) = (l.strip_prefix("previous "), commit)
+            && let Some((id, path)) = rest.split_once(' ')
+        {
+            map.insert(c.to_string(), (id.to_string(), path.to_string()));
+        }
+    }
+    map
 }
 
 #[cfg(test)]

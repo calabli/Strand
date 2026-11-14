@@ -126,6 +126,14 @@ fn is_binary_path(delta: &git2::DiffDelta<'_>) -> bool {
 }
 
 /// All change blocks of the first file in a diff. The diff should already be limited to one file by pathspec.
+/// Same as [`first_file`], comparing the real contents when a side is a Git LFS pointer
+pub fn first_file_lfs(repo: &git2::Repository, diff: &git2::Diff<'_>, path: &str, context: u32) -> Result<FileDiff> {
+    match crate::lfs::diff_resolved(repo, diff, path, context)? {
+        Some(fd) => Ok(fd),
+        None => first_file(diff, path),
+    }
+}
+
 pub fn first_file(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
     let Some(idx) = diff.deltas().position(|d| d.status() != git2::Delta::Unmodified) else {
         return Ok(FileDiff { path: path.to_string(), binary: false, hunks: Vec::new(), truncated: false });

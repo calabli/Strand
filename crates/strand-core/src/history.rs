@@ -36,11 +36,11 @@ impl Session {
         if d.deltas().len() == 0 {
             if let Some(untracked) = stash_untracked(&repo, id) {
                 let d = commit_diff_ctx(&repo, &untracked, Some(path), context)?;
-                return diff::first_file(&d, path);
+                return diff::first_file_lfs(&repo, &d, path, context);
             }
         }
         diff::prefetch(&repo, &d, usize::MAX);
-        diff::first_file(&d, path)
+        diff::first_file_lfs(&repo, &d, path, context)
     }
 }
 

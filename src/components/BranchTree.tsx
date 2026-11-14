@@ -1,4 +1,5 @@
-// Branch tree (spec §6.1): search, HEAD, local, remote, tags, worktrees.
+// Branch tree (spec §6.1): search, HEAD, local, remote, tags, worktrees, submodules.
+// Submodules show their state (not initialized, changes inside, another commit checked out); hover to update, open or reveal.
 //
 // Click a branch: the log shows only its commits; click again to cancel (same state as the filter bar's branch). Click a tag: locate it.
 // Double-click: switch. Hover: switch, merge into current branch, compare with current branch, favorite. Right-click: branch menu (6.4).
@@ -7,7 +8,7 @@
 // Branches checked out in another worktree are marked and can't be switched to here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Branch, RefsList, Worktree } from "../api/types";
+import type { Branch, RefsList, Submodule, Worktree } from "../api/types";
 import type { BranchOps } from "./branchOps";
 import type { MenuEntry } from "./Menu";
 import { COMMIT_ICONS as I } from "./commitOps";
@@ -63,9 +64,11 @@ interface Props {
   onRemotes?: () => void;
   /** Update (pull the current branch) and fetch in the icon column; pullWhy is why pulling isn't possible */
   remote?: { fetch: () => void; pull: () => void; pullWhy: string | null };
+  /** Submodules (null while loading or without any) */
+  subs?: Submodule[] | null;
 }
 
-type Group = "local" | "remote" | "tags" | "worktrees";
+type Group = "local" | "remote" | "tags" | "worktrees" | "submodules";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
 const FOLDER_ICON = "M1.5 3.5h4l1.5 1.5h5.5v6.5h-11z";
@@ -102,9 +105,9 @@ function worktreeActions(w: Worktree, ops: BranchOps): MenuEntry[] {
   ];
 }
 
-export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick, onLocate, onMenu, onPushTag, onRemotes, remote }: Props) {
+export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick, onLocate, onMenu, onPushTag, onRemotes, remote, subs }: Props) {
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<Record<Group, boolean>>({ local: true, remote: true, tags: false, worktrees: true });
+  const [open, setOpen] = useState<Record<Group, boolean>>({ local: true, remote: true, tags: false, worktrees: true, submodules: true });
 
   const f = q.trim().toLowerCase();
   const match = (n: string) => !f || n.toLowerCase().includes(f);
@@ -119,6 +122,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
   for (const r of remotes) byRemote.set(r.remote, [...(byRemote.get(r.remote) ?? []), r]);
   const tags = (refs?.tags ?? []).filter((t) => match(t.name));
   const worktrees = (refs?.worktrees ?? []).filter((w) => match(w.path) || match(w.branch ?? ""));
+  const submodules = (subs ?? []).filter((m) => match(m.path));
   // Expand groups with results automatically while searching
   const isOpen = (g: Group) => (f ? true : open[g]);
   /** Collapsed remotes (e.g. origin) */
@@ -278,7 +282,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
           className="ib"
           title={allOpen ? t("全部折叠") : t("全部展开")}
           aria-label={allOpen ? t("全部折叠") : t("全部展开")}
-          onClick={() => setOpen({ local: !allOpen, remote: !allOpen, tags: !allOpen, worktrees: !allOpen })}
+          onClick={() => setOpen({ local: !allOpen, remote: !allOpen, tags: !allOpen, worktrees: !allOpen, submodules: !allOpen })}
         >
           <Icon d={allOpen ? "M4 6l3-3 3 3M4 11l3-3 3 3" : "M4 3l3 3 3-3M4 8l3 3 3-3"} />
         </button>
@@ -497,18 +501,107 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
               ))}
           </>
         )}
+        {submodules.length > 0 && ops.submodule && (
+          <>
+            <GroupHead
+              label={t("子模块")}
+              count={submodules.length}
+              open={isOpen("submodules")}
+              onToggle={() => toggle("submodules")}
+              onAction={ops.submodule.busy ? undefined : () => ops.submodule?.update([])}
+              actionTitle={t("更新全部子模块（检出记录的提交，没初始化的先初始化）")}
+              actionIcon={I.pull}
+            />
+            {isOpen("submodules") &&
+              submodules.map((m) => {
+                const sm = ops.submodule!;
+                const ready = m.state !== "uninitialized";
+                const tag = SUB_TAG[m.state];
+                const menu: MenuEntry[] = [
+                  { label: ready ? t("更新到记录的提交") : t("初始化并检出"), icon: I.pull, disabled: sm.busy || (m.state === "clean"), why: sm.busy ? t("正在更新子模块") : t("已经是记录的提交"), run: () => sm.update([m.path]) },
+                  { label: t("在 Strand 中打开"), icon: OPEN_ICON, disabled: !ready, why: t("还没初始化"), run: () => sm.open(m.path) },
+                  { label: t("在文件管理器中显示"), icon: FOLDER_ICON, disabled: !ready, why: t("还没初始化"), run: () => sm.reveal(m.path) },
+                  "-",
+                  { label: t("复制地址"), icon: I.copy, disabled: !m.url, run: () => void navigator.clipboard.writeText(m.url ?? "") },
+                ];
+                return (
+                  <div
+                    key={m.path}
+                    className={"trow sub-row" + (ready ? "" : " gone")}
+                    title={[m.path, m.url, m.recorded && t("记录的提交 {0}", m.recorded.slice(0, 7)), m.current && m.current !== m.recorded && t("检出的提交 {0}", m.current.slice(0, 7))].filter(Boolean).join("\n")}
+                    onDoubleClick={() => (ready ? sm.open(m.path) : sm.update([m.path]))}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      onMenu(e.clientX, e.clientY, menu);
+                    }}
+                  >
+                    <KindIcon d={SUB_ICON} />
+                    <span className="tname">
+                      {baseName(m.path)}
+                      <span className="mono dim wt-branch"> {(m.current ?? m.recorded ?? "").slice(0, 7)}</span>
+                    </span>
+                    {tag && <span className={"sub-tag " + m.state}>{t(tag)}</span>}
+                    <span className="tacts" onClick={(e) => e.stopPropagation()}>
+                      {m.state !== "clean" && (
+                        <button type="button" className="ib sm" disabled={sm.busy} title={ready ? t("更新到记录的提交") : t("初始化并检出")} aria-label={t("更新子模块 {0}", m.path)} onClick={() => sm.update([m.path])}>
+                          <Icon d={I.pull} />
+                        </button>
+                      )}
+                      {ready && (
+                        <button type="button" className="ib sm" title={t("在 Strand 中打开")} aria-label={t("在 Strand 中打开 {0}", m.path)} onClick={() => sm.open(m.path)}>
+                          <Icon d={OPEN_ICON} />
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+          </>
+        )}
         {drag && (
           <div className="drag-ghost mono" style={{ left: drag.x + 14, top: drag.y + 10 }} aria-hidden="true">
             {drag.over ? t("{0} → {1}：松开后选合并或变基", drag.src, drag.over) : drag.src}
           </div>
         )}
-        {f && local.length + remotes.length + tags.length + worktrees.length === 0 && <p className="pad dim">{t("没有匹配的分支或标签")}</p>}
+        {f && local.length + remotes.length + tags.length + worktrees.length + submodules.length === 0 && <p className="pad dim">{t("没有匹配的分支或标签")}</p>}
       </div>
     </nav>
   );
 }
 
-function GroupHead({ label, count, open, onToggle, onAdd, addTitle }: { label: string; count: number; open: boolean; onToggle: () => void; onAdd?: () => void; addTitle?: string }) {
+/** State tags on submodule rows; none when clean */
+const SUB_TAG: Record<Submodule["state"], string | null> = {
+  uninitialized: "未初始化",
+  clean: null,
+  moved: "提交不同",
+  dirty: "有改动",
+  conflict: "有冲突",
+};
+/** A box inside a folder */
+const SUB_ICON = "M1.5 3.5h4l1 1.2h6v6.8h-11zM6 7.5h3.5v2.5H6z";
+
+function GroupHead({
+  label,
+  count,
+  open,
+  onToggle,
+  onAdd,
+  addTitle,
+  onAction,
+  actionTitle,
+  actionIcon,
+}: {
+  label: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  onAdd?: () => void;
+  addTitle?: string;
+  /** An icon button other than ＋ */
+  onAction?: () => void;
+  actionTitle?: string;
+  actionIcon?: string;
+}) {
   const head = (
     <button type="button" className="tgroup" aria-expanded={open} onClick={onToggle}>
       <span className="chev">{open ? "▾" : "▸"}</span>
@@ -516,6 +609,15 @@ function GroupHead({ label, count, open, onToggle, onAdd, addTitle }: { label: s
       <span className="dim">{count}</span>
     </button>
   );
+  if (actionIcon)
+    return (
+      <div className="tgroup-row">
+        {head}
+        <button type="button" className="ib sm" title={actionTitle} aria-label={actionTitle} onClick={onAction} disabled={!onAction}>
+          <Icon d={actionIcon} />
+        </button>
+      </div>
+    );
   if (!onAdd) return head;
   return (
     <div className="tgroup-row">

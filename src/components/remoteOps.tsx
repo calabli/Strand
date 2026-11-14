@@ -262,7 +262,15 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     return () => window.removeEventListener("focus", onFocus);
   }, [canAuto, fetch]);
 
-  return { running, fetch, pull, pullPanel, previewMode, startPull, abortPull, pullMode, setPullMode, openPush, doPush, pickPushRemote, pushTag, pushAfterCommit, cancel, push, closePush: () => setPush(null) };
+  /** Submodule update and LFS download run like a fetch: the fetch icon spins and clicking it again cancels */
+  const submoduleUpdate = (paths: string[]) =>
+    runTask(
+      "fetch",
+      (task) => api.submoduleUpdate(task, paths),
+      () => (paths.length ? t("已更新子模块 {0}", paths.join(", ")) : t("已更新全部子模块")),
+    );
+  const lfsPull = () => runTask("fetch", (task) => api.lfsPull(task), () => t("已下载 LFS 文件"));
+  return { running, submoduleUpdate, lfsPull, fetch, pull, pullPanel, previewMode, startPull, abortPull, pullMode, setPullMode, openPush, doPush, pickPushRemote, pushTag, pushAfterCommit, cancel, push, closePush: () => setPush(null) };
 }
 
 export type RemoteOps = ReturnType<typeof useRemoteOps>;

@@ -342,6 +342,16 @@ export type BranchOps = ReturnType<typeof useBranchOps> & {
     reveal: (path: string) => void;
     remove: (w: Worktree) => void;
   };
+  /** Submodules, provided by App */
+  submodule?: {
+    /** Check out the recorded commits (initializing when needed); all when paths is empty */
+    update: (paths: string[]) => void;
+    /** Open in Strand (switch repository) */
+    open: (path: string) => void;
+    reveal: (path: string) => void;
+    /** An update is running */
+    busy: boolean;
+  };
 };
 
 /** Favorite branches (spec §6.3: only affects display order, saved locally per repository) */

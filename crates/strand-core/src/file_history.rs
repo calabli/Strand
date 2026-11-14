@@ -30,6 +30,9 @@ pub struct FileText {
     pub size: u64,
     /// Too large, only the beginning was read
     pub truncated: bool,
+    /// A Git LFS file whose content hasn't been downloaded: the pointer's object (text is the pointer itself)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lfs_missing: Option<crate::lfs::Pointer>,
 }
 
 /// One version in the change chain
@@ -70,7 +73,17 @@ impl Session {
         let repo = self.git2()?;
         let data = self.content(&repo, path, rev)?;
         let Some(mut data) = data else {
-            return Ok(FileText { path: path.to_string(), text: None, binary: false, missing: true, size: 0, truncated: false });
+            return Ok(FileText { path: path.to_string(), text: None, binary: false, missing: true, size: 0, truncated: false, lfs_missing: None });
+        };
+        let lfs_missing = match crate::lfs::resolve(&repo, std::mem::take(&mut data)) {
+            crate::lfs::Content::Real(d) => {
+                data = d;
+                None
+            }
+            crate::lfs::Content::Missing(p, d) => {
+                data = d;
+                Some(p)
+            }
         };
         let size = data.len() as u64;
         let binary = data.iter().take(8000).any(|&b| b == 0);
@@ -79,7 +92,7 @@ impl Session {
             data.truncate(MAX_BYTES);
         }
         let text = (!binary).then(|| String::from_utf8_lossy(&data).into_owned());
-        Ok(FileText { path: path.to_string(), text, binary, missing: false, size, truncated })
+        Ok(FileText { path: path.to_string(), text, binary, missing: false, size, truncated, lfs_missing })
     }
 
     /// Commits that changed this file (back from the current HEAD), following renames to the earliest version
@@ -113,6 +126,7 @@ impl Session {
         };
         let new = self.content(&repo, to_path, to)?;
         let (old, new) = (old.unwrap_or_default(), new.unwrap_or_default());
+        let (old, new) = (crate::lfs::resolve_bytes(&repo, old), crate::lfs::resolve_bytes(&repo, new));
         let binary = old.iter().take(8000).any(|&b| b == 0) || new.iter().take(8000).any(|&b| b == 0);
         if binary {
             return Ok(FileDiff { path: to_path.to_string(), binary: true, hunks: Vec::new(), truncated: false });
@@ -295,6 +309,12 @@ pub(crate) fn check_rel_path(path: &str) -> Result<()> {
 impl Session {
     /// A file's raw bytes at a revision (for image diffs); `rev` empty means the worktree. Fails when over 30 MB or the file doesn't exist at this revision
     pub fn file_bytes(&self, path: &str, rev: Option<&str>) -> Result<Vec<u8>> {
+        let data = self.file_bytes_raw(path, rev)?;
+        // A Git LFS pointer: show the downloaded content (an image, usually)
+        Ok(if crate::lfs::parse_pointer(&data).is_some() { crate::lfs::resolve_bytes(&self.git2()?, data) } else { data })
+    }
+
+    fn file_bytes_raw(&self, path: &str, rev: Option<&str>) -> Result<Vec<u8>> {
         check_rel_path(path)?;
         const MAX: usize = 30 << 20;
         let too_big = || CoreError::new(ErrorCode::InvalidRange, "文件太大（超过 30 MB），不显示");

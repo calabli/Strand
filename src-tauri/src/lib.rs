@@ -533,6 +533,63 @@ where
     Ok(Written { result: result?, state: st, op, note })
 }
 
+/// The default menu, minus "Close Window" (⌘W): the page handles ⌘W, closing the open file tab first, like an IDE's
+/// editor tabs, and the window (window_close) only when no file tab is shown
+fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItemKind};
+    let menu = Menu::default(app)?;
+    for item in menu.items()? {
+        if let MenuItemKind::Submenu(sub) = item {
+            for it in sub.items()? {
+                if let MenuItemKind::Predefined(p) = &it
+                    && p.text().is_ok_and(|t| t == "Close Window")
+                {
+                    sub.remove(p)?;
+                }
+            }
+        }
+    }
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+/// Close the main window (⌘W with no file tab shown)
+#[tauri::command]
+fn window_close(window: tauri::Window) -> CmdResult<()> {
+    window.close().map_err(|e| CoreError::git("关闭窗口失败", e))
+}
+
+// ---------- Submodules and Git LFS ----------
+
+#[tauri::command]
+async fn submodule_list(state: State<'_, AppState>) -> CmdResult<Vec<strand_core::submodules::Submodule>> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::submodules::list(&path))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+/// Check out the recorded commits (initializing and cloning when needed); all submodules when `paths` is empty. Network operation, can be canceled
+#[tauri::command]
+async fn submodule_update(app: AppHandle, state: State<'_, AppState>, task_id: String, paths: Vec<String>) -> CmdResult<Written<()>> {
+    net_task(app, &state, task_id, NetLog::None, move |p, c, pr| strand_core::submodules::update(p, &paths, c, pr)).await
+}
+
+/// Whether the git-lfs program is installed
+#[tauri::command]
+async fn lfs_installed(state: State<'_, AppState>) -> CmdResult<bool> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::lfs::installed(&path))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))
+}
+
+/// Download the LFS contents of the current checkout (git lfs pull)
+#[tauri::command]
+async fn lfs_pull(app: AppHandle, state: State<'_, AppState>, task_id: String) -> CmdResult<Written<()>> {
+    net_task(app, &state, task_id, NetLog::None, strand_core::lfs::pull).await
+}
+
 #[tauri::command]
 fn task_cancel(state: State<'_, AppState>, task_id: String) {
     if let Some(c) = state.tasks.lock().ok().and_then(|t| t.get(&task_id).cloned()) {
@@ -1422,6 +1479,7 @@ pub fn run(adopted: Option<u128>) {
         .setup(move |app| {
             setup_askpass(app.handle().clone());
             setup_console(app.handle().clone());
+            setup_menu(app.handle())?;
             if let Some(ms) = adopted {
                 strand_core::console::note(&format!("从访达启动：使用登录 shell 的 PATH（读取用了 {ms} ms）"));
             }
@@ -1541,6 +1599,11 @@ pub fn run(adopted: Option<u128>) {
             checks_config_set,
             checks_run,
             remote_fetch,
+            submodule_list,
+            submodule_update,
+            lfs_installed,
+            lfs_pull,
+            window_close,
             remote_pull,
             remote_pull_preview,
             remote_push_preview,

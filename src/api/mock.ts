@@ -1,7 +1,7 @@
 // Sample data for the browser preview. Only used when running without Tauri.
 
 import { authorRule } from "./authorRule";
-import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState } from "./types";
+import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule } from "./types";
 
 const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(v), 60));
 
@@ -15,6 +15,8 @@ const state: RepoState = {
   name: "strand-app",
   head: { kind: "branch", branch: "feature/commit-graph", commit: "a41f9c2".padEnd(40, "0") },
   state: conflictDemo ? "merging" : "normal",
+  lfs: true,
+  submodules: true,
 };
 
 export const repoOpen = (_path: string) => delay(state);
@@ -639,15 +641,15 @@ export function blameFile(_path: string, offset: number, limit: number) {
   const total = 200;
   const lines: BlamePage["lines"] = [];
   const used = new Map<number, number>();
-  const commits: { id: string; title: string; body: string; author: string; email: string; time: number; in_log: boolean; uncommitted: boolean }[] = [];
+  const commits: BlamePage["commits"] = [];
   for (let n = offset; n < Math.min(total, offset + limit); n++) {
     const k = Math.floor(n / 7) % 9;
     if (!used.has(k)) {
       used.set(k, commits.length);
       const c = commitAt(k * 3);
-      commits.push({ id: c.id, title: c.title, body: c.body, author: c.author.name, email: c.author.email, time: c.time, in_log: k !== 8, uncommitted: false });
+      commits.push({ id: c.id, title: c.title, body: c.body, author: c.author.name, email: c.author.email, time: c.time, in_log: k !== 8, uncommitted: false, previous: k < 8 ? commitAt(k * 3 + 1).id : undefined, previous_path: k < 8 ? _path : undefined });
     }
-    lines.push({ no: n + 1, text: n % 7 === 0 ? `fn step_${n}() {` : n % 7 === 6 ? "}" : `    let v${n} = compute(${n});`, commit: used.get(k)! });
+    lines.push({ no: n + 1, text: n % 7 === 0 ? `fn step_${n}() {` : n % 7 === 6 ? "}" : `    let v${n} = compute(${n});`, commit: used.get(k)!, orig: Math.max(1, n + 1 - k) });
   }
   return new Promise<BlamePage>((r) => setTimeout(() => r({ total, offset, lines, commits }), offset ? 400 : 80));
 }
@@ -1135,3 +1137,10 @@ export async function updateInstall(): Promise<void> {
   }
   // The real app restarts here; the preview just stays
 }
+
+export const submoduleList = () =>
+  delay<Submodule[]>([
+    { path: "vendor/libgit", name: "vendor/libgit", url: "https://example.com/libgit.git", recorded: "3f2a9c1".padEnd(40, "0"), current: "3f2a9c1".padEnd(40, "0"), state: "clean", dirty: false },
+    { path: "vendor/theme", name: "vendor/theme", url: "https://example.com/theme.git", recorded: "b81d044".padEnd(40, "0"), current: "c90e113".padEnd(40, "0"), state: "moved", dirty: false },
+    { path: "docs/site", name: "docs/site", url: "https://example.com/site.git", recorded: "77ad0e2".padEnd(40, "0"), state: "uninitialized", dirty: false },
+  ]);

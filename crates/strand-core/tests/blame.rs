@@ -52,3 +52,23 @@ fn blame_lines_pages_and_worktree() {
 
     assert_eq!(s.blame_file("没有.txt", Some("HEAD"), 0, 10).unwrap_err().code, ErrorCode::NotFound);
 }
+
+/// Following a line into the revision before the commit that changed it ("annotate previous revision")
+#[test]
+fn previous_revision_and_original_line() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    git(p, &["init", "-q", "-b", "main"]);
+    let c1 = commit_as(p, "林夏", "一\n二\n三\n", "第一版");
+    let c2 = commit_as(p, "周舟", "零\n一\n二改\n三\n", "加一行，改第二行");
+    let s = Session::open(p).unwrap();
+    let b = s.blame_file("a.txt", Some(&c2), 0, 100).unwrap();
+    let line = |no: u32| b.lines.iter().find(|l| l.no == no).unwrap();
+    let commit = |no: u32| &b.commits[line(no).commit as usize];
+    // Line 3 "二改" was changed in c2: its previous revision is c1, same path
+    assert_eq!(commit(3).id, c2);
+    assert_eq!((commit(3).previous.as_deref(), commit(3).previous_path.as_deref()), (Some(c1.as_str()), Some("a.txt")));
+    // Line 2 "一" comes from c1, where it was line 1; c1 added the file, so there's no previous revision
+    assert_eq!((commit(2).id.as_str(), line(2).orig), (c1.as_str(), 1));
+    assert!(commit(2).previous.is_none());
+}

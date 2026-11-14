@@ -35,7 +35,7 @@ impl Session {
         let d = repo
             .diff_tree_to_workdir_with_index(head.as_ref(), Some(&mut opts))
             .map_err(|e| CoreError::git("读取差异失败", e))?;
-        diff::first_file(&d, path)
+        diff::first_file_lfs(&repo, &d, path, context)
     }
 
     /// Create a commit from the checked files and return the new commit's id.

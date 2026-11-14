@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
 import { treeOrder, TypeIcon } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
-import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Worktree, WorktreeStatus } from "./api/types";
+import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Submodule, Worktree, WorktreeStatus } from "./api/types";
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
 import { useRebase } from "./components/RebaseWindow";
 import { CompareView, PatchWindow, TreeWindow } from "./components/compareTools";
@@ -34,6 +34,7 @@ import { ProjectFiles } from "./components/ProjectFiles";
 import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
 import { findRegExp, keys, shortId } from "./components/format";
+import { Palette } from "./components/Palette";
 import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
@@ -73,8 +74,17 @@ function writeLast(p: string | null) {
   }
 }
 
+/** A pushpin, for pinned file tabs */
+const PIN_ICON = "M5 1.5h4M5.8 1.5v4L3.5 8h7L8.2 5.5v-4M7 8v4.5";
+
+/** A submodule's folder: the repository root plus its path, with the root's separator (Windows paths use \\) */
+const joinPath = (root: string, rel: string) => {
+  const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
+  return root.replace(/[\\/]+$/, "") + sep + rel.split("/").join(sep);
+};
+
 /** One file open in the middle: where to jump (from search results) and whether the change chain opens with it */
-type FileTab = { path: string; at: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null; chain: boolean };
+type FileTab = { path: string; pinned?: boolean; at: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null; chain: boolean };
 /** Open file tabs at most; past this the least recently shown closes */
 const MAX_FILE_TABS = 15;
 
@@ -150,8 +160,10 @@ export default function App() {
         next.splice(from >= 0 ? from + 1 : fs.length, 0, { path: p, at: jump, chain: history });
         if (next.length <= MAX_FILE_TABS) return next;
         const used = fileUsed.current;
-        const oldest = next.filter((f) => f.path !== p).sort((a, b) => (used.get(a.path) ?? 0) - (used.get(b.path) ?? 0))[0];
+        const oldest = next.filter((f) => f.path !== p && !f.pinned).sort((a, b) => (used.get(a.path) ?? 0) - (used.get(b.path) ?? 0))[0];
+        if (!oldest) return next;
         used.delete(oldest.path);
+        closedRef.current = [...closedRef.current.filter((c) => c !== oldest.path), oldest.path].slice(-30);
         return next.filter((f) => f !== oldest);
       });
       showFile(p);
@@ -160,6 +172,18 @@ export default function App() {
   );
   const fileOpenRef = useRef(fileOpen);
   fileOpenRef.current = fileOpen;
+  /** Recently closed file tabs, most recent last (⇧⌘T reopens, ⌘E lists them) */
+  const closedRef = useRef<string[]>([]);
+  /** Pin or unpin a file tab: pinned tabs sit on the left, aren't closed by "close others / all" or the tab limit */
+  const pinFile = (p: string, pinned: boolean) =>
+    setFiles((fs) => {
+      const tab = fs.find((f) => f.path === p);
+      if (!tab) return fs;
+      const rest = fs.filter((f) => f !== tab);
+      const n = rest.filter((f) => f.pinned).length;
+      rest.splice(n, 0, { ...tab, pinned });
+      return rest;
+    });
   /** Close file tabs; when the shown one closes, show the most recently used of the rest, or go back to the log */
   const closeFiles = useCallback(
     (paths: string[]) => {
@@ -167,6 +191,8 @@ export default function App() {
       setFiles((fs) => {
         const rest = fs.filter((f) => !gone.has(f.path));
         gone.forEach((p) => fileUsed.current.delete(p));
+        const closed = fs.filter((f) => gone.has(f.path)).map((f) => f.path);
+        closedRef.current = [...closedRef.current.filter((c) => !gone.has(c)), ...closed].slice(-30);
         const cur = fileOpenRef.current;
         if (cur && gone.has(cur)) {
           const used = fileUsed.current;
@@ -467,6 +493,22 @@ export default function App() {
     [reload],
   );
   const remote = useRemoteOps({ repo, done: doneCb, failed: failedCb, say });
+  // Submodules: re-read with the branch list and worktree status (their state follows both); only when the repository has a .gitmodules
+  const [subs, setSubs] = useState<Submodule[] | null>(null);
+  useEffect(() => {
+    if (!repo?.submodules) return setSubs(null);
+    let live = true;
+    api.submoduleList().then((l) => live && setSubs(l), () => live && setSubs(null));
+    return () => {
+      live = false;
+    };
+  }, [repo?.path, repo?.submodules, refs, status]);
+  /** Bumped after downloading LFS files so open file views read their contents again */
+  const [lfsVer, setLfsVer] = useState(0);
+  const lfsPull = async () => {
+    if (!(await api.lfsInstalled())) return setError(t("没有安装 Git LFS（git-lfs），装好后才能下载 LFS 文件"));
+    if (await remote.lfsPull()) setLfsVer((v) => v + 1);
+  };
   const oplog = useOplog({
     refreshKey: logKey,
     ask,
@@ -628,6 +670,12 @@ export default function App() {
       if (!head) return;
       setCompareBase(head);
       locate(name);
+    },
+    submodule: {
+      update: (paths: string[]) => void remote.submoduleUpdate(paths),
+      open: (path: string) => repo && open(joinPath(repo.path, path)),
+      reveal: (path: string) => repo && revealPath(joinPath(repo.path, path)).catch((e) => setError(errOf(e).message)),
+      busy: !!remote.running,
     },
     // Worktrees (spec §6.6)
     worktree: {
@@ -955,6 +1003,44 @@ export default function App() {
     return () => window.removeEventListener("keydown", key);
   }, [repo]);
 
+  // File tabs: ⌘W closes the file (or diff) tab shown, and the window when neither is; ⇧⌘T reopens the last closed file; ⌘E lists recent files
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const [recentFiles, setRecentFiles] = useState(false);
+  const [recentQ, setRecentQ] = useState("");
+  const reopenFile = () => {
+    const last = closedRef.current[closedRef.current.length - 1];
+    if (!last) return;
+    closedRef.current = closedRef.current.slice(0, -1);
+    openFile(last);
+  };
+  const reopenRef = useRef(reopenFile);
+  reopenRef.current = reopenFile;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const mod = (e.metaKey || e.ctrlKey) && !e.altKey;
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      // Leave it to open dialogs, menus and palettes
+      if (document.querySelector(".modal-back, .palette, .menu")) return;
+      if (k === "w" && !e.shiftKey) {
+        e.preventDefault();
+        if (tabRef.current === "file" && fileOpenRef.current) closeFiles([fileOpenRef.current]);
+        else if (tabRef.current === "diff") (setTarget(null), setTab("log"));
+        else void api.windowClose();
+      } else if (k === "t" && e.shiftKey && repo) {
+        e.preventDefault();
+        reopenRef.current();
+      } else if (k === "e" && !e.shiftKey && repo) {
+        e.preventDefault();
+        setRecentQ("");
+        setRecentFiles((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [repo, closeFiles]);
+
   // ⌘Z undo, ⇧⌘Z redo (left to input boxes inside inputs; the conflict view has its own undo)
   const undoKeys = !!repo && !(session && !conflictHidden) && !undoBlocked;
   const oplogRef = useRef(oplog);
@@ -1034,6 +1120,10 @@ export default function App() {
       { id: "go-console", section: v, icon: COMMIT_ICONS.console, label: t("转到控制台"), run: () => setTab("console") },
       { id: "go-changes", section: v, icon: COMMIT_ICONS.changes, label: t("转到改动"), run: () => setPanel("commit") },
       { id: "fetch", section: o, icon: COMMIT_ICONS.fetch, label: t("抓取"), run: () => remote.fetch() },
+      ...(repo.submodules
+        ? [{ id: "submodules", section: o, icon: COMMIT_ICONS.pull, label: t("更新全部子模块"), disabled: !!remote.running, why: t("网络操作进行中"), run: () => void remote.submoduleUpdate([]) }]
+        : []),
+      ...(repo.lfs ? [{ id: "lfs-pull", section: o, icon: COMMIT_ICONS.fetch, label: t("下载 LFS 文件"), disabled: !!remote.running, why: t("网络操作进行中"), run: () => void lfsPull() }] : []),
       { id: "pull", section: o, icon: COMMIT_ICONS.pull, label: t("拉取"), run: () => remote.pull(), disabled: !normal || !cur?.upstream, why: !normal ? busyWhy : t("这个分支没有跟踪的远程分支") },
       { id: "push", section: o, icon: COMMIT_ICONS.push, label: t("推送"), run: () => remote.openPush(), disabled: repo.head.kind !== "branch", why: t("现在不在任何分支上") },
       { id: "undo", section: o, icon: COMMIT_ICONS.undo, label: t("撤销上一步"), hint: keys("⌘Z"), run: () => oplog.undo(), disabled: !oplog.list.can_undo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以撤销的操作") },
@@ -1096,6 +1186,8 @@ export default function App() {
       { id: "open", section: m, icon: COMMIT_ICONS.folder, label: t("打开仓库…"), run: choose },
       { id: "clone", section: m, icon: COMMIT_ICONS.clone, label: t("克隆仓库…"), run: () => setCloneOpen(true) },
       { id: "worktree-add", section: m, icon: COMMIT_ICONS.folder, label: t("新建工作目录…"), run: () => setWtDialog({}) },
+      { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: keys("⌘E"), run: () => (setRecentQ(""), setRecentFiles(true)) },
+      { id: "reopen-file", section: m, icon: COMMIT_ICONS.history, label: t("重新打开关掉的标签页"), hint: keys("⇧⌘T"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
       { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: keys("⌘,"), run: () => setSettingsOpen(true) },
       { id: "update-check", section: m, icon: COMMIT_ICONS.gear, label: t("检查更新…"), run: () => updates.check(true) },
       { id: "git-config", section: m, icon: COMMIT_ICONS.gear, label: t("Git 配置（用户名、邮箱、代理）…"), run: () => (setSettingsSection("git"), setSettingsOpen(true)) },
@@ -1410,7 +1502,7 @@ export default function App() {
                   role="tab"
                   tabIndex={0}
                   aria-selected={on}
-                  className={"ftab" + (on ? " on" : "")}
+                  className={"ftab" + (on ? " on" : "") + (f.pinned ? " pinned" : "")}
                   title={f.path}
                   onClick={() => showFile(f.path)}
                   onMouseDown={(e) => {
@@ -1425,19 +1517,26 @@ export default function App() {
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    const others = files.filter((g) => g !== f).map((g) => g.path);
-                    const left = files.slice(0, i).map((g) => g.path);
-                    const right = files.slice(i + 1).map((g) => g.path);
+                    // Pinned tabs stay when closing others, left, right or all
+                    const loose = (l: FileTab[]) => l.filter((g) => !g.pinned).map((g) => g.path);
+                    const others = loose(files.filter((g) => g !== f));
+                    const left = loose(files.slice(0, i));
+                    const right = loose(files.slice(i + 1));
                     setMenu({
                       x: e.clientX,
                       y: e.clientY,
                       items: [
-                        { label: t("关闭"), hint: t("鼠标中键"), run: () => closeFiles([f.path]) },
+                        { label: t("关闭"), hint: keys("⌘W"), run: () => closeFiles([f.path]) },
                         { label: t("关闭其他标签页"), disabled: !others.length, run: () => closeFiles(others) },
                         { label: t("关闭左侧的标签页"), disabled: !left.length, run: () => closeFiles(left) },
                         { label: t("关闭右侧的标签页"), disabled: !right.length, run: () => closeFiles(right) },
-                        { label: t("关闭全部文件"), run: () => closeFiles(files.map((g) => g.path)) },
+                        { label: t("关闭全部文件"), disabled: !loose(files).length, why: t("只剩固定的标签页"), run: () => closeFiles(loose(files)) },
+                        { label: t("重新打开关掉的标签页"), hint: keys("⇧⌘T"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
                         "-",
+                        f.pinned
+                          ? { label: t("取消固定"), icon: PIN_ICON, run: () => pinFile(f.path, false) }
+                          : { label: t("固定标签页"), icon: PIN_ICON, run: () => pinFile(f.path, true) },
+                        { label: t("最近的文件…"), hint: keys("⌘E"), run: () => setRecentFiles(true) },
                         { label: t("复制路径"), icon: COMMIT_ICONS.copy, run: () => void navigator.clipboard.writeText(f.path) },
                         { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(f.path, undefined, true) },
                       ],
@@ -1447,6 +1546,23 @@ export default function App() {
                   <TypeIcon path={f.path} />
                   <span className="ftab-name">{name}</span>
                   {dup && dir && <span className="ftab-dir dim">{dir.slice(dir.lastIndexOf("/") + 1)}</span>}
+                  {f.pinned ? (
+                    <button
+                      type="button"
+                      className="ftab-x ftab-pin"
+                      tabIndex={-1}
+                      title={t("已固定，点一下取消固定")}
+                      aria-label={t("取消固定 {0}", name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pinFile(f.path, false);
+                      }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d={PIN_ICON} />
+                      </svg>
+                    </button>
+                  ) : (
                   <button
                     type="button"
                     className="ftab-x"
@@ -1462,6 +1578,7 @@ export default function App() {
                       <path d="M2.5 2.5l5 5M7.5 2.5l-5 5" />
                     </svg>
                   </button>
+                  )}
                 </div>
               );
             })}
@@ -1495,6 +1612,7 @@ export default function App() {
                 onMenu={(x, y, items) => setMenu({ x, y, items })}
                 onPushTag={remote.pushTag}
                 onRemotes={() => setRemotesOpen(true)}
+                subs={subs}
                 remote={{
                   fetch: () => remote.fetch(),
                   pull: () => remote.pull(),
@@ -1577,6 +1695,8 @@ export default function App() {
                 path={f.path}
                 at={f.at}
                 showHistory={f.chain}
+                reloadKey={lfsVer}
+                onLfsPull={repo?.lfs ? lfsPull : undefined}
                 changed={!!status && (status.changes.some((c) => c.path === f.path) || status.untracked.includes(f.path))}
                 onLocate={(id) => locate(id)}
               />
@@ -1757,6 +1877,30 @@ export default function App() {
             const dir = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path;
             doneCb(r.state, created ? t("已在 {0} 新建分支 {1} 并检出", dir, branch) : t("已在 {0} 检出 {1}", dir, branch), r.op);
           }}
+        />
+      )}
+      {recentFiles && repo && (
+        <Palette
+          label={t("最近的文件")}
+          placeholder={t("搜索最近的文件")}
+          query={recentQ}
+          onQuery={setRecentQ}
+          empty={t("没有最近的文件")}
+          onClose={() => setRecentFiles(false)}
+          rows={(() => {
+            const q = recentQ.trim().toLowerCase();
+            const used = fileUsed.current;
+            const open = [...files].sort((a, b) => (used.get(b.path) ?? 0) - (used.get(a.path) ?? 0)).map((f) => f.path);
+            const closed = [...closedRef.current].reverse().filter((p) => !open.includes(p));
+            const row = (p: string, section: string) => ({
+              key: section + p,
+              section,
+              label: p.slice(p.lastIndexOf("/") + 1),
+              detail: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "",
+              run: () => (setRecentFiles(false), openFile(p)),
+            });
+            return [...open.map((p) => row(p, t("打开的文件"))), ...closed.map((p) => row(p, t("最近关掉的")))].filter((r) => !q || (r.detail + "/" + r.label).toLowerCase().includes(q));
+          })()}
         />
       )}
       {settingsOpen && <SettingsWindow git={git} repoOpen={!!repo} section={settingsSection} version={updates.version} onCheckUpdate={() => updates.check(true)} onClose={() => (setSettingsOpen(false), setSettingsSection(undefined), setConfigKey((k) => k + 1))} onRemotes={() => (setSettingsOpen(false), setRemotesOpen(true))} />}
