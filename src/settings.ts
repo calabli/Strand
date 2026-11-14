@@ -26,6 +26,14 @@ export interface Settings {
   ignoreWs: boolean;
   /** 差异里没改的长段折叠起来（关掉就显示整个文件） */
   diffFold: boolean;
+  /** 差异里显示逐行追溯（每行最后改它的日期和作者） */
+  diffBlame: boolean;
+  /** 差异里把空格、制表符显示成小点和箭头 */
+  diffWs: boolean;
+  /** 差异里显示行号 */
+  diffLineNo: boolean;
+  /** 差异里长行自动折行（关掉时合并视图横向滚动，左右对照截断） */
+  diffWrap: boolean;
   /** 文件列表按目录树显示（说明书 4.7）：提交面板和提交详情共用 */
   groupByDir: boolean;
   /** 拖动分隔线调整的宽度（像素）：左边提交面板、右边提交详情、日志左边的分支树 */
@@ -39,7 +47,7 @@ export interface Settings {
   paneHistory: number;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, diffFold: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320 };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320 };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

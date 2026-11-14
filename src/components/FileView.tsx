@@ -268,7 +268,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
             </div>
           )}
           {req?.kind === "diff" ? (
-            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} readOnly={req.to !== null} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
+            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} readOnly={req.to !== null} blameSides={{ left: req.from ? { path: req.fromPath, rev: req.from } : null, right: { path: req.toPath, rev: req.to } }} onLocate={onLocate} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
           ) : (
             <TextView load={text} focus={jump?.line ?? null} find={findRe} />
           )}

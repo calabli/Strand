@@ -1296,6 +1296,16 @@ export default function App() {
               find={ui.searchIn === "changes" && ui.text ? findRegExp(ui.text, ui.regex, ui.caseSensitive) : null}
               files={fileNav}
               readOnly={target.kind !== "worktree"}
+              blameSides={
+                target.kind === "commit"
+                  ? { left: { path: target.path, rev: `${target.id}^` }, right: { path: target.path, rev: target.id } }
+                  : target.kind === "compare"
+                    ? { left: { path: target.path, rev: target.from }, right: { path: target.path, rev: target.to } }
+                    : target.kind === "worktree"
+                      ? { left: { path: target.path, rev: "HEAD" }, right: { path: target.path, rev: null } }
+                      : null
+              }
+              onLocate={(id) => locate(id)}
             />
           )}
         </main>

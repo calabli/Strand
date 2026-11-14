@@ -865,7 +865,6 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0 
 .sl-line.pickable { grid-template-columns: 22px 44px 18px minmax(0, 1fr); }
 .sl-line .line-check { margin: 3px 0 0 5px; width: 13px; height: 13px; }
 .sl-line.off { opacity: 0.4; }
-.dfile.split .code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .sside { display: flex; flex-direction: column; min-width: 0; }
 .sfill { flex: 1; min-height: 4px; background: repeating-linear-gradient(135deg, transparent 0 5px, var(--chip) 5px 6px); }
 .sgut { display: block; background: var(--side); border-left: 1px solid var(--line); border-right: 1px solid var(--line); box-sizing: border-box; }
@@ -886,3 +885,35 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0 
 .diff-files { display: inline-flex; align-items: center; gap: 2px; padding-right: 6px; margin-right: 2px; border-right: 1px solid var(--line); }
 .diff-lock { display: inline-grid; place-items: center; }
 .diff.compact .dl-fold { padding-left: 70px; }
+
+/* 差异的行改用 flex：逐行追溯、行号、勾选框这几列可以单独显示或隐藏 */
+.dfile .dl, .dfile .sl-line { display: flex; align-items: flex-start; }
+.dfile .ln { width: 44px; flex-shrink: 0; }
+.diff.compact .dfile .ln { width: 34px; }
+.dfile .sign { width: 18px; flex-shrink: 0; }
+.diff.compact .dfile .sign { width: 14px; }
+.dfile .code { flex: 1; min-width: 0; }
+.dfile .line-check, .dfile .ck-pad { flex-shrink: 0; width: 13px; margin: 3px 4px 0 5px; }
+.dfile.no-ln .ln { display: none; }
+/* 自动换行：两种视图都折行；关掉时合并视图横向滚动，左右对照截断（悬停看整行） */
+.dfile.wrap .code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dfile:not(.wrap):not(.split) .code { flex: 1 0 auto; }
+.dfile.split:not(.wrap) .code { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+/* 显示空白字符：空格和制表符原样留着（复制出来不变），上面叠一个灰色的点或箭头 */
+.wsd { position: relative; }
+.wsd::before { content: attr(data-ch); position: absolute; left: 0; right: 0; text-align: center; color: var(--fg2); opacity: 0.55; pointer-events: none; }
+.wsd.tab::before { text-align: left; }
+/* 逐行追溯的标注：日期和作者，越新底色越深（5 档），还没提交的用强调色 */
+.ann { width: 150px; flex-shrink: 0; padding: 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--sans, inherit); font-size: 11px; color: var(--fg2);
+  border-right: 1px solid var(--line); background: var(--side); user-select: none; }
+.ann.link { cursor: pointer; }
+.ann.link:hover { color: var(--accent-ink); text-decoration: underline; }
+.ann.heat-0 { background: color-mix(in srgb, var(--accent) 4%, var(--side)); }
+.ann.heat-1 { background: color-mix(in srgb, var(--accent) 9%, var(--side)); }
+.ann.heat-2 { background: color-mix(in srgb, var(--accent) 15%, var(--side)); }
+.ann.heat-3 { background: color-mix(in srgb, var(--accent) 22%, var(--side)); }
+.ann.heat-4 { background: color-mix(in srgb, var(--accent) 30%, var(--side)); color: var(--fg); }
+.ann.heat-new { background: color-mix(in srgb, #2DA44E 25%, var(--side)); color: var(--fg); }
+.dfile.split .ann { width: 120px; }
+.dfile.with-ann .dl-fold { padding-left: 246px; }
+.dfile.split.with-ann .dl-fold { padding-left: 182px; }

@@ -10,9 +10,14 @@
 // 工作区里已修改的文件可以逐行勾选：每个改动行和每个块标题前有勾选框，取消勾选的行变淡、不进这次提交（这时只拿改动附近 3 行）。
 // 忽略空白只影响显示：同一组改动里，去掉空白后内容相同的删除行和新增行配对，显示为没改的行；勾选状态仍按原来的行记录。
 // 一组改动里按顺序配对的删除行和新增行，不同的部分加深（和冲突窗口一样）；按内容搜索时搜索词标出来。
+// 逐行追溯（工具栏的开关、右键菜单）：每行左边标出最后改它的日期和作者，越新底色越深；悬停看提交，点一下在日志里定位。
+// 删除行和左边按旧版本追溯，其余按新版本追溯。右键菜单（和工具栏的“⋯”）里还有折叠、显示空白字符、显示行号、自动换行，按用户保存。
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { api } from "../api/commands";
 import type { DiffLine, FileDiff } from "../api/types";
+import { Menu, type MenuState } from "./Menu";
+import { formatTime, shortId } from "./format";
 import { t, tr } from "../i18n";
 import { setSettings, useSettings } from "../settings";
 import { Hi } from "./inlineDiff";
@@ -35,6 +40,25 @@ interface Props {
   files?: { at: number; total: number; go: (d: number) => void } | null;
   /** 历史版本（不能改）：路径前显示锁 */
   readOnly?: boolean;
+  /** 逐行追溯两边各按哪个版本：rev 为空是工作区；不给就不能逐行追溯（如暂存架） */
+  blameSides?: { left?: { path: string; rev: string | null } | null; right?: { path: string; rev: string | null } | null } | null;
+  /** 点逐行追溯里的提交：在日志里定位 */
+  onLocate?: (id: string) => void;
+}
+
+/** 逐行追溯里一行的提交 */
+type BInfo = { id: string; title: string; author: string; time: number; uncommitted: boolean; inLog: boolean };
+/** 一边的追溯结果：行号 → 提交 */
+type BSide = Map<number, BInfo>;
+
+/** 追溯一边的整个文件 */
+function blameSide(side: { path: string; rev: string | null } | null | undefined): Promise<BSide | null> {
+  if (!side) return Promise.resolve(null);
+  return api.blameFile(side.path, side.rev, 0, 1_000_000).then(
+    (p) => new Map(p.lines.map((l) => { const c = p.commits[l.commit]; return [l.no, { id: c.id, title: c.title, author: c.author, time: c.time, uncommitted: c.uncommitted, inLog: c.in_log }] as const; })),
+    // 新增的文件在旧版本里不存在：这一边没有追溯
+    () => null,
+  );
 }
 
 const key = (h: number, l: number) => `${h}:${l}`;
@@ -112,6 +136,7 @@ const ICON = {
   expand: "M8.5 2H12v3.5M12 2L7.5 6.5M5.5 12H2V8.5M2 12l4.5-4.5",
   fold: "M4 2l3 3 3-3M4 12l3-3 3 3",
   lock: "M3.5 6.5h7v5.5h-7zM5 6.5V4.5a2 2 0 0 1 4 0v2",
+  blame: "M2 3h3M2 7h3M2 11h3M7 3h5M7 7h5M7 11h5",
 };
 
 function Ico({ d }: { d: string }) {
@@ -122,13 +147,70 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly }: Props) {
+export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly, blameSides, onLocate }: Props) {
   const [cur, setCur] = useState(0);
   const box = useRef<HTMLDivElement>(null);
   const settings = useSettings();
   const diffView = compact ? "unified" : settings.diffView;
   const ignoreWs = settings.ignoreWs;
   const fold = settings.diffFold;
+  const showWs = settings.diffWs;
+  const lineNo = settings.diffLineNo;
+  const wrap = settings.diffWrap;
+  const blameOn = settings.diffBlame && !!blameSides && !compact;
+  const [menu, setMenu] = useState<MenuState | null>(null);
+
+  // 逐行追溯：两边各追溯整个文件，按行号对上
+  const [blame, setBlame] = useState<{ key: string; left: BSide | null; right: BSide | null } | null>(null);
+  const blameKey = blameOn ? JSON.stringify(blameSides) : "";
+  useEffect(() => {
+    if (!blameKey) return;
+    let live = true;
+    Promise.all([blameSide(blameSides?.left), blameSide(blameSides?.right)]).then(([left, right]) => live && setBlame({ key: blameKey, left, right }));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blameKey]);
+  const bl = blame?.key === blameKey ? blame : null;
+  // 新旧着色：按这个文件里最早和最晚的提交时间分 5 档
+  const [tMin, tMax] = useMemo(() => {
+    const ts = [...(bl?.left?.values() ?? []), ...(bl?.right?.values() ?? [])].filter((b) => !b.uncommitted).map((b) => b.time);
+    return ts.length ? [Math.min(...ts), Math.max(...ts)] : [0, 0];
+  }, [bl]);
+  /** 一行的追溯标注；side 0 是旧版本（删除行、左边），1 是新版本 */
+  const ann = (side: 0 | 1, no: number | undefined | null) => {
+    if (!blameOn) return null;
+    const b = no ? (side === 0 ? bl?.left : bl?.right)?.get(no) : undefined;
+    if (!b) return <span className="ann" />;
+    const heat = b.uncommitted ? "new" : String(tMax > tMin ? Math.round(((b.time - tMin) / (tMax - tMin)) * 4) : 4);
+    const text = b.uncommitted ? t("还没提交") : `${formatTime(b.time).slice(0, 10)} ${b.author}`;
+    return (
+      <span
+        className={"ann heat-" + heat + (b.inLog && onLocate ? " link" : "")}
+        title={b.uncommitted ? t("还没提交的改动") : `${shortId(b.id)} ${b.title}\n${b.author} · ${formatTime(b.time)}` + (b.inLog ? t("\n点击在日志里定位") : "")}
+        onClick={() => !b.uncommitted && b.inLog && onLocate?.(b.id)}
+      >
+        {text}
+      </span>
+    );
+  };
+
+  /** 右键菜单和工具栏“⋯”：逐行追溯、折叠、显示选项 */
+  const viewMenu = (x: number, y: number) =>
+    setMenu({
+      x,
+      y,
+      items: [
+        { label: t("逐行追溯"), checked: blameOn, disabled: !blameSides || compact, why: compact ? t("在差异标签页里打开后可以逐行追溯") : t("这个差异不能逐行追溯"), run: () => setSettings({ diffBlame: !settings.diffBlame }) },
+        { label: t("折叠没改的部分"), checked: fold, run: () => (setSettings({ diffFold: !fold }), setOpened(new Set())) },
+        "-",
+        { heading: true, label: t("显示") },
+        { label: t("显示空白字符"), checked: showWs, run: () => setSettings({ diffWs: !showWs }) },
+        { label: t("显示行号"), checked: lineNo, run: () => setSettings({ diffLineNo: !lineNo }) },
+        { label: t("自动换行"), checked: wrap, run: () => setSettings({ diffWrap: !wrap }) },
+      ],
+    });
   /** 点开了的没改的段（按段的位置） */
   const [opened, setOpened] = useState<Set<number>>(() => new Set());
 
@@ -167,7 +249,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   /** 一个改动行前的勾选框（没改的行留空位） */
   const check = (it: Item | undefined) =>
     !pick ? null : !it || it.kind === "context" ? (
-      <span />
+      <span className="ck-pad" />
     ) : (
       <input
         type="checkbox"
@@ -199,11 +281,12 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const uLine = (it: Item, k: string | number) => (
     <div key={k} className={`dl dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
       {check(it)}
+      {it.kind === "del" ? ann(0, it.line.old_no) : ann(1, it.line.new_no)}
       <span className="ln">{it.kind === "add" ? "" : it.same ? "" : it.line.old_no ?? ""}</span>
       <span className="ln">{it.kind === "del" ? "" : it.line.new_no ?? ""}</span>
       <span className="sign">{it.kind === "add" ? "+" : it.kind === "del" ? "−" : ""}</span>
       <span className="code">
-        <Hi t={it.line.text} other={it.pair} find={find} />
+        <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} />
       </span>
     </div>
   );
@@ -255,10 +338,11 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const sLine = (it: Item, side: 0 | 1, k: string | number) => (
     <div key={k} className={`sl-line dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
       {check(it.kind !== "context" ? it : undefined)}
+      {ann(side, side === 0 ? it.line.old_no : it.line.new_no)}
       <span className="ln">{(side === 0 ? it.line.old_no : it.line.new_no) ?? ""}</span>
       <span className="sign">{it.kind === "add" ? "+" : it.kind === "del" ? "−" : ""}</span>
       <span className="code">
-        <Hi t={it.line.text} other={it.pair} find={find} />
+        <Hi t={it.line.text} other={it.pair} find={find} ws={showWs} />
       </span>
     </div>
   );
@@ -338,6 +422,18 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
             </button>
           </span>
         )}
+        {blameSides && !compact && (
+          <button
+            type="button"
+            className={"ib" + (blameOn ? " pressed" : "")}
+            aria-pressed={blameOn}
+            title={blameOn ? (bl ? t("逐行追溯（已打开）") : t("正在逐行追溯…")) : t("逐行追溯：每行左边标出最后改它的日期和作者")}
+            aria-label={t("逐行追溯")}
+            onClick={() => setSettings({ diffBlame: !settings.diffBlame })}
+          >
+            <Ico d={ICON.blame} />
+          </button>
+        )}
         <button
           type="button"
           className={"ib" + (fold ? " pressed" : "")}
@@ -374,6 +470,19 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
             </button>
           </>
         )}
+        <button
+          type="button"
+          className="ib"
+          title={t("显示选项（也可以在差异里右键）")}
+          aria-label={t("显示选项")}
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            viewMenu(r.left, r.bottom + 4);
+          }}
+        >
+          ⋯
+        </button>
         {onExpand && (
           <button type="button" className="ib" onClick={onExpand} title={t("在差异标签页里打开（可以左右对比）")} aria-label={t("在差异标签页里打开")}>
             <Ico d={ICON.expand} />
@@ -384,16 +493,29 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         </button>
       </div>
       <div className="diff-main">
-        <div className={"diff-body" + (diffView === "split" ? " split" : "")} ref={box} tabIndex={-1}>
+        <div
+          className={"diff-body" + (diffView === "split" ? " split" : "")}
+          ref={box}
+          tabIndex={-1}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            viewMenu(e.clientX, e.clientY);
+          }}
+        >
           {loading && <p className="pad dim">{t("正在读取差异…")}</p>}
           {error && <p className="pad err">{tr(error)}</p>}
           {diff && diff.binary && <p className="pad dim">{t("二进制文件，不显示差异")}</p>}
           {diff && !diff.binary && n === 0 && !loading && <p className="pad dim">{t("没有内容差异（可能只改了文件权限）")}</p>}
-          {diff && !diff.binary && n > 0 && <div className={"dfile" + (diffView === "split" ? " split" : "")}>{diffView === "split" ? split() : unified()}</div>}
+          {diff && !diff.binary && n > 0 && (
+            <div className={"dfile" + (diffView === "split" ? " split" : "") + (wrap ? " wrap" : "") + (lineNo ? "" : " no-ln") + (showWs ? " show-ws" : "") + (blameOn ? " with-ann" : "")}>
+              {diffView === "split" ? split() : unified()}
+            </div>
+          )}
           {diff?.truncated && <p className="pad dim">{t("文件太大，只显示了前 20000 行")}</p>}
         </div>
-        {diff && !diff.binary && n > 0 && <Ruler body={box} deps={[segs, opened, fold, diffView]} onPick={(i) => (setCur(i), scrollTo(i, false))} />}
+        {diff && !diff.binary && n > 0 && <Ruler body={box} deps={[segs, opened, fold, diffView, wrap, lineNo, blameOn]} onPick={(i) => (setCur(i), scrollTo(i, false))} />}
       </div>
+      {menu && <Menu menu={menu} onClose={() => setMenu(null)} />}
     </div>
   );
 }
