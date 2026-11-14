@@ -72,6 +72,9 @@ export function CommandPalette({ commands, onPickCommit, onClose }: { commands: 
 export const SHORTCUTS: [string, string][] = [
   ["⌘K", "打开或关闭命令面板"],
   ["⌘F", "搜索日志"],
+  ["⌘D", "在差异标签页里打开选中提交的文件"],
+  ["⌥↑ / ⌥↓", "差异里的上一处 / 下一处改动"],
+  ["⌥← / ⌥→", "差异标签页里的上一个 / 下一个文件"],
   ["↑ / ↓", "选中上一个 / 下一个提交"],
   ["→ / ←", "跳到父提交 / 子提交"],
   ["F2", "修改选中提交的说明"],

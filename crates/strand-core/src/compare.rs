@@ -73,12 +73,17 @@ impl Session {
 
     /// 两个提交之间某个文件的差异
     pub fn diff_compare(&self, from: &str, to: &str, path: &str) -> Result<FileDiff> {
+        self.diff_compare_ctx(from, to, path, 3)
+    }
+
+    /// 同 [`Session::diff_compare`]，指定上下文行数
+    pub fn diff_compare_ctx(&self, from: &str, to: &str, path: &str, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
         let (a, b) = (self.resolve(&repo, from)?, self.resolve(&repo, to)?);
         let ta = repo.find_commit(a).and_then(|c| c.tree()).map_err(|e| CoreError::git("读取提交内容失败", e))?;
         let tb = repo.find_commit(b).and_then(|c| c.tree()).map_err(|e| CoreError::git("读取提交内容失败", e))?;
         let mut opts = git2::DiffOptions::new();
-        opts.include_typechange(true).pathspec(path).disable_pathspec_match(true);
+        opts.include_typechange(true).pathspec(path).disable_pathspec_match(true).context_lines(context);
         let d = repo.diff_tree_to_tree(Some(&ta), Some(&tb), Some(&mut opts)).map_err(|e| CoreError::git("读取差异失败", e))?;
         diff::prefetch(&repo, &d, usize::MAX);
         diff::first_file(&d, path)

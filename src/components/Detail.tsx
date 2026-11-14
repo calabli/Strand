@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Splitter, sizeVars } from "./Splitter";
-import { ApiError, api, openUrl } from "../api/commands";
+import { ApiError, api, openUrl, wholeFile } from "../api/commands";
 import type { Cap, ChangeMatch, Commit, CommitCaps, FileChange, FileDiff } from "../api/types";
 import { DiffView } from "./DiffView";
 import { COMMIT_ICONS as ICON, type CommitOps } from "./commitOps";
@@ -140,7 +140,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
     if (!commitId || !shown) return;
     let live = true;
     setDiff((d) => ({ ...d, loading: true, error: null }));
-    api.diffCommit(commitId, shown).then(
+    wholeFile((c) => api.diffCommit(commitId, shown, c)).then(
       (data) => live && setDiff({ data, loading: false, error: null }),
       (e) => live && setDiff({ data: null, loading: false, error: e instanceof ApiError ? e.message : String(e) }),
     );

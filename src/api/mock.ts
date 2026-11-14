@@ -171,7 +171,8 @@ let mockStatus: WorktreeStatus = {
 
 export const statusGet = () => delay(structuredClone(mockStatus));
 
-export function diffFile(path: string): Promise<FileDiff> {
+export function diffFile(path: string, context = 3): Promise<FileDiff> {
+  if (context > 1000) return delay(fullDiff(path));
   return delay({
     path,
     binary: false,
@@ -819,4 +820,31 @@ export function projectSearch(text: string, regex: boolean, caseSensitive: boole
     more: false,
   }));
   return delay({ files, total: files.reduce((n, f) => n + f.hits.length, 0), truncated: false });
+}
+
+/** 整个文件的示例差异：120 行，第 42–44 行改成 4 行、第 89 行后加一行、第 110 行删掉 */
+function fullDiff(path: string): FileDiff {
+  const lines: FileDiff["hunks"][number]["lines"] = [];
+  let o = 1;
+  let n = 1;
+  const ctx = (text: string) => lines.push({ kind: "context", old_no: o++, new_no: n++, text });
+  const del = (text: string) => lines.push({ kind: "del", old_no: o++, text });
+  const add = (text: string) => lines.push({ kind: "add", new_no: n++, text });
+  ctx("use crate::model::Commit;");
+  while (o < 41) ctx(o % 7 === 0 ? "" : `    // 布局计算的第 ${o} 行`);
+  ctx("    pub fn assign(&mut self, commits: &[Commit]) {");
+  del("        for c in commits {");
+  del("            self.place(c);");
+  del("        }");
+  add("        let batch = commits.to_vec();");
+  add("        let (tx, rx) = channel();");
+  add("        self.pool.spawn(move || tx.send(compute_lanes(&batch)).ok());");
+  add("        self.pending = Some(rx);");
+  while (o < 89) ctx(o % 9 === 0 ? "" : `    let lane_${o} = self.free_lane(${o});`);
+  ctx("    fn place(&mut self, c: &Commit) {");
+  add("        if self.cancelled() { return; }");
+  while (o < 110) ctx(`        self.rows.push(Row::new(c.id, ${o}));`);
+  del("        self.debug_dump();");
+  while (o <= 120) ctx(o === 120 ? "}" : `    // 结尾第 ${o} 行`);
+  return { path, binary: false, truncated: false, hunks: [{ title: "第 1 行起", old_start: 1, new_start: 1, lines }] };
 }

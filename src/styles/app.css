@@ -846,3 +846,43 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0 
 .ftype-badge.two { font-size: 6.5px; }
 .fdir-count { font-family: var(--sans, inherit); font-size: 11px; }
 .fdir.froot { color: var(--fg); font-weight: 600; }
+
+/* ---------- 差异（DiffView）：整个文件、折叠没改的部分、左右对照的色带、右边的改动位置标记 ---------- */
+.diff-main { flex: 1; min-height: 0; display: flex; position: relative; }
+.diff-main .diff-body { padding: 0 12px 0 0; outline: none; }
+.dfile { font-family: var(--mono); font-size: 12px; line-height: 20px; min-width: max-content; padding-bottom: 24px; }
+.dfile.split { min-width: 0; }
+.chg.cur, .sseg.chg.cur { box-shadow: inset 3px 0 0 var(--accent); }
+.dl-fold { display: block; width: 100%; height: 22px; padding: 0 12px 0 96px; border: 0; border-top: 1px dashed var(--line2); border-bottom: 1px dashed var(--line2);
+  background: var(--side); color: var(--fg2); font-size: 11px; text-align: left; cursor: pointer; font-family: inherit; }
+.dl-fold.split { padding-left: 62px; }
+.dl-fold:hover { color: var(--accent-ink); background: var(--hover); }
+.dl-gap { padding: 3px 10px; margin-top: 8px; background: var(--side); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--fg2); }
+.dl-gap:first-child { margin-top: 0; }
+/* 左右对照：左边旧、中间一条窄栏、右边新 */
+.srow, .sseg.chg { display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); }
+.sl-line { display: grid; grid-template-columns: 44px 18px minmax(0, 1fr); min-width: 0; }
+.sl-line.pickable { grid-template-columns: 22px 44px 18px minmax(0, 1fr); }
+.sl-line .line-check { margin: 3px 0 0 5px; width: 13px; height: 13px; }
+.sl-line.off { opacity: 0.4; }
+.dfile.split .code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sside { display: flex; flex-direction: column; min-width: 0; }
+.sfill { flex: 1; min-height: 4px; background: repeating-linear-gradient(135deg, transparent 0 5px, var(--chip) 5px 6px); }
+.sgut { display: block; background: var(--side); border-left: 1px solid var(--line); border-right: 1px solid var(--line); box-sizing: border-box; }
+.ribbon { width: 36px; height: 100%; border: 0; }
+.ribbon path { stroke: none; }
+.ribbon.add path { fill: var(--add-strong); }
+.ribbon.del path { fill: var(--del-strong); }
+.ribbon.mod path { fill: color-mix(in srgb, var(--accent) 35%, var(--side)); }
+.sl-line.found { box-shadow: inset 3px 0 0 var(--accent); }
+.sl-line.found .code { font-weight: 600; }
+/* 右边的改动位置标记 */
+.diff-ruler { position: absolute; top: 0; right: 0; bottom: 0; width: 10px; background: var(--side); border-left: 1px solid var(--line); }
+.rmark { position: absolute; left: 2px; right: 2px; border-radius: 1px; cursor: pointer; }
+.rmark.add { background: #2DA44E; }
+.rmark.del { background: #CF222E; }
+.rmark.mod { background: var(--accent); }
+.rmark:hover { left: 0; right: 0; }
+.diff-files { display: inline-flex; align-items: center; gap: 2px; padding-right: 6px; margin-right: 2px; border-right: 1px solid var(--line); }
+.diff-lock { display: inline-grid; place-items: center; }
+.diff.compact .dl-fold { padding-left: 70px; }

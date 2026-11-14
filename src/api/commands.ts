@@ -123,8 +123,9 @@ export const api = {
   commitReword: (id: string, message: string): Promise<Written<null>> =>
     inTauri ? call("commit_reword", { id, message }) : mock.commitOp(t("修改说明")),
   commitDrop: (id: string): Promise<Written<null>> => (inTauri ? call("commit_drop", { id }) : mock.commitOp(t("丢弃提交"))),
-  diffCommit: (id: string, path: string): Promise<FileDiff> =>
-    inTauri ? call("diff_commit", { id, path }) : mock.diffFile(path),
+  /** context：上下文行数，FULL 是整个文件 */
+  diffCommit: (id: string, path: string, context = 3): Promise<FileDiff> =>
+    inTauri ? call("diff_commit", { id, path, context }) : mock.diffFile(path, context),
 
   // 分支和标签（说明书第 6 节）
   refsList: (): Promise<RefsList> => (inTauri ? call("refs_list") : mock.refsList()),
@@ -225,8 +226,8 @@ export const api = {
     inTauri ? call("blame_file", { path, rev, offset, limit }) : mock.blameFile(path, offset, limit),
   /** 比较两个提交（说明书 10.3） */
   compare: (from: string, to: string): Promise<Comparison> => (inTauri ? call("compare", { from, to }) : mock.compare(from, to)),
-  diffCompare: (from: string, to: string, path: string): Promise<FileDiff> =>
-    inTauri ? call("diff_compare", { from, to, path }) : mock.diffFile(path),
+  diffCompare: (from: string, to: string, path: string, context = 3): Promise<FileDiff> =>
+    inTauri ? call("diff_compare", { from, to, path, context }) : mock.diffFile(path, context),
   patchCommit: (id: string): Promise<string> => (inTauri ? call("patch_commit", { id }) : mock.patchCommit(id)),
   patchWorktree: (selection: Selection): Promise<string> => (inTauri ? call("patch_worktree", { selection }) : mock.patchWorktree(selection)),
   /** 把文字写到保存对话框选的路径 */
@@ -244,8 +245,8 @@ export const api = {
   projectSearch: (text: string, regex: boolean, caseSensitive: boolean, rev: string | null): Promise<ProjectSearch> =>
     inTauri ? call("project_search", { text, regex, caseSensitive, rev }) : mock.projectSearch(text, regex, caseSensitive, rev),
   /** from 为空是新增（旧的一边没有），to 为空是工作区 */
-  fileDiffVersions: (from: string | null, fromPath: string, to: string | null, toPath: string): Promise<FileDiff> =>
-    inTauri ? call("file_diff_versions", { from, fromPath, to, toPath }) : mock.fileDiffVersions(from, fromPath, to, toPath),
+  fileDiffVersions: (from: string | null, fromPath: string, to: string | null, toPath: string, context = 3): Promise<FileDiff> =>
+    inTauri ? call("file_diff_versions", { from, fromPath, to, toPath, context }) : mock.fileDiffVersions(from, fromPath, to, toPath),
   stashList: (): Promise<StashEntry[]> => (inTauri ? call("stash_list") : mock.stashList()),
   stashFiles: (index: number): Promise<FileChange[]> => (inTauri ? call("stash_files", { index }) : mock.stashFiles(index)),
   stashPush: (message: string | null = null): Promise<Written<null>> => (inTauri ? call("stash_push", { message }) : mock.stashPush()),
@@ -377,4 +378,12 @@ export async function pickFolder(title?: string): Promise<string | null> {
   const { open } = await import("@tauri-apps/plugin-dialog");
   const r = await open({ directory: true, multiple: false, title: title ?? t("打开仓库") });
   return typeof r === "string" ? r : null;
+}
+
+/** 差异的上下文行数给这么多就是整个文件 */
+export const FULL = 1_000_000;
+
+/** 要整个文件的差异；文件太大被截断时退回只要改动附近 3 行（说明书 10.1） */
+export function wholeFile(fetch: (context: number) => Promise<FileDiff>): Promise<FileDiff> {
+  return fetch(FULL).then((d) => (d.truncated ? fetch(3) : d));
 }

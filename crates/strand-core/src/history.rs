@@ -25,8 +25,13 @@ impl Session {
     }
 
     pub fn diff_commit(&self, id: &str, path: &str) -> Result<FileDiff> {
+        self.diff_commit_ctx(id, path, 3)
+    }
+
+    /// 同 [`Session::diff_commit`]，指定上下文行数（很大时就是整个文件，差异窗口的全文显示用）
+    pub fn diff_commit_ctx(&self, id: &str, path: &str, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
-        let d = commit_diff(&repo, id, Some(path))?;
+        let d = commit_diff_ctx(&repo, id, Some(path), context)?;
         diff::prefetch(&repo, &d, usize::MAX);
         diff::first_file(&d, path)
     }
@@ -34,12 +39,16 @@ impl Session {
 
 /// 提交相对第一个父提交的差异；根提交相对空树。
 fn commit_diff<'r>(repo: &'r git2::Repository, id: &str, path: Option<&str>) -> Result<git2::Diff<'r>> {
+    commit_diff_ctx(repo, id, path, 3)
+}
+
+fn commit_diff_ctx<'r>(repo: &'r git2::Repository, id: &str, path: Option<&str>, context: u32) -> Result<git2::Diff<'r>> {
     let oid = git2::Oid::from_str(id).map_err(|_| CoreError::new(ErrorCode::NotFound, "提交不存在"))?;
     let c = repo.find_commit(oid).map_err(|_| CoreError::new(ErrorCode::NotFound, "提交不存在"))?;
     let tree = c.tree().map_err(|e| CoreError::git("读取提交内容失败", e))?;
     let parent = c.parent(0).ok().and_then(|p| p.tree().ok());
     let mut opts = git2::DiffOptions::new();
-    opts.include_typechange(true);
+    opts.include_typechange(true).context_lines(context);
     if let Some(p) = path {
         opts.pathspec(p).disable_pathspec_match(true);
     }

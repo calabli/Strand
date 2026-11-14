@@ -101,6 +101,11 @@ impl Session {
     /// 同一个文件两个版本之间的差异。`from` 为空表示旧的一边没有这个文件（新增）；`to` 为空表示新的一边是工作区。
     /// 两边的路径可以不同（中间改过名）。
     pub fn file_diff_versions(&self, from: Option<&str>, from_path: &str, to: Option<&str>, to_path: &str) -> Result<FileDiff> {
+        self.file_diff_versions_ctx(from, from_path, to, to_path, 3)
+    }
+
+    /// 同 [`Session::file_diff_versions`]，指定上下文行数
+    pub fn file_diff_versions_ctx(&self, from: Option<&str>, from_path: &str, to: Option<&str>, to_path: &str, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
         let old = match from {
             Some(rev) => self.content(&repo, from_path, Some(rev))?,
@@ -113,7 +118,7 @@ impl Session {
             return Ok(FileDiff { path: to_path.to_string(), binary: true, hunks: Vec::new(), truncated: false });
         }
         let mut opts = git2::DiffOptions::new();
-        opts.context_lines(3);
+        opts.context_lines(context);
         let mut patch = git2::Patch::from_buffers(&old, Some(std::path::Path::new(from_path)), &new, Some(std::path::Path::new(to_path)), Some(&mut opts))
             .map_err(|e| CoreError::git("计算差异失败", e))?;
         let buf = patch.to_buf().map_err(|e| CoreError::git("计算差异失败", e))?;

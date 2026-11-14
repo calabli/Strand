@@ -8,7 +8,7 @@
 // 从内容搜索结果打开时（at）：显示那个版本（或工作区）的全文，滚到那一行并标出来；在修改链里选别的就回到平常的样子。
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, errOf } from "../api/commands";
+import { api, errOf, wholeFile } from "../api/commands";
 import type { FileDiff, FileHistory, FileText } from "../api/types";
 import { DiffView } from "./DiffView";
 import { StatusBadge } from "./FileRow";
@@ -122,7 +122,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
     } else {
       setDiff((x) => ({ ...x, loading: true, error: null }));
       // 删除文件的那个提交：新的一边没有这个文件，差异显示整个删除
-      api.fileDiffVersions(req.from, req.fromPath, req.to, req.toPath).then(
+      wholeFile((c) => api.fileDiffVersions(req.from, req.fromPath, req.to, req.toPath, c)).then(
         (data) => live && setDiff({ data, loading: false, error: null }),
         (e) => live && setDiff({ data: null, loading: false, error: errOf(e).message }),
       );
@@ -268,7 +268,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame }: Prop
             </div>
           )}
           {req?.kind === "diff" ? (
-            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
+            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} readOnly={req.to !== null} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
           ) : (
             <TextView load={text} focus={jump?.line ?? null} find={findRe} />
           )}

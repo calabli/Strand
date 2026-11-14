@@ -200,8 +200,8 @@ async fn commit_detail(state: State<'_, AppState>, id: String) -> CmdResult<Comm
 }
 
 #[tauri::command]
-async fn diff_commit(state: State<'_, AppState>, id: String, path: String) -> CmdResult<FileDiff> {
-    with_repo(&state, move |s| s.diff_commit(&id, &path)).await
+async fn diff_commit(state: State<'_, AppState>, id: String, path: String, context: Option<u32>) -> CmdResult<FileDiff> {
+    with_repo(&state, move |s| s.diff_commit_ctx(&id, &path, context.unwrap_or(3))).await
 }
 
 // ---------- 分支和标签（说明书第 6 节） ----------
@@ -773,8 +773,8 @@ async fn compare(state: State<'_, AppState>, from: String, to: String) -> CmdRes
 }
 
 #[tauri::command]
-async fn diff_compare(state: State<'_, AppState>, from: String, to: String, path: String) -> CmdResult<FileDiff> {
-    with_repo(&state, move |s| s.diff_compare(&from, &to, &path)).await
+async fn diff_compare(state: State<'_, AppState>, from: String, to: String, path: String, context: Option<u32>) -> CmdResult<FileDiff> {
+    with_repo(&state, move |s| s.diff_compare_ctx(&from, &to, &path, context.unwrap_or(3))).await
 }
 
 #[tauri::command]
@@ -823,8 +823,8 @@ async fn file_history(state: State<'_, AppState>, path: String) -> CmdResult<str
 
 /// 同一个文件两个版本之间的差异：from 为空是新增，to 为空是工作区
 #[tauri::command]
-async fn file_diff_versions(state: State<'_, AppState>, from: Option<String>, from_path: String, to: Option<String>, to_path: String) -> CmdResult<FileDiff> {
-    with_repo(&state, move |s| s.file_diff_versions(from.as_deref(), &from_path, to.as_deref(), &to_path)).await
+async fn file_diff_versions(state: State<'_, AppState>, from: Option<String>, from_path: String, to: Option<String>, to_path: String, context: Option<u32>) -> CmdResult<FileDiff> {
+    with_repo(&state, move |s| s.file_diff_versions_ctx(from.as_deref(), &from_path, to.as_deref(), &to_path, context.unwrap_or(3))).await
 }
 
 /// 按改动内容搜索时，这个提交里改动行有匹配的文件

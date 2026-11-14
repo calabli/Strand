@@ -108,3 +108,28 @@ fn diff_between_versions_across_rename_and_with_worktree() {
     // 相同：没有修改块
     assert!(s.file_diff_versions(Some("HEAD"), "other.txt", None, "other.txt").unwrap().hunks.is_empty());
 }
+
+/// 差异窗口的全文显示：上下文给得很大时整个文件在一块里；默认 3 行时只有改动附近
+#[test]
+fn full_context_diff_contains_whole_file() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    git(p, &["init", "-q", "-b", "main"]);
+    let body: String = (1..=40).map(|i| format!("第 {i} 行\n")).collect();
+    write(p, "f.txt", &body);
+    git(p, &["add", "."]);
+    git(p, &["commit", "-q", "-m", "一"]);
+    write(p, "f.txt", &body.replace("第 20 行\n", "第 20 行（改）\n"));
+    git(p, &["commit", "-q", "-am", "二"]);
+    let s = Session::open(p).unwrap();
+    let id = git(p, &["rev-parse", "HEAD"]);
+    let short = s.diff_commit(&id, "f.txt").unwrap();
+    assert_eq!(short.hunks.len(), 1);
+    assert_eq!(short.hunks[0].lines.len(), 8, "改动前后各 3 行");
+    let full = s.diff_commit_ctx(&id, "f.txt", 1_000_000).unwrap();
+    assert_eq!(full.hunks.len(), 1);
+    assert_eq!(full.hunks[0].lines.len(), 41, "40 行加一行删除");
+    let first = git(p, &["rev-parse", "HEAD~1"]);
+    assert_eq!(s.diff_compare_ctx(&first, &id, "f.txt", 1_000_000).unwrap().hunks[0].lines.len(), 41);
+    assert_eq!(s.file_diff_versions_ctx(Some(&first), "f.txt", Some(&id), "f.txt", 1_000_000).unwrap().hunks[0].lines.len(), 41);
+}

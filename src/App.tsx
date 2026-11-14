@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath } from "./api/commands";
+import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
+import { treeOrder } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
 import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Worktree, WorktreeStatus } from "./api/types";
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
@@ -116,8 +117,8 @@ export default function App() {
     setFileAt(at ? { ...at, n: Date.now() } : null);
     setTab("file");
   }, []);
-  /** 控制台和文件视图用中间加右边的宽度，不显示提交详情 */
-  const wide = tab === "console" || tab === "file";
+  /** 控制台、文件视图、差异标签页用中间加右边的宽度，不显示提交详情（差异要左右对照，窄了会折行） */
+  const wide = tab === "console" || tab === "file" || tab === "diff";
   const [target, setTarget] = useState<DiffTarget | null>(null);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null }>({
     data: null,
@@ -216,10 +217,10 @@ export default function App() {
       t.kind === "worktree"
         ? api.diffWorktree(t.path)
         : t.kind === "compare"
-          ? api.diffCompare(t.from, t.to, t.path)
+          ? wholeFile((c) => api.diffCompare(t.from, t.to, t.path, c))
           : t.kind === "shelf"
             ? api.shelfDiff(t.id, t.path)
-            : api.diffCommit(t.id, t.path);
+            : wholeFile((c) => api.diffCommit(t.id, t.path, c));
     p.then(
       (data) => setDiff({ data, loading: false, error: null }),
       (e) => setDiff({ data: null, loading: false, error: msgOf(e) }),
@@ -231,6 +232,40 @@ export default function App() {
     setTab("diff");
     loadDiff(t);
   };
+
+  // 差异标签页在同一组文件之间切换（说明书 10.1 的扩展）：同一个提交、同一次比较、同一条暂存架、工作区的改动
+  const [siblings, setSiblings] = useState<{ key: string; paths: string[] } | null>(null);
+  const groupKey = !target ? "" : target.kind === "commit" ? `c:${target.id}` : target.kind === "compare" ? `p:${target.from}:${target.to}` : target.kind === "shelf" ? `s:${target.id}` : "w";
+  useEffect(() => {
+    if (!target || target.kind === "worktree") return;
+    if (siblings?.key === groupKey) return;
+    let live = true;
+    const order = (paths: string[]) => (settings().groupByDir ? treeOrder(paths, (p) => p) : paths);
+    const p =
+      target.kind === "commit"
+        ? api.commitDetail(target.id).then((d) => d.files.map((f) => f.path))
+        : target.kind === "compare"
+          ? api.compare(target.from, target.to).then((c) => c.files.map((f) => f.path))
+          : api.shelfFiles(target.id).then((fs) => fs.map((f) => f.path));
+    p.then((paths) => live && setSiblings({ key: groupKey, paths: order(paths) }), () => {});
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupKey]);
+  const filesInGroup = target?.kind === "worktree" ? [...(status?.changes.map((c) => c.path) ?? []), ...(status?.untracked ?? [])] : siblings?.key === groupKey ? siblings.paths : [];
+  const fileNav =
+    target && filesInGroup.length > 1 && filesInGroup.includes(target.path)
+      ? {
+          at: filesInGroup.indexOf(target.path),
+          total: filesInGroup.length,
+          go: (d: number) => {
+            const i = filesInGroup.indexOf(target.path);
+            const next = filesInGroup[(i + d + filesInGroup.length) % filesInGroup.length];
+            openDiff({ ...target, path: next } as DiffTarget);
+          },
+        }
+      : null;
 
   const open = useCallback(async (path: string) => {
     setBusy(true);
@@ -692,8 +727,18 @@ export default function App() {
   };
   /** 选中上一个或下一个提交 */
   const step = (d: 1 | -1) => goRow((selRow.current ?? -1) + d);
-  const keyCtx = useRef({ caps, selected, multi, commitOps, jumpToCommit, step });
-  keyCtx.current = { caps, selected, multi, commitOps, jumpToCommit, step };
+  /** ⌘D：在差异标签页里打开选中提交的第一个文件（按列表上看到的顺序），再用 ⌥← ⌥→ 换文件 */
+  const diffSelected = (c: Commit) =>
+    api.commitDetail(c.id).then(
+      (d) => {
+        const paths = d.files.map((f) => f.path);
+        const first = (settings().groupByDir ? treeOrder(paths, (p) => p) : paths)[0];
+        if (first) openDiff({ kind: "commit", id: c.id, path: first });
+      },
+      () => {},
+    );
+  const keyCtx = useRef({ caps, selected, multi, commitOps, jumpToCommit, step, diffSelected });
+  keyCtx.current = { caps, selected, multi, commitOps, jumpToCommit, step, diffSelected };
   useEffect(() => {
     if (!logVisible) return;
     const key = (e: KeyboardEvent) => {
@@ -702,8 +747,16 @@ export default function App() {
         setFocusSearch(Date.now());
         return;
       }
-      // →/← 跳到父提交、子提交，↑/↓ 上一个、下一个提交，F2 修改说明（说明书 5.4、12.3）
       const t = e.target as HTMLElement;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d" && !t.closest("input, textarea, [contenteditable=true]")) {
+        const k = keyCtx.current;
+        if (k.selected && k.multi.length < 2) {
+          e.preventDefault();
+          k.diffSelected(k.selected);
+        }
+        return;
+      }
+      // →/← 跳到父提交、子提交，↑/↓ 上一个、下一个提交，F2 修改说明（说明书 5.4、12.3）
       if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, [contenteditable=true], [role=dialog], .menu, .picker")) return;
       const k = keyCtx.current;
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1241,6 +1294,8 @@ export default function App() {
                 setTab("log");
               }}
               find={ui.searchIn === "changes" && ui.text ? findRegExp(ui.text, ui.regex, ui.caseSensitive) : null}
+              files={fileNav}
+              readOnly={target.kind !== "worktree"}
             />
           )}
         </main>
