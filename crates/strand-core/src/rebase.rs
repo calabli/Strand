@@ -1,10 +1,10 @@
-//! 整理提交（说明书第 9 节）：交互式变基。
+//! Rebasing commits (spec §9): interactive rebase.
 //!
-//! 核心层自己写好变基的待办列表，通过 `GIT_SEQUENCE_EDITOR` 交给 git，不弹编辑器。
-//! 重放中有冲突时仓库停在变基状态，界面进入冲突解决（第 8 节）；整个整理在操作日志里算一步。
+//! The core layer writes the rebase todo list itself and hands it to git through `GIT_SEQUENCE_EDITOR`, without an editor.
+//! When replay hits conflicts the repository stays in the rebase state and the UI enters conflict resolution (§8); the whole rebase is one step in the op log.
 //!
-//! 可整理范围：从当前分支最新提交沿第一父提交往回走，遇到合并提交、根提交、
-//! 或者另一个本地分支也能到达的提交（另一个分支指向它，或它在分叉点之前）就停。
+//! The rebaseable range: walk back from the current branch's latest commit along first parents, stopping at a merge commit, the root commit,
+//! or a commit another local branch can also reach (another branch points to it, or it's before the fork point).
 
 use serde::{Deserialize, Serialize};
 
@@ -20,13 +20,13 @@ pub struct RangeCommit {
     pub body: String,
     pub author: String,
     pub time: i64,
-    /// 已经推送（整理后需要强制推送）
+    /// Already pushed (a force push is needed after rebasing)
     pub pushed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RebaseRange {
-    /// 从旧到新
+    /// Oldest first
     pub commits: Vec<RangeCommit>,
     pub has_pushed: bool,
 }
@@ -34,11 +34,11 @@ pub struct RebaseRange {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StepAction {
-    /// 保留
+    /// Keep
     Pick,
-    /// 并入上一个被保留的提交，说明追加到它的正文
+    /// Squash into the previous kept commit, appending the message to its body
     Squash,
-    /// 并入上一个被保留的提交，说明丢掉（Fixup 用）
+    /// Fold into the previous kept commit, discarding the message (for Fixup)
     Fixup,
     Drop,
 }
@@ -47,21 +47,21 @@ pub enum StepAction {
 pub struct Step {
     pub id: String,
     pub action: StepAction,
-    /// 换成这段说明（Squash Into 用）；只对保留的提交有效
+    /// Replace with this message (for Squash Into); only for kept commits
     #[serde(default)]
     pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RebaseResult {
-    /// 整理前的提交数
+    /// Commits before the rebase
     pub before: usize,
-    /// 整理后的提交数
+    /// Commits after the rebase
     pub after: usize,
 }
 
 impl Session {
-    /// 最大可整理范围的行号，从新到旧
+    /// Rows of the maximum rebaseable range, newest first
     pub(crate) fn rebase_rows(&self) -> Result<Vec<u32>> {
         let st = self.state()?;
         if st.head.kind != HeadKind::Branch {
@@ -69,7 +69,7 @@ impl Session {
         }
         let repo = self.git2()?;
         let current = st.head.branch.unwrap_or_default();
-        // 其他本地分支能到达的提交
+        // Commits reachable from other local branches
         let mut tips = Vec::new();
         for (b, _) in repo.branches(Some(git2::BranchType::Local)).map_err(|e| CoreError::git("读取分支失败", e))?.flatten() {
             if b.name().ok().flatten() == Some(current.as_str()) {
@@ -96,7 +96,7 @@ impl Session {
         Ok(out)
     }
 
-    /// 可整理范围（说明书 9.1）。`from` 给出时只返回从它到最新提交的一段。
+    /// The rebaseable range (spec §9.1). With `from`, only the stretch from it to the latest commit.
     pub fn rebase_range(&self, from: Option<&str>) -> Result<RebaseRange> {
         let rows = self.rebase_rows()?;
         let rows: Vec<u32> = match from {
@@ -116,7 +116,7 @@ impl Session {
         Ok(RebaseRange { commits, has_pushed })
     }
 
-    /// 按步骤整理（说明书 9.2）。`steps` 按新的顺序从旧到新排列，必须恰好覆盖从某个提交到最新提交的连续一段。
+    /// Rebase by steps (spec §9.2). `steps` are in the new order, oldest first, and must cover exactly one contiguous stretch from some commit to the latest.
     pub fn rebase_apply(&self, steps: &[Step]) -> Result<RebaseResult> {
         if self.state()?.state != RepoMode::Normal {
             return Err(CoreError::new(ErrorCode::MergeInProgress, "合并或变基还没完成，先完成或中止"));
@@ -127,7 +127,7 @@ impl Session {
         if n == 0 || n > ids.len() {
             return Err(CoreError::new(ErrorCode::InvalidRange, "要整理的提交不在可以整理的范围里"));
         }
-        // ids 从新到旧，前 n 个就是要整理的一段
+        // ids are newest first; the first n are the stretch to rebase
         let mut want: Vec<&str> = ids[..n].iter().map(String::as_str).collect();
         let mut got: Vec<&str> = steps.iter().map(|s| s.id.as_str()).collect();
         want.sort_unstable();
@@ -138,7 +138,7 @@ impl Session {
         let base = format!("{}^", ids[n - 1]);
         let after = count_after(steps);
 
-        // 全部丢弃：分支退回到范围之前
+        // Drop everything: the branch goes back to before the range
         if steps.iter().all(|s| s.action == StepAction::Drop) {
             git_cli::run(self.path(), &["rebase", "--autostash", "--onto", &base, "HEAD"], None).map_err(|e| self.stopped(e))?;
             return Ok(RebaseResult { before: n, after: 0 });
@@ -149,8 +149,8 @@ impl Session {
         Ok(RebaseResult { before: n, after })
     }
 
-    /// Fixup / Squash Into（说明书 9.3）：把工作区里选中的改动并入某个提交，之后的提交保留。
-    /// `message` 给出时同时把那个提交的说明换掉（Squash Into）。
+    /// Fixup / Squash Into (spec §9.3): fold selected worktree changes into a commit, keeping the later commits.
+    /// With `message`, also replace that commit's message (Squash Into).
     pub fn commit_fixup(&self, id: &str, selection: &Selection, message: Option<&str>) -> Result<()> {
         let range = self.rebase_range(Some(id))?;
         if range.commits.first().is_some_and(|c| c.pushed) || range.has_pushed {
@@ -159,7 +159,7 @@ impl Session {
         if message.is_some_and(|m| m.trim().is_empty()) {
             return Err(CoreError::new(ErrorCode::EmptyMessage, "提交说明不能为空"));
         }
-        // 先把选中的改动提交成一个临时提交，再在整理时并到目标提交里
+        // First commit the selected changes as a temporary commit, then fold it into the target during the rebase
         let title = range.commits.first().map(|c| c.title.clone()).unwrap_or_default();
         let tmp = self.commit_create(&format!("fixup! {title}"), selection, false, None)?;
         let mut steps: Vec<Step> = Vec::new();
@@ -178,7 +178,7 @@ impl Session {
             Ok(()) => Ok(()),
             Err(e) if e.code == ErrorCode::Conflicts => Err(e),
             Err(e) => {
-                // 整理没开始就失败了：把临时提交撤掉，改动放回工作区
+                // The rebase failed before starting: undo the temporary commit and put the changes back in the worktree
                 if self.state()?.state == RepoMode::Normal {
                     let _ = git_cli::run(self.path(), &["reset", "--soft", "HEAD~1"], None);
                 }
@@ -187,7 +187,7 @@ impl Session {
         }
     }
 
-    /// 换掉一个更早的提交的说明（说明书 5.6）：从它开始重放，它之后的提交原样保留。可用条件由调用方先检查。
+    /// Replace the message of an earlier commit (spec §5.6): replay from it, keeping later commits as they are. Availability is checked by the caller first.
     pub(crate) fn reword_earlier(&self, id: &str, message: &str) -> Result<()> {
         let range = self.rebase_range(Some(id))?;
         let full = range.commits.first().map(|c| c.id.clone()).ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "这个提交不在可以整理的范围里"))?;
@@ -205,7 +205,7 @@ impl Session {
         std::fs::create_dir_all(&dir).map_err(|e| CoreError::git("准备整理失败", e))?;
         let file = dir.join("rebase-todo");
         std::fs::write(&file, todo).map_err(|e| CoreError::git("准备整理失败", e))?;
-        // git 用 sh 运行编辑器命令并把待办文件路径接在后面；Windows 上 Git for Windows 也带 sh 和 cp
+        // git runs the editor command with sh and appends the todo file path; on Windows, Git for Windows ships sh and cp too
         let path = file.to_string_lossy().replace('\\', "/").replace('\'', "'\\''");
         let editor = format!("cp '{path}'");
         let r = git_cli::run_env(
@@ -215,7 +215,7 @@ impl Session {
             &[("GIT_SEQUENCE_EDITOR", &editor)],
         );
         let _ = std::fs::remove_file(&file);
-        // 换说明用的临时文件：停在冲突时变基还要用，完成后再清掉
+        // Temporary file for the new message: the rebase still needs it if it stops on conflicts; cleaned up when finished
         if r.is_ok()
             && let Ok(list) = std::fs::read_dir(&dir)
         {
@@ -226,7 +226,7 @@ impl Session {
         r.map(|_| ()).map_err(|e| self.stopped(e))
     }
 
-    /// 变基停下来了：有冲突时返回 `CONFLICTS`，界面进入冲突解决
+    /// The rebase stopped: returns `CONFLICTS` on conflicts and the UI enters conflict resolution
     fn stopped(&self, e: CoreError) -> CoreError {
         if self.state().map(|s| s.state != RepoMode::Normal).unwrap_or(false) {
             return CoreError::new(ErrorCode::Conflicts, "整理时有冲突需要解决").with_detail(e.detail.unwrap_or_default());
@@ -239,7 +239,7 @@ impl Session {
     }
 }
 
-/// 整理后剩下几个提交：保留的算一个，第一行的“并入”按保留算
+/// Commits left after the rebase: each kept one counts, and a squash on the first line counts as keep
 fn count_after(steps: &[Step]) -> usize {
     let mut n = 0;
     for s in steps {
@@ -252,8 +252,8 @@ fn count_after(steps: &[Step]) -> usize {
     n
 }
 
-/// 变基待办列表。第一个不是丢弃的步骤如果是“并入”，按保留处理。
-/// 要换的说明写进 `dir` 下的文件，由 `exec git commit --amend -F` 读取。
+/// The rebase todo list. If the first non-drop step is a squash, treat it as keep.
+/// Replacement messages are written to files under `dir` and read by `exec git commit --amend -F`.
 fn todo_lines(steps: &[Step], dir: &std::path::Path) -> Result<String> {
     let mut out = String::new();
     let mut kept = false;
@@ -275,7 +275,7 @@ fn todo_lines(steps: &[Step], dir: &std::path::Path) -> Result<String> {
         if let Some(m) = &s.message
             && verb != "drop"
         {
-            // 换说明：写进文件交给 git commit --amend（待办列表一行一条，放不下多行说明）
+            // Replace the message: write it to a file for git commit --amend (the todo list is one entry per line and can't hold multi-line messages)
             std::fs::create_dir_all(dir).map_err(|e| CoreError::git("准备整理失败", e))?;
             let f = dir.join(format!("rebase-msg-{}", s.id));
             std::fs::write(&f, m).map_err(|e| CoreError::git("准备整理失败", e))?;

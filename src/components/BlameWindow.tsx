@@ -1,6 +1,6 @@
-// 逐行追溯（说明书 10.2）：文件的完整内容，每行左边是最后改它的提交。
-// 先读首屏 300 行，其余在后台接着读。连续属于同一提交的行只在第一行显示提交信息；左边的颜色条按作者区分。
-// 点左边的信息：关闭窗口，清空日志过滤条件，选中并滚动到那个提交；提交不在日志里（被整理掉）时不跳转。
+// Blame (spec §10.2): the file's full content, each line with the commit that last changed it on the left.
+// The first screen of 300 lines is read first, the rest in the background. Consecutive lines from the same commit show its info only on the first line; the color bar on the left distinguishes authors.
+// Clicking the info on the left closes the window, clears the log filters, and selects and scrolls to that commit; no jump when the commit isn't in the log (rewritten).
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useState } from "react";
@@ -18,7 +18,7 @@ const REST = 5000;
 type Commit = BlamePage["commits"][number];
 type Line = { no: number; text: string; c: Commit };
 
-/** 作者 → 颜色（同一作者同一颜色） */
+/** author → color (same author, same color) */
 function hue(s: string) {
   let h = 0;
   for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -46,7 +46,7 @@ export function BlameWindow({ path, rev, onClose, onJump }: { path: string; rev:
         setTotal(first.total);
         add(first);
         setMs(Math.round(performance.now() - start));
-        // 其余分批在后台读
+        // The rest is read in batches in the background
         for (let off = FIRST; off < first.total && live; off += REST) {
           const p = await api.blameFile(path, rev, off, REST);
           if (live) add(p);
@@ -60,7 +60,7 @@ export function BlameWindow({ path, rev, onClose, onJump }: { path: string; rev:
     };
   }, [path, rev]);
 
-  // 语法高亮：全部读完后整段着色（在后台线程里）
+  // Syntax highlighting: color the whole thing once everything is read (on a background thread)
   const syntax = useSettings().diffSyntax;
   const [toks, setToks] = useState<Tok[][] | null>(null);
   const loaded = total !== null && lines.length >= total;

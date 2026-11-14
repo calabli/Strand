@@ -1,16 +1,16 @@
-// 提交面板（说明书第 4 节）：改动列表、勾选、提交说明、提交。
+// Commit panel (spec §4): change list, checking, commit message, commit.
 //
-// 已实现：文件勾选（新出现的改动默认勾选）、全选、未跟踪文件列表、提交说明和标题字数、提交（⌘↵）。
-// 搁置到暂存架（按勾选的文件，问名字或直接搁置）和贮藏（全部改动）在按钮行和“改动”节点上（说明书 4.7、4.9）。
-// 行级勾选在差异标签页里做，这里的勾选框显示三态（全选、部分、不选），点部分态变为全选（说明书 4.3）。
-// 文件行悬停出现丢弃图标；未跟踪的文件有加入版本控制、加入忽略规则、删除三个图标。
-// 最上面一行工具图标（说明书 4.7）：刷新、回滚、查看差异、直接搁置、创建补丁、按目录分组、展开或折叠“改动”。
-// 提交选项（说明书 4.6）：提交前格式化、提交前运行检查（命令存在仓库的 Git 配置里）、签名行。提交时先格式化再检查，
-// 没通过时显示问题列表，用户选择仍然提交或取消；运行中点提交按钮取消。
-// 说明历史：本机记下的最近 10 条，加上自己在这个仓库里写过的说明（按 Git 配置的邮箱找），可以搜索。
-// 提交说明模板（Git 的 commit.template）：说明框是空的时候填进去，原样没改不能提交。
-// 作者选项：换作者提交、加共同作者（写成 Co-authored-by 行）。
-// 变更列表（对照 JetBrains 的 changelist）：把改动分成几组，新出现的改动进“活动”列表；只有一个列表时和原来一样只显示“改动”。
+// Implemented: file checks (new changes are checked by default), select all, untracked file list, commit message and title length, commit (⌘↵).
+// Shelve to the shelf (checked files, asking for a name or shelving directly) and stash (all changes) are in the button row and on the "Changes" node (spec §4.7, §4.9).
+// Line checks happen in the diff tab; checkboxes here are tri-state (all, partial, none), and clicking partial selects all (spec §4.3).
+// Hovering a file row shows a discard icon; untracked files have add to version control, add to ignore rules, and delete icons.
+// The top row of tool icons (spec §4.7): refresh, roll back, view diff, shelve directly, create patch, group by directory, expand or collapse "Changes".
+// Commit options (spec §4.6): format before committing, run checks before committing (commands stored in the repository's Git config), sign-off. Committing formats first, then checks;
+// on failure an issue list is shown and the user chooses to commit anyway or cancel; clicking the commit button while running cancels.
+// Message history: the last 10 recorded on this machine plus messages you wrote in this repository (found by the email in Git config), searchable.
+// Commit message template (Git's commit.template): filled in when the message box is empty; can't commit it unchanged.
+// Author options: commit as another author, add co-authors (written as Co-authored-by lines).
+// Changelists (like JetBrains changelists): group changes; new changes go into the "active" list; with only one list it looks as before with just "Changes".
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api/commands";
@@ -23,37 +23,37 @@ import { t, tr } from "../i18n";
 import { ChecksOptions, ChecksReport } from "./checks";
 
 interface Props {
-  /** 当前仓库路径（说明历史按仓库保存） */
+  /** Current repository path (message history is kept per repository) */
   repoPath: string;
-  /** 修订更早的提交（Fixup / Squash Into）之后：刷新并提示 */
+  /** After amending an earlier commit (Fixup / Squash Into): refresh and notify */
   onWritten: (state: RepoState, message: string, op?: OpInfo) => void;
   status: WorktreeStatus | null;
   disabled: boolean;
   activePath: string | null;
   onOpenDiff: (path: string) => void;
-  /** push 为真表示点的是“提交并推送” */
+  /** push true means "commit and push" was clicked */
   onCommitted: (r: CommitCreated, files: number, push: boolean, amend?: boolean) => void;
-  /** 搁置勾选的文件；askName 为假时直接搁置（自动命名） */
+  /** Shelve the checked files; askName false shelves directly (auto-named) */
   onShelve: (paths: string[], askName: boolean) => void;
-  /** 贮藏全部改动 */
+  /** Stash all changes */
   onStash: () => void;
-  /** 为勾选的文件创建补丁 */
+  /** Create a patch for the checked files */
   onPatch: (sel: Selection) => void;
-  /** 应用补丁（打开对话框） */
+  /** Apply a patch (opens the dialog) */
   onApplyPatch: () => void;
-  /** 勾选变化时告诉外面（Fixup / Squash Into 用） */
+  /** Report check changes to the outside (for Fixup / Squash Into) */
   onPickedChange: (sel: Selection) => void;
-  /** 行级勾选：路径 → 没勾的行和全部改动行（键是“块:行”） */
+  /** Line checks: path → unchecked lines and all changed lines (keys are "block:line") */
   lineSel: Record<string, { excluded: string[]; all: string[] }>;
   onClearLines: (path: string) => void;
-  /** 丢弃这些文件的改动（会先确认） */
+  /** Discard these files' changes (confirms first) */
   onDiscard: (paths: string[]) => void;
   onUntracked: (kind: "add" | "ignore" | "delete", path: string) => void;
-  /** 逐行追溯工作区里的文件 */
+  /** Blame a file in the worktree */
   onBlame: (path: string) => void;
-  /** 文件的右键菜单（说明书 12.2） */
+  /** File context menu (spec §12.2) */
   onFileMenu: (path: string, x: number, y: number) => void;
-  /** 工具行的刷新：重新读取工作区状态 */
+  /** Refresh in the tool row: re-read worktree status */
   onRefresh: () => void;
 }
 
@@ -86,12 +86,12 @@ const QUICK_SHELF_ICON = "M1.5 7h11M1.5 10.5h11M3 7v3.5M11 7v3.5M7 1v4M5 3l2 2 2
 
 export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onRefresh }: Props) {
   const groupDir = useSettings().groupByDir;
-  // “改动”节点展开还是折叠（说明书 4.1）
+  // Whether the "Changes" node is expanded or collapsed (spec §4.1)
   const [changesOpen, setChangesOpen] = useState(true);
-  // 记录“取消勾选”的路径，这样新出现的改动自动是勾选状态
+  // Record "unchecked" paths so new changes are checked automatically
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState("");
-  // 修订（说明书 4.5）：目标是当前分支上还没推送的提交，默认上一次提交
+  // Amend (spec §4.5): targets unpushed commits on the current branch, the last commit by default
   const [amend, setAmend] = useState(false);
   const [targets, setTargets] = useState<RangeCommit[] | null>(null);
   const [target, setTarget] = useState<string | null>(null);
@@ -116,7 +116,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
       live = false;
     };
   }, [repoPath]);
-  /** 提交后：说明框回到模板，重新读说明历史 */
+  /** After committing: the message box goes back to the template and message history is re-read */
   const afterCommit = () => {
     setMsg(template ?? "");
     setAuthor("");
@@ -134,13 +134,13 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
       return [];
     }
   };
-  /** 说明历史：最近 10 条，去重，新的在前（说明书 4.6） */
+  /** Message history: last 10, deduplicated, newest first (spec §4.6) */
   const remember = (m: string) => {
     const list = [m, ...readHistory().filter((x) => x !== m)].slice(0, 10);
     try {
       localStorage.setItem(histKey, JSON.stringify(list));
     } catch {
-      /* 只在本次有效 */
+      /* Only for this session */
     }
   };
   useEffect(() => {
@@ -162,13 +162,13 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
   }, [amend, status]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // 提交选项和提交前检查
+  // Commit options and pre-commit checks
   const [checks, setChecks] = useState<ChecksInfo | null>(null);
   const [showOpts, setShowOpts] = useState(false);
-  /** 正在运行的步骤和它的任务号（用来取消） */
+  /** The running step and its task id (for cancelling) */
   const [phase, setPhase] = useState<{ kind: "format" | "check"; task: string } | null>(null);
   const [report, setReport] = useState<{ run: CheckRun; canCommit: boolean; resolve: (go: boolean) => void } | null>(null);
-  /** 正在读取的提交选项：刚打开仓库就提交时要等它读完，不能跳过检查 */
+  /** Commit options being loaded: when committing right after opening a repository, wait for them so checks aren't skipped */
   const checksLoading = useRef<Promise<ChecksInfo | null>>(Promise.resolve(null));
   useEffect(() => {
     let live = true;
@@ -184,14 +184,14 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
 
   const changes = status?.changes ?? [];
   const untracked = status?.untracked ?? [];
-  // 行级勾选把所有行都取消了的文件，按没勾选算
+  // Files whose lines were all unchecked by line checks count as unchecked
   const allOff = (p: string) => !!lineSel[p] && lineSel[p].excluded.length >= lineSel[p].all.length;
   const picked = useMemo(
     () => changes.filter((c) => !unchecked.has(c.path) && !allOff(c.path)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [changes, unchecked, lineSel],
   );
-  /** 发给核心层的选择：部分勾选的文件带上要提交的行 */
+  /** The selection sent to the core layer: partially checked files carry the lines to commit */
   const selectionOf = (list: typeof picked): Selection => ({
     files: list.map((c) => {
       const ls = lineSel[c.path];
@@ -208,7 +208,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     }),
   });
 
-  // 文件消失后，清掉它的取消勾选记录
+  // When a file disappears, clear its unchecked record
   useEffect(() => {
     const live = new Set(changes.map((c) => c.path));
     setUnchecked((u) => {
@@ -225,7 +225,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
       return n;
     });
 
-  /** 目录行的勾选框：目录下全部勾选时点击变为全不选，其余情况点击变为全选（和“改动”节点一样） */
+  /** Checkbox on a directory row: when everything under it is checked, clicking unchecks all; otherwise clicking checks all (same as the "Changes" node) */
   const dirCheck = (items: (typeof changes)[number][]) => {
     const on = items.filter((c) => !unchecked.has(c.path) && !allOff(c.path)).length;
     return (
@@ -251,14 +251,14 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     );
   };
 
-  // 全部勾选时点击变为全不选，其余情况点击变为全选（说明书 4.3）
+  // When everything is checked, clicking unchecks all; otherwise clicking checks all (spec §4.3)
   const toggleAll = () => setUnchecked(picked.length === changes.length ? new Set(changes.map((c) => c.path)) : new Set());
 
-  // ---------- 变更列表 ----------
+  // ---------- Changelists ----------
   const [cl, setCl] = useState<Changelists | null>(null);
-  /** 折叠起来的列表 */
+  /** Collapsed lists */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  /** 正在起名字：id 为空是新建；moving 是建好后要移进去的文件 */
+  /** Naming in progress: id null means new; moving is the files to move in once created */
   const [naming, setNaming] = useState<{ id: string | null; value: string; moving?: string[] } | null>(null);
   const [moveMenu, setMoveMenu] = useState<MenuState | null>(null);
   useEffect(() => {
@@ -279,7 +279,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     return l?.name.trim() || t("改动");
   };
   const saveCl = (next: Changelists) => {
-    // 只记还有改动的文件
+    // Only keep files that still have changes
     const live = new Set(changes.map((c) => c.path));
     const files = Object.fromEntries(Object.entries(next.files).filter(([p]) => live.has(p)));
     const n = { ...next, files };
@@ -306,7 +306,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     setNaming(null);
     setError(null);
   };
-  /** 设为活动列表：新出现的改动放进这里；勾选只留这个列表的文件 */
+  /** Set as the active list: new changes go here; only this list's files stay checked */
   const makeActive = (id: string) => {
     if (!cl) return;
     const files = { ...cl.files };
@@ -314,7 +314,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     saveCl({ ...cl, files, active: id });
     setUnchecked(new Set(changes.filter((c) => (files[c.path] ?? id) !== id).map((c) => c.path)));
   };
-  /** 删掉列表：里面的文件回到默认列表 */
+  /** Delete a list: its files go back to the default list */
   const removeList = (id: string) => {
     if (!cl || id === "default") return;
     const files = { ...cl.files };
@@ -360,7 +360,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
   );
 
   const title = msg.split("\n")[0];
-  // 重命名的文件连旧路径一起搁置
+  // Renamed files are shelved together with their old paths
   const pickedPaths = picked.flatMap((c) => (c.old_path ? [c.path, c.old_path] : [c.path]));
   const pickedKey = picked.map((c) => c.path).join("\n") + JSON.stringify(lineSel);
   useEffect(() => {
@@ -368,7 +368,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickedKey]);
 
-  /** 运行一步格式化或检查；没通过时弹出问题列表，返回是否继续提交 */
+  /** Run one format or check step; on failure show the issue list; returns whether to continue committing */
   const runStep = async (kind: "format" | "check", files: string[], canCommit: boolean): Promise<boolean> => {
     const task = `checks-${Date.now()}`;
     setPhase({ kind, task });
@@ -386,7 +386,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     return new Promise<boolean>((resolve) => setReport({ run, canCommit, resolve }));
   };
 
-  /** 提交前步骤（说明书 4.4）：按提交选项先格式化（只格式化整文件勾选的文件），再检查 */
+  /** Pre-commit steps (spec §4.4): per the commit options, format first (only whole-file checked files), then check */
   const preCommit = async (list: typeof picked): Promise<boolean> => {
     const c = checks ?? (await checksLoading.current);
     if (!c) return true;
@@ -436,7 +436,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     }
   };
 
-  /** 修订：上一次提交用 git commit --amend；更早的提交用 Fixup（有说明时是 Squash Into） */
+  /** Amend: the last commit uses git commit --amend; earlier commits use Fixup (Squash Into when there's a message) */
   const doAmend = async () => {
     if (!target) return setError(targets && targets.length === 0 ? t("当前分支上没有还没推送的提交，不能修订") : t("正在读取可以修订的提交…"));
     const m = msg.trim() && msg.trim() !== template?.trim() ? msg : null;
@@ -473,7 +473,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     }
   };
 
-  /** 生成说明（说明书 4.6）：按勾选的改动拼一句，用户再自己改 */
+  /** Generate a message (spec §4.6): build a sentence from the checked changes for the user to edit */
   const generate = () => {
     if (picked.length === 0) return setError(t("先勾选文件"));
     const name = (p: string) => p.split("/").pop() ?? p;
@@ -491,8 +491,8 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     input.current?.focus();
   };
 
-  // 提交完全部改动后说明框没了：刚才在用说明框（键盘提交）的话，焦点放到“没有改动”这句上，
-  // 读屏会读出来，Tab 也从这里接着走，不会掉回页面开头（说明书 12.4）
+  // After committing all changes the message box disappears: if the message box was just in use (keyboard commit), focus the "no changes" text,
+  // so screen readers announce it and Tab continues from there instead of falling back to the top of the page (spec §12.4)
   const cleanNote = useRef<HTMLParagraphElement>(null);
   const composeUsedAt = useRef(0);
   const nothingLeft = !!status && status.changes.length === 0;
@@ -512,7 +512,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     return on.length ? t("提交选项（提交前：{0}）", on.join(t("、"))) : t("提交选项");
   })();
 
-  /** “改动”里的一个文件行；depth 是树形显示时的层级（只显示文件名） */
+  /** A file row under "Changes"; depth is the level in tree view (only the file name is shown) */
   const changeRow = (c: (typeof changes)[number], depth?: number) => (
               <div
                 key={c.path}
@@ -520,7 +520,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                   e.preventDefault();
                   onFileMenu(c.path, e.clientX, e.clientY);
                 }}
-                // 焦点在这一行（文件按钮或勾选框）时，Shift+F10 或菜单键打开右键菜单（说明书 12.4）
+                // When focus is on this row (file button or checkbox), Shift+F10 or the menu key opens the context menu (spec §12.4)
                 onKeyDown={(e) => {
                   if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
                     e.preventDefault();
@@ -544,7 +544,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                     }}
                     title={lineSel[c.path]?.excluded.length ? t("只勾选了部分行，点一下改为整个文件") : undefined}
                     onChange={() => {
-                      // 部分态点一下变为全选（说明书 4.3）
+                      // Clicking the partial state selects all (spec §4.3)
                       if (lineSel[c.path]?.excluded.length) {
                         onClearLines(c.path);
                         if (unchecked.has(c.path)) toggle(c.path);
@@ -586,7 +586,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
 
   return (
     <div className="cp">
-      {/* 工具图标行（说明书 4.1、4.7）：刷新、回滚、查看差异、直接搁置、创建补丁、按目录分组、展开或折叠 */}
+      {/* Tool icon row (spec §4.1, §4.7): refresh, roll back, view diff, shelve directly, create patch, group by directory, expand or collapse */}
       <div className="cp-tools">
         <button type="button" className="ib sm" title={t("刷新（重新读取工作区）")} aria-label={t("刷新")} onClick={onRefresh}>
           <BoxIcon d={REFRESH_ICON} />
@@ -608,7 +608,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           aria-label={t("查看差异")}
           disabled={changes.length === 0}
           onClick={() => {
-            // 按列表上看到的顺序取第一个（树形显示时目录排过序）
+            // Take the first in the order shown in the list (directories are sorted in tree view)
             const list = picked.length ? picked : changes;
             const first = groupDir ? treeOrder(list, (c) => c.path)[0] : list[0];
             onOpenDiff(first.path);

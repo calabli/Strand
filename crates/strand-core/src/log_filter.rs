@@ -1,14 +1,14 @@
-//! 日志过滤和排序（说明书 5.1）：搜索（说明、正文、哈希，可选正则和区分大小写）、分支、作者、日期、路径，
-//! 以及按提交时间排序。多个条件取交集；有过滤或按时间排序时不返回图谱。
+//! Log filtering and sorting (spec §5.1): search (message, body, hash, optional regex and case sensitivity), branch, author, date, path,
+//! and sorting by commit time. Conditions are intersected; no graph is returned when filtering or sorting by time.
 //!
-//! 便宜的条件先算（分支可达、日期、作者、路径），最后才解码剩下的提交去匹配说明文字，并分到多个线程上做。
-//! 作者和作者时间第一次用到时读一遍全部提交并缓存；上一次的过滤结果也缓存，翻页时不用重算。
+//! Cheap conditions run first (branch reachability, date, author, path); only then are the remaining commits decoded to match message text, spread across threads.
+//! Authors and author times are read for all commits on first use and cached; the last filter result is cached too so paging doesn't recompute.
 //!
-//! 首批结果先返回，其余分批追加（说明书 15）：
-//! - 路径过滤要在全部历史上跑一次 `git rev-list`，大仓库上要几秒。它在后台线程里跑，输出边读边记；
-//!   每次查询用目前读到的结果过滤，结果标记为 `partial`。
-//! - 说明文字的匹配按块扫描，每次查询最多花 `BUDGET`，没扫完的下次查询接着扫。
-//!   界面看到 `partial` 时过一会儿再查，直到不再是 `partial`。
+//! First results return first, the rest are appended in batches (spec §15):
+//! - Path filtering runs `git rev-list` over the whole history once, which takes seconds on large repositories. It runs on a background thread, recording output as it reads;
+//!   each query filters with what has been read so far and marks the result `partial`.
+//! - Message matching scans in chunks, spending at most `BUDGET` per query; the next query continues where it stopped.
+//!   When the UI sees `partial` it queries again a little later, until it is no longer `partial`.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -26,36 +26,36 @@ use crate::model::LogPage;
 use crate::repo::{MAX_PAGE, Session};
 use crate::git_cli;
 
-/// 过滤条件。所有字段都可以省略，省略表示不按这一项过滤。
+/// Filter conditions. Every field may be omitted, meaning no filtering on it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct LogFilter {
-    /// 搜索文字：匹配提交说明（标题和正文）；不是正则时，4 位以上的十六进制还匹配哈希前缀
+    /// Search text: matches the commit message (title and body); when not a regex, 4+ hex characters also match hash prefixes
     pub text: String,
     pub regex: bool,
     pub case_sensitive: bool,
-    /// 只看从这个分支（本地或远程分支名，也可以是标签或 HEAD）能到达的提交
+    /// Only commits reachable from this branch (local or remote branch name, or a tag or HEAD)
     pub branch: Option<String>,
-    /// 作者邮箱，不区分大小写（只选一个时的旧写法，和 `authors` 合在一起算）
+    /// Author email, case-insensitive (the old single-author form, combined with `authors`)
     pub author: Option<String>,
-    /// 选中的作者邮箱（多选），不区分大小写
+    /// Selected author emails (multiple), case-insensitive
     pub authors: Vec<String>,
-    /// 按规则匹配作者：名字或邮箱满足就算。和选中的作者是“或”的关系
+    /// Match authors by rule: name or email matching counts. OR-ed with the selected authors
     pub author_match: Option<AuthorMatch>,
-    /// 作者时间不早于这个时间（Unix 秒）
+    /// Author time not earlier than this (Unix seconds)
     pub since: Option<i64>,
-    /// 作者时间早于这个时间（Unix 秒，不含）
+    /// Author time earlier than this (Unix seconds, exclusive)
     pub until: Option<i64>,
-    /// 路径子串：只看改过匹配文件的提交
+    /// Path substring: only commits that changed matching files
     pub path: Option<String>,
-    /// 搜索文字搜哪里：提交说明（默认），还是改动内容（`git log -S` / `-G`，说明书 5.1 的扩展）
+    /// Where the search text searches: commit messages (default) or changes (`git log -S` / `-G`, an extension of spec §5.1)
     pub search_in: SearchIn,
-    /// 只看第一父提交：从当前分支（有分支过滤时从那个分支）沿第一个父提交往回走，合并进来的分支上的提交不显示
+    /// First parent only: walk back from the current branch (or the filtered branch) along first parents; commits on merged-in branches aren't shown
     pub first_parent: bool,
-    /// 不显示合并提交
+    /// Hide merge commits
     pub no_merges: bool,
-    /// 折叠线性分支（只在没有别的过滤条件、按图谱顺序时起作用）：旁支上没有引用、只有一个父提交和一个子提交的连续提交收起来，
-    /// 图谱照样画，上面那一行标出折叠了几个
+    /// Collapse linear branches (only without other filters, in graph order): consecutive commits on side lines with no refs, one parent and one child are folded,
+    /// the graph is drawn as usual, and the row above shows how many were folded
     pub collapse_linear: bool,
 }
 
@@ -64,7 +64,7 @@ pub struct LogFilter {
 pub enum SearchIn {
     #[default]
     Message,
-    /// 改动内容：普通文字找“这段文字出现次数变了”的提交（加进来或删掉的那次），正则找改动的行里有匹配的提交
+    /// Changes: plain text finds commits where the number of occurrences changed (the commit that added or removed it); a regex finds commits whose changed lines match
     Changes,
 }
 
@@ -86,13 +86,13 @@ impl LogFilter {
         self.path.as_deref().filter(|p| !p.is_empty())
     }
 
-    /// 按改动内容搜索的文字
+    /// Text to search for in changes
     fn changes(&self) -> Option<&str> {
         (self.search_in == SearchIn::Changes && !self.text.is_empty()).then_some(self.text.as_str())
     }
 }
 
-/// 作者的匹配规则（说明书 5.1 作者过滤）：对名字和邮箱分别比较，不区分大小写
+/// Author matching rule (author filter in spec §5.1): compared against name and email separately, case-insensitive
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct AuthorMatch {
@@ -111,7 +111,7 @@ pub enum MatchKind {
 }
 
 impl AuthorMatch {
-    /// 换成一个判断函数；正则写错时返回 `INVALID_REGEX`（detail 里 field 是 author）
+    /// Turn into a predicate; returns `INVALID_REGEX` for a bad regex (field in detail is author)
     pub fn matcher(&self) -> Result<impl Fn(&str) -> bool + use<>> {
         let t = self.text.trim();
         let pattern = match self.kind {
@@ -126,7 +126,7 @@ impl AuthorMatch {
         Ok(move |s: &str| re.is_match(s))
     }
 
-    /// 这个作者算不算匹配：名字或邮箱满足规则
+    /// Whether this author matches: name or email satisfies the rule
     pub fn hits(m: &impl Fn(&str) -> bool, name: &str, email: &str) -> bool {
         m(name) || m(email)
     }
@@ -135,62 +135,62 @@ impl AuthorMatch {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogSort {
-    /// 图谱（拓扑）顺序
+    /// Graph (topological) order
     #[default]
     Topo,
-    /// 按提交时间从新到旧
+    /// By commit time, newest first
     Date,
 }
 
-/// 作者过滤的选项
+/// Options for the author filter
 #[derive(Debug, Clone, Serialize)]
 pub struct LogAuthor {
     pub name: String,
     pub email: String,
-    /// 日志里这个作者的提交数
+    /// This author's number of commits in the log
     pub count: u32,
 }
 
 struct Meta {
-    /// 每行的作者时间
+    /// Author time of each row
     time: Vec<i64>,
-    /// 每行的作者在 `authors` 里的位置
+    /// Each row's author index in `authors`
     author: Vec<u32>,
-    /// 按提交数从多到少
+    /// By number of commits, most first
     authors: Vec<LogAuthor>,
 }
 
-/// 每次查询最多花在扫描说明文字上的时间；扫不完的下次查询接着扫
+/// Maximum time per query spent scanning message text; the next query continues what's left
 const BUDGET: Duration = Duration::from_millis(150);
-/// 路径查询刚开始时最多等多久、攒够多少个提交就先返回
+/// When a path query has just started, how long to wait at most, and how many commits are enough to return early
 const FIRST_WAIT: Duration = Duration::from_millis(200);
 const FIRST_BATCH: usize = 200;
-/// 每次交给多个线程扫描的行数
+/// Rows handed to the worker threads per round
 const CHUNK: usize = 8192;
 
 #[derive(Default)]
 pub struct Cache {
     meta: Option<Arc<Meta>>,
-    /// 当前这组条件的过滤进度
+    /// Filter progress for the current set of conditions
     run: Option<Run>,
-    /// 路径过滤的后台查询
+    /// Background query for path filtering
     path: Option<PathJob>,
-    /// 折叠线性分支后的视图
+    /// The view with linear branches collapsed
     collapsed: Option<Arc<Collapsed>>,
-    /// 按改动内容搜索的后台查询
+    /// Background query for searching changes
     changes: Option<PathJob>,
 }
 
 impl Cache {
-    /// 引用变了、提交没变：过滤结果重算，作者信息和路径查询留着
+    /// Refs changed but commits didn't: recompute filter results, keep author info and path queries
     pub(crate) fn forget_results(&mut self) {
         self.run = None;
-        // 引用变了，哪些提交有引用（不折叠）也变了
+        // Refs changed, so which commits have refs (and aren't folded) changed too
         self.collapsed = None;
     }
 }
 
-/// 折叠线性分支后的视图：留下的行、它们的图谱、每行下面折叠了几个
+/// The view with linear branches collapsed: the remaining rows, their graph, and how many are folded under each row
 struct Collapsed {
     rows: Vec<u32>,
     graph: Vec<crate::model::GraphRow>,
@@ -198,28 +198,28 @@ struct Collapsed {
     folded: Vec<u32>,
 }
 
-/// 一组过滤条件的计算进度
+/// Computation progress for one set of filter conditions
 struct Run {
     filter: LogFilter,
     sort: LogSort,
-    /// 算 `base` 时路径查询和改动内容查询已经找到的提交数、是否都已经结束；变了就重算
+    /// When `base` was computed: commits already found by the path and change queries, and whether both had finished; recompute when this changes
     path_seen: usize,
     path_done: bool,
-    /// 便宜的条件（分支、日期、作者、路径）过滤后的行，按行号
+    /// Rows passing the cheap conditions (branch, date, author, path), by row number
     base: Vec<u32>,
-    /// `base` 里已经匹配过说明文字的个数
+    /// How many in `base` have already been matched against message text
     scanned: usize,
-    /// 目前的结果（按行号）
+    /// Current results (by row number)
     out: Vec<u32>,
-    /// 按排序方式排好的结果
+    /// Results sorted by the sort order
     rows: Arc<Vec<u32>>,
     done: bool,
 }
 
-/// 后台运行的 git 查询（路径过滤的 `git rev-list <日志的引用> -- <路径>`、改动内容的 `git log -S`）：
-/// 边读输出边记下命中的提交（每行一个哈希）
+/// A git query running in the background (`git rev-list <log refs> -- <path>` for path filtering, `git log -S` for changes):
+/// records matching commits (one hash per line) as output is read
 struct PathJob {
-    /// 这组参数的标识，条件变了就换一个查询
+    /// An id for this set of parameters; a different query when conditions change
     key: String,
     hits: Arc<Mutex<HashSet<gix::ObjectId>>>,
     done: Arc<AtomicBool>,
@@ -229,7 +229,7 @@ struct PathJob {
 
 impl Drop for PathJob {
     fn drop(&mut self) {
-        // 条件换了：不再需要，让后台线程结束 git
+        // Conditions changed: no longer needed, let the background thread end git
         self.stop.store(true, Ordering::SeqCst);
     }
 }
@@ -247,15 +247,15 @@ impl PathJob {
         let job = PathJob { key, hits: Arc::default(), done: Arc::default(), failed: Arc::default(), stop: Arc::default() };
         let mut cmd = Command::new("git");
         cmd.args(args).current_dir(dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        // 输出到管道时 git 会攒满一块（约 8 KB）再写：命中少的要等到最后才一起出来。让它每条都立刻写出
+        // When writing to a pipe git buffers a full block (about 8 KB) first: with few hits they would all arrive at the end. Make it write each one right away
         cmd.env("GIT_FLUSH", "1");
-        // 部分克隆：不要为了查询去下载缺的文件内容（会极慢）；需要时宁可失败
+        // Partial clone: don't download missing file contents for a query (extremely slow); rather fail when needed
         cmd.env("GIT_NO_LAZY_FETCH", "1");
         git_cli::hide_console(&mut cmd);
         let (hits, done, failed, stop) = (job.hits.clone(), job.done.clone(), job.failed.clone(), job.stop.clone());
         std::thread::spawn(move || {
             let fail = |msg: String| {
-                // -G 的正则写错时 git 报 “Invalid regex” 之类
+                // git reports something like "Invalid regex" for a bad -G regex
                 let bad_re = msg.contains("regex") || msg.contains("regcomp");
                 let e = if bad_re { CoreError::new(ErrorCode::InvalidRegex, "正则表达式写得不对") } else { CoreError::new(ErrorCode::GitFailed, fail_msg) };
                 *failed.lock().unwrap() = Some(e.with_detail(serde_json::json!({ "stderr": msg })));
@@ -269,7 +269,7 @@ impl PathJob {
                 }
             };
             let out = child.stdout.take().expect("已设置为 piped");
-            // 攒一点再放进结果，少抢锁；但命中少的路径不能等攒满：最多攒 256 个或 100 ms
+            // Batch a little before adding to results to reduce lock contention; but paths with few hits can't wait for a full batch: at most 256 or 100 ms
             let mut batch = Vec::with_capacity(256);
             let mut last = Instant::now();
             for line in BufReader::new(out).lines() {
@@ -298,13 +298,13 @@ impl PathJob {
     }
 }
 
-/// 路径过滤的 pathspec：不带 glob 魔法时 `*` 也匹配 `/`，`*x*` 就是整个路径里的子串
+/// Pathspec for path filtering: without glob magic `*` also matches `/`, so `*x*` is a substring anywhere in the path
 fn path_spec(pattern: &str, case_sensitive: bool) -> String {
     format!(":({}){}{}{}", if case_sensitive { "" } else { "icase" }, "*", pattern, "*")
 }
 
-/// 按改动内容搜索的 `git log` 参数：普通文字用 -S（出现次数变了的提交），正则用 -G（改动的行匹配，POSIX 扩展正则）。
-/// 分支、日期、路径也交给 git，范围小了快得多（10 万提交上全量 5 秒，限定路径或日期 0.3 秒以内）。
+/// `git log` arguments for searching changes: plain text uses -S (commits where the occurrence count changed), regex uses -G (changed lines match, POSIX extended regex).
+/// Branch, date and path are passed to git too; a narrower range is much faster (5 s for everything on 100k commits, under 0.3 s with a path or date).
 fn changes_args(dir: &Path, f: &LogFilter, text: &str) -> Vec<String> {
     let mut a: Vec<String> = vec!["log".into(), "--format=%H".into()];
     match &f.branch {
@@ -328,8 +328,8 @@ fn changes_args(dir: &Path, f: &LogFilter, text: &str) -> Vec<String> {
     a
 }
 
-/// 后台查询从哪些引用开始找：和日志一样，本地分支、远程分支、标签，分离头指针时加上 HEAD。
-/// 不用 `--all`：那样会把 Strand 自己存撤销快照的 `refs/strand/ops/*`、贮藏也扫一遍（白费时间，结果也不在日志里）
+/// Which refs background queries start from: same as the log, local branches, remote branches, tags, plus HEAD when detached.
+/// Not `--all`: that would also scan Strand's own undo snapshots in `refs/strand/ops/*` and stashes (wasted time, and the results aren't in the log)
 fn log_roots(dir: &Path) -> Vec<String> {
     let mut v: Vec<String> = vec!["--branches".into(), "--remotes".into(), "--tags".into()];
     if git2::Repository::open(dir).is_ok_and(|r| r.head_detached().unwrap_or(false)) {
@@ -338,7 +338,7 @@ fn log_roots(dir: &Path) -> Vec<String> {
     v
 }
 
-/// 仓库是不是部分克隆（文件内容没有全部下载）
+/// Whether the repository is a partial clone (not all file contents downloaded)
 pub fn is_partial_clone(dir: &Path) -> bool {
     let Ok(repo) = git2::Repository::open(dir) else { return false };
     let Ok(cfg) = repo.config() else { return false };
@@ -355,7 +355,7 @@ pub fn is_partial_clone(dir: &Path) -> bool {
     hit
 }
 
-/// 改过匹配路径的提交（在日志的引用上运行 `git rev-list`，等它结束）。测试和工具用；日志过滤走后台查询。
+/// Commits that changed matching paths (runs `git rev-list` on the log's refs and waits for it). For tests and tools; log filtering uses the background query.
 pub fn path_commits(dir: &Path, pattern: &str, case_sensitive: bool) -> Result<HashSet<gix::ObjectId>> {
     let job = PathJob::start(dir, pattern, case_sensitive);
     while !job.done.load(Ordering::SeqCst) {
@@ -369,7 +369,7 @@ pub fn path_commits(dir: &Path, pattern: &str, case_sensitive: bool) -> Result<H
 }
 
 impl Session {
-    /// 带过滤和排序的一页日志。不过滤、按图谱顺序时和 [`Session::log_page`] 相同。
+    /// One page of the log with filtering and sorting. Same as [`Session::log_page`] without filters in graph order.
     pub fn log_query(&mut self, f: &LogFilter, sort: LogSort, offset: usize, limit: usize) -> Result<LogPage> {
         if f.is_empty() && sort == LogSort::Topo {
             if f.collapse_linear {
@@ -398,12 +398,12 @@ impl Session {
         Ok(LogPage { offset: start, rows: commits, graph: Vec::new(), total, lanes: 0, partial, folded: Vec::new() })
     }
 
-    /// 某个提交在过滤结果里的位置；不在结果里返回 `None`
+    /// A commit's position in the filtered results; `None` when not in them
     pub fn log_locate_in(&mut self, rev: &str, f: &LogFilter, sort: LogSort) -> Result<Option<usize>> {
         let Some(row) = self.log_locate(rev) else { return Ok(None) };
         if f.is_empty() && sort == LogSort::Topo {
             if f.collapse_linear {
-                // 折叠起来的提交不在列表里
+                // Folded commits aren't in the list
                 return Ok(self.collapsed().rows.iter().position(|&r| r as usize == row));
             }
             return Ok(Some(row));
@@ -412,12 +412,12 @@ impl Session {
         Ok(rows.iter().position(|&r| r as usize == row))
     }
 
-    /// HEAD 所在的行；没有（空仓库、HEAD 不在日志里）时是第一行
+    /// The row HEAD is on; the first row when there is none (empty repository, HEAD not in the log)
     fn head_row_or_top(&self) -> usize {
         self.head_row().map(|r| r as usize).unwrap_or(0)
     }
 
-    /// 从某一行沿第一个父提交往回走经过的行
+    /// Rows passed walking back from a row along first parents
     fn first_parent_chain(&self, from: usize) -> Vec<bool> {
         let mut on = vec![false; self.ids.len()];
         let mut r = from;
@@ -431,9 +431,9 @@ impl Session {
         on
     }
 
-    /// 折叠线性分支后的视图（算一次缓存起来，引用或日志变了就重算）。
-    /// 当前分支沿第一父提交的那条线全部保留；其余的提交，没有引用、日志里只有一个父提交、只有一个子提交的折叠起来，
-    /// 留下的行的父提交跳过折叠的那些直接连到下面留下的提交上，再重新排图谱。
+    /// The view with linear branches collapsed (computed once and cached, recomputed when refs or the log change).
+    /// The current branch's first-parent line is kept entirely; other commits with no refs, one parent in the log and one child are folded,
+    /// the remaining rows' parents skip the folded ones and connect directly to the next remaining commit, and the graph is laid out again.
     fn collapsed(&mut self) -> Arc<Collapsed> {
         if let Some(c) = &self.filter_cache.collapsed {
             return c.clone();
@@ -474,17 +474,17 @@ impl Session {
         c
     }
 
-    /// 仓库里出现过的作者，按提交数从多到少
+    /// Authors in the repository, by number of commits, most first
     pub fn log_authors(&mut self) -> Result<Vec<LogAuthor>> {
         Ok(self.meta()?.authors.clone())
     }
 
-    /// 过滤结果（按排序方式排好）和是否还没算完。没算完时每次调用都接着算一段（最多 `BUDGET`）。
+    /// Filter results (sorted) and whether computation isn't finished. When unfinished, each call continues for a stretch (at most `BUDGET`).
     fn filtered(&mut self, f: &LogFilter, sort: LogSort) -> Result<(Arc<Vec<u32>>, bool)> {
-        // 先把正则编译好，写错了直接报错，不用白做前面的工作
+        // Compile the regex first so a bad one fails right away without wasted work
         let matcher = Matcher::new(f)?;
 
-        // 路径过滤和改动内容搜索：没有对应的后台查询就开一个
+        // Path filtering and change search: start a background query if there isn't one
         let path_key = f.path().map(|p| format!("path:{}:{p}", f.case_sensitive));
         let changes_key = f.changes().map(|t| format!("changes:{}", serde_json::json!([t, f.regex, f.case_sensitive, f.branch, f.since, f.until, f.path()])));
         if changes_key.is_some() && is_partial_clone(self.path()) {
@@ -508,7 +508,7 @@ impl Session {
                 } else {
                     PathJob::run(&dir, key, &changes_args(&dir, f, f.changes().unwrap_or("")), "按改动内容搜索失败")
                 };
-                // 刚开始的查询还没有结果：最多等 FIRST_WAIT，攒够一页或结束就返回，第一次查询就能带回首批结果
+                // A query that just started has no results yet: wait at most FIRST_WAIT and return once a page is collected or it ends, so the first call brings back the first results
                 let t0 = Instant::now();
                 while t0.elapsed() < FIRST_WAIT && !job.done.load(Ordering::SeqCst) && job.hits.lock().unwrap().len() < FIRST_BATCH {
                     std::thread::sleep(Duration::from_millis(5));
@@ -522,7 +522,7 @@ impl Session {
                 self.filter_cache.run = None;
                 return Err(e);
             }
-            // 先读 done 再读数目：读到 done 时数目一定是最终的
+            // Read done before the count: when done is seen, the count is final
             let done = job.done.load(Ordering::SeqCst);
             seen += job.hits.lock().unwrap().len();
             all_done &= done;
@@ -562,7 +562,7 @@ impl Session {
         Ok(out)
     }
 
-    /// 便宜的条件（分支、日期、作者、路径）过滤后的行，按行号。路径按后台查询目前找到的提交算。
+    /// Rows passing the cheap conditions (branch, date, author, path), by row number. Paths use the commits the background query has found so far.
     fn base_rows(&mut self, f: &LogFilter) -> Result<Vec<u32>> {
         let n = self.ids.len();
         let mut rows: Vec<u32> = match &f.branch {
@@ -588,7 +588,7 @@ impl Session {
                 rows.retain(|&r| meta.time[r as usize] < until);
             }
             if by_author {
-                // 先在作者表上算出哪些作者算数（作者通常只有几十到几百个），再按行筛
+                // First work out on the author table which authors count (usually only tens to hundreds), then filter rows
                 let picked: HashSet<String> = f.authors.iter().chain(f.author.iter()).map(|e| e.to_lowercase()).collect();
                 let m = rule.map(|r| r.matcher()).transpose()?;
                 let ok: Vec<bool> = meta
@@ -614,7 +614,7 @@ impl Session {
         Ok(rows)
     }
 
-    /// 从某个引用能到达的所有行，按行号排好
+    /// All rows reachable from a ref, sorted by row number
     fn reachable(&self, rev: &str) -> Vec<u32> {
         let Some(tip) = self.log_locate(rev) else { return Vec::new() };
         let mut seen = vec![false; self.ids.len()];
@@ -647,7 +647,7 @@ impl Session {
         for s in sigs {
             let (t, email, name) = s.unwrap_or_default();
             let i = *by_email.entry(email.clone()).or_insert_with(|| {
-                // 日志从新到旧，第一次见到的名字就是这个邮箱最近用的名字
+                // The log runs newest to oldest, so the first name seen is the one this email used most recently
                 authors.push(LogAuthor { name, email, count: 0 });
                 (authors.len() - 1) as u32
             });
@@ -655,7 +655,7 @@ impl Session {
             time.push(t);
             author.push(i);
         }
-        // 按提交数排序后，重新编号
+        // Renumber after sorting by commit count
         let mut order: Vec<u32> = (0..authors.len() as u32).collect();
         order.sort_by_key(|&i| (Reverse(authors[i as usize].count), authors[i as usize].name.to_lowercase()));
         let mut remap = vec![0u32; authors.len()];
@@ -669,13 +669,13 @@ impl Session {
         Ok(m)
     }
 
-    /// 在多个线程上解码 `rows` 里的提交，留下 `keep` 返回 true 的，保持原来的顺序
+    /// Decode the commits in `rows` on several threads and keep those where `keep` returns true, preserving order
     fn scan(&self, rows: &[u32], keep: impl Fn(&gix::oid, &gix::Commit<'_>) -> bool + Sync) -> Vec<u32> {
         let hits = self.scan_map(rows, |id, c| keep(id, c).then_some(()));
         rows.iter().zip(hits).filter_map(|(&r, h)| h.map(|_| r)).collect()
     }
 
-    /// 在多个线程上解码 `rows` 里的提交并对每个调用 `f`；读不出来的提交得到 `None`
+    /// Decode the commits in `rows` on several threads and call `f` on each; unreadable commits get `None`
     fn scan_map<T: Send>(&self, rows: &[u32], f: impl Fn(&gix::oid, &gix::Commit<'_>) -> Option<T> + Sync) -> Vec<Option<T>> {
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
         let chunk = rows.len().div_ceil(threads).max(1024);
@@ -703,13 +703,13 @@ impl Session {
 
 struct Matcher {
     re: regex::bytes::Regex,
-    /// 哈希前缀（小写）
+    /// Hash prefix (lowercase)
     hash: Option<String>,
 }
 
 impl Matcher {
     fn new(f: &LogFilter) -> Result<Option<Matcher>> {
-        // 按改动内容搜索时文字交给 git log -S / -G，不匹配说明
+        // When searching changes the text goes to git log -S / -G, not matched against messages
         if f.text.is_empty() || f.search_in == SearchIn::Changes {
             return Ok(None);
         }

@@ -1,10 +1,10 @@
-// 分支树（说明书 6.1）：搜索、HEAD、本地、远程、标签、工作目录。
+// Branch tree (spec §6.1): search, HEAD, local, remote, tags, worktrees.
 //
-// 单击分支：日志只显示这个分支的提交，再点一次取消（和过滤栏的分支是同一个状态）。单击标签：定位。
-// 双击：切换。悬停：切换、合并到当前分支、和当前分支比较、收藏。右键：分支菜单（6.4）。
-// 左边一列图标：新建、更新（拉取）、删除、比较、抓取、收藏、定位、全部展开或折叠。
-// 工作目录（6.6）：分组标题上的＋新建；每行悬停出现打开、在文件管理器中显示、移除；双击打开。
-// 在别的工作目录检出的分支后面有标记，这里切换不过去。
+// Click a branch: the log shows only its commits; click again to cancel (same state as the filter bar's branch). Click a tag: locate it.
+// Double-click: switch. Hover: switch, merge into current branch, compare with current branch, favorite. Right-click: branch menu (6.4).
+// Icon column on the left: new, update (pull), delete, compare, fetch, favorite, locate, expand or collapse all.
+// Worktrees (6.6): + on the group header to create; hovering a row shows open, reveal in file manager, remove; double-click opens.
+// Branches checked out in another worktree are marked and can't be switched to here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Branch, RefsList, Worktree } from "../api/types";
@@ -13,7 +13,7 @@ import type { MenuEntry } from "./Menu";
 import { COMMIT_ICONS as I } from "./commitOps";
 import { t } from "../i18n";
 
-/** 分支的操作项，右键菜单和分支弹窗的子菜单共用（说明书 6.2、6.4） */
+/** Branch actions, shared by the context menu and the branch popup's submenu (spec §6.2, §6.4) */
 export function branchActions(b: Branch, ops: BranchOps, fav: boolean, toggleFav: (n: string) => void, merging: boolean): MenuEntry[] {
   const busy = merging ? t("合并还没完成") : undefined;
   return [
@@ -30,7 +30,7 @@ export function branchActions(b: Branch, ops: BranchOps, fav: boolean, toggleFav
       label: t("把当前分支变基到它之上…"),
       icon: I.rebase,
       run: () => ops.rebaseOnto(b.name),
-      // 已经在它之上、独有提交里有合并提交时，核心层先算好原因，这里直接置灰（说明书 6.3）
+      // When it's already on top or own commits include a merge commit, the core layer computes the reason up front and it's greyed out here (spec §6.3)
       disabled: b.is_current || merging || !ops.current || !!b.rebase_block,
       why: b.is_current ? t("这就是当前分支") : busy ?? b.rebase_block ?? t("现在不在任何分支上"),
     },
@@ -52,16 +52,16 @@ interface Props {
   favs: Set<string>;
   toggleFav: (name: string) => void;
   merging: boolean;
-  /** 过滤栏里选中的分支 */
+  /** The branch selected in the filter bar */
   picked: string | null;
   onPick: (name: string) => void;
   onLocate: (rev: string) => void;
   onMenu: (x: number, y: number, items: MenuEntry[]) => void;
-  /** 推送一个标签（说明书 6.5） */
+  /** Push one tag (spec §6.5) */
   onPushTag?: (name: string) => void;
-  /** 打开管理远程 */
+  /** Open remote management */
   onRemotes?: () => void;
-  /** 图标列里的更新（拉取当前分支）和抓取；pullWhy 是不能拉取的原因 */
+  /** Update (pull the current branch) and fetch in the icon column; pullWhy is why pulling isn't possible */
   remote?: { fetch: () => void; pull: () => void; pullWhy: string | null };
 }
 
@@ -69,7 +69,7 @@ type Group = "local" | "remote" | "tags" | "worktrees";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
 const FOLDER_ICON = "M1.5 3.5h4l1.5 1.5h5.5v6.5h-11z";
-/** 行首的类型图标：本地分支是标签形（当前分支是黄色），远程分支是分叉，远程是文件夹，标签是吊牌，工作目录是文件夹 */
+/** Type icon at the start of a row: local branches are tag-shaped (the current one yellow), remote branches a fork, remotes a folder, tags a label, worktrees a folder */
 const LABEL_ICON = "M2 3.2C2 2.5 2.5 2 3.2 2h4.3l4.5 4.5-5.5 5.5L2 7.5z";
 const DOT = "M5.2 4.4a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6z";
 const KindIcon = ({ d, dot, className }: { d: string; dot?: boolean; className?: string }) => (
@@ -85,7 +85,7 @@ const Icon = ({ d }: { d: string }) => (
   </svg>
 );
 
-/** 工作目录的操作项（右键菜单） */
+/** Worktree actions (context menu) */
 function worktreeActions(w: Worktree, ops: BranchOps): MenuEntry[] {
   const wt = ops.worktree!;
   return [
@@ -109,7 +109,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
   const f = q.trim().toLowerCase();
   const match = (n: string) => !f || n.toLowerCase().includes(f);
   const local = useMemo(
-    // 收藏的排在前面，其余保持核心层给的顺序（按名字）
+    // Favorites first, the rest in the order the core layer gave (by name)
     () => (refs?.branches ?? []).filter((b) => match(b.name)).sort((a, b) => Number(!favs.has(a.name)) - Number(!favs.has(b.name))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [refs, f, favs],
@@ -119,16 +119,16 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
   for (const r of remotes) byRemote.set(r.remote, [...(byRemote.get(r.remote) ?? []), r]);
   const tags = (refs?.tags ?? []).filter((t) => match(t.name));
   const worktrees = (refs?.worktrees ?? []).filter((w) => match(w.path) || match(w.branch ?? ""));
-  // 搜索时自动展开有结果的分组
+  // Expand groups with results automatically while searching
   const isOpen = (g: Group) => (f ? true : open[g]);
-  /** 折叠起来的远程（如 origin） */
+  /** Collapsed remotes (e.g. origin) */
   const [closedRemotes, setClosedRemotes] = useState<Set<string>>(() => new Set());
   const toggle = (g: Group) => setOpen((o) => ({ ...o, [g]: !o[g] }));
   const allOpen = open.local && open.remote && open.tags && open.worktrees;
 
-  // 拖拽合并或变基（说明书 6.1，变基对照 JetBrains 后来补上）：按住本地或远程分支拖到另一个本地分支上松开，
-  // 弹出菜单选合并还是变基。变基只改当前分支：拖的是当前分支时把它变基到目标之上，拖到当前分支上时把当前分支变基到拖来的分支之上。
-  // 用鼠标事件自己做，不用 HTML5 拖放（Tauri 窗口里文件拖放会拦截它）。移动超过 5 px 才算拖。
+  // Drag to merge or rebase (spec §6.1; rebase added later after JetBrains): press on a local or remote branch, drag onto another local branch and release,
+  // and a menu offers merge or rebase. Rebase only changes the current branch: dragging the current branch rebases it onto the target; dropping onto the current branch rebases the current branch onto the dragged one.
+  // Done with mouse events rather than HTML5 drag and drop (file drops in the Tauri window intercept it). Only counts as a drag after moving more than 5 px.
   const [drag, setDrag] = useState<{ src: string; x: number; y: number; over: string | null } | null>(null);
   const over = useRef<string | null>(null);
   const dragged = useRef(false);
@@ -159,7 +159,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
     const up = (ev: MouseEvent) => {
       const target = on ? over.current : null;
       if (on) {
-        // 松开后紧跟着的 click 不算单击
+        // The click right after releasing doesn't count as a click
         dragged.current = true;
         window.setTimeout(() => (dragged.current = false), 0);
       }
@@ -173,10 +173,10 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
     stopDrag.current = end;
   };
   const click = (f: () => void) => () => !dragged.current && f();
-  /** 松开后的菜单：合并，或变基（只能改当前分支） */
+  /** The menu after releasing: merge, or rebase (only changes the current branch) */
   const dropMenu = (src: string, target: string): MenuEntry[] => {
     const cur = ops.current;
-    // rebase_block 是“把当前分支变基到它之上”不行的原因
+    // rebase_block is why "rebase the current branch onto it" isn't possible
     const block = (name: string) => refs?.branches.find((b) => b.name === name)?.rebase_block ?? refs?.remotes.find((r) => r.name === name)?.rebase_block ?? undefined;
     const rebase: MenuEntry =
       src === cur
@@ -187,8 +187,8 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
     return [{ label: t("{0} → {1}", src, target), heading: true }, { label: t("把 {0} 合并到 {1}…", src, target), icon: I.merge, run: () => ops.mergeInto(src, target) }, rebase];
   };
   /**
-   * 行可以用键盘操作（说明书 12.4）：Tab 到达，回车等同单击，Shift+F10 或菜单键打开右键菜单。
-   * 只处理行本身上的按键，行里的图标按钮照常。
+   * Rows are keyboard operable (spec §12.4): reachable with Tab, Enter acts as a click, Shift+F10 or the menu key opens the context menu.
+   * Only keys on the row itself are handled; icon buttons in the row work as usual.
    */
   const rowKeys = (onEnter: () => void, menu: () => MenuEntry[]) => (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
@@ -228,7 +228,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
   return (
     <nav className="tree" aria-label={t("分支")}>
       <div className="tree-bar">
-        {/* 左侧操作图标（说明书 6.1）：“选中的分支”指在树里单击高亮的那个 */}
+        {/* Icons on the left (spec §6.1): "the selected branch" is the one highlighted by clicking in the tree */}
         <button type="button" className="ib" title={t("新建分支")} aria-label={t("新建分支")} onClick={() => ops.create()}>
           <Icon d="M7 2v10M2 7h10" />
         </button>
@@ -300,7 +300,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
             <div
               key={b.name}
               className={"trow" + (b.is_current ? " current" : "") + (picked === b.name ? " picked" : "") + (drag?.over === b.name ? " drop" : "") + (drag?.src === b.name ? " drag-src" : "")}
-              // 在别的工作目录检出的分支切换不过去，不能当拖放目标
+              // Branches checked out in another worktree can't be switched to, so they can't be drop targets
               data-drop={!b.worktree || b.is_current ? b.name : undefined}
               onMouseDown={startDrag(b.name)}
               onClick={click(() => onPick(b.name))}
@@ -325,7 +325,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                 </span>
               )}
               {b.needs_force ? (
-                // 改写了已推送的提交：远程上那些是旧版本，落后数不显示（说明书 6.3）
+                // Pushed commits were rewritten: those on the remote are old versions, so behind isn't shown (spec §6.3)
                 <span className="ab mono force" title={t("改写了已经推送的提交，要强制推送才能更新 {0}", b.upstream)} aria-label={t("需要强制推送")}>
                   {`↑${b.ahead}!`}
                 </span>
@@ -436,7 +436,7 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                 </span>
               )}
               {tg.unpushed && onPushTag && (
-                // 未推送的标签显示推送图标（说明书 6.5），点一下推送
+                // Unpushed tags show a push icon (spec §6.5); click to push
                 <button
                   type="button"
                   className="ib sm tag-push"

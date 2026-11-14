@@ -1,11 +1,11 @@
-//! 冲突解决（说明书第 8 节）。
+//! Conflict resolution (spec §8).
 //!
-//! 核心层负责：读出有冲突的文件，按“原始 / 你的 / 对方的”三个版本切成上下文和修改块；
-//! 按前端给的标记生成结果写回文件；完成、跳过、中止。
-//! 标记本身由前端保存（含撤销、重做和“稍后继续”），核心层不保存标记状态，
-//! 应用文件时由前端把这个文件的全部标记一次传进来。
+//! The core layer: reads the conflicted files and splits them into context and change blocks using the three versions "base / yours / theirs";
+//! builds the result from the frontend's marks and writes it back; finish, skip, abort.
+//! The marks themselves are kept by the frontend (including undo, redo and "continue later"); the core layer keeps no mark state,
+//! and when a file is applied the frontend passes in all of that file's marks at once.
 //!
-//! “你的”和“对方的”已按说明书 8.1 转换：变基时 git 的 ours 是目标分支，theirs 才是你的提交。
+//! "Yours" and "theirs" are already mapped per spec §8.1: during a rebase git's ours is the target branch and theirs is your commit.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -23,13 +23,13 @@ pub enum SessionKind {
     Rebase,
     CherryPick,
     Revert,
-    /// 取回贮藏或暂存架
+    /// Restoring a stash or shelf entry
     Unstash,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SideInfo {
-    /// 分支名，或“你的提交”之类的说明
+    /// A branch name, or a description like "your commit"
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
@@ -46,14 +46,14 @@ pub struct RebaseStep {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FileKind {
-    /// 文本文件，可以逐块处理
+    /// Text file, can be resolved block by block
     Text,
-    /// 一边修改、一边删除
+    /// Modified on one side, deleted on the other
     ModifyDelete,
     Binary,
-    /// 锁文件：只能整文件选，建议用对方的
+    /// Lock file: whole file only, theirs recommended
     Lock,
-    /// 两边把同一个文件重命名成了不同的名字：只能选用哪一边的名字（和内容）
+    /// Both sides renamed the same file to different names: you can only pick whose name (and content) to keep
     Rename,
 }
 
@@ -66,36 +66,36 @@ pub enum SideChange {
     Renamed,
 }
 
-/// 引入一个修改块的提交（说明书 8.10 的 Block.origin）：这一侧这几行最近一次是哪个提交改的
+/// The commit that introduced a change block (Block.origin in spec §8.10): which commit last changed these lines on this side
 #[derive(Debug, Clone, Serialize)]
 pub struct Origin {
     pub commit: String,
     pub author: String,
-    /// Unix 秒
+    /// Unix seconds
     pub time: i64,
     pub title: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-// 一个文件的修改块不多，不值得为了省内存把 Change 装进 Box
+// A file has few change blocks, not worth boxing Change to save memory
 #[allow(clippy::large_enum_variant)]
 pub enum Segment {
-    /// 三方相同（或两边做了完全相同的修改）的内容
+    /// Content that is the same on all three sides (or both sides made the exact same change)
     Context { lines: Vec<String> },
     Change(Change),
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Change {
-    /// 文件内的编号，如 `c3`。文件的三个版本不变时编号稳定
+    /// An id within the file, e.g. `c3`. Stable as long as the file's three versions don't change
     pub id: String,
-    /// 原始内容（双方修改之前）
+    /// Base content (before either side changed it)
     pub base: Vec<String>,
-    /// 这一侧改成的内容；为空表示这一侧没有改动
+    /// What this side changed it to; empty means this side has no change
     pub mine: Option<Vec<String>>,
     pub theirs: Option<Vec<String>>,
-    /// 引入这一侧这段内容的提交；这一侧没改动、只是删掉了几行、或没有提交（工作区）时为空
+    /// The commit that introduced this side's content; empty when this side didn't change, only deleted lines, or has no commit (worktree)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mine_origin: Option<Origin>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,11 +108,11 @@ pub struct ConflictFile {
     pub kind: FileKind,
     pub mine_change: SideChange,
     pub theirs_change: SideChange,
-    /// 只有文本文件有
+    /// Text files only
     pub segments: Vec<Segment>,
-    /// 已经解决（这次操作里有过冲突、现在没有了）：segments 为空
+    /// Already resolved (had conflicts during this operation, none now): segments is empty
     pub resolved: bool,
-    /// 重命名冲突：两边各自的新名字（path 是原来的名字）
+    /// Rename conflict: each side's new name (path is the original name)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mine_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,13 +120,13 @@ pub struct ConflictFile {
 }
 
 impl MergeSession {
-    /// 还没解决的文件
+    /// Files not resolved yet
     pub fn unresolved(&self) -> impl Iterator<Item = &ConflictFile> {
         self.files.iter().filter(|f| !f.resolved)
     }
 }
 
-/// 这次操作里出现过冲突的文件（`.git/strand/conflicts.json`），用来在列表里显示“已解决”的文件
+/// Files that had conflicts during this operation (`.git/strand/conflicts.json`), used to show "resolved" files in the list
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ConflictRecord {
     key: String,
@@ -152,9 +152,9 @@ pub struct MergeSession {
     pub step: Option<RebaseStep>,
     pub mine: SideInfo,
     pub theirs: SideInfo,
-    /// 这次操作里有冲突的文件：还没解决的在前（按路径），已经解决的在后（resolved 为真）
+    /// Files with conflicts in this operation: unresolved first (by path), resolved after (resolved true)
     pub files: Vec<ConflictFile>,
-    /// 撤销“中止合并”后放回来的前端标记（中止时前端交给核心层的原样内容）
+    /// Frontend marks restored after undoing "abort merge" (the exact content the frontend handed over when aborting)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saved_marks: Option<serde_json::Value>,
 }
@@ -175,7 +175,7 @@ pub enum Mark {
     Discard,
 }
 
-/// 一处的标记。`custom` 是手动编辑的结果，有它时两侧都视为已处理。
+/// The mark for one block. `custom` is a hand-edited result; when present both sides count as handled.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ChangeMark {
     #[serde(default)]
@@ -186,7 +186,7 @@ pub struct ChangeMark {
     pub custom: Option<Vec<String>>,
 }
 
-/// `merge_finish` 和 `merge_skip` 的结果：要么整个操作完成，要么变基停在下一个有冲突的提交。
+/// Result of `merge_finish` and `merge_skip`: either the whole operation finished, or the rebase stopped at the next commit with conflicts.
 #[derive(Debug, Clone, Serialize)]
 pub struct FinishResult {
     pub done: bool,
@@ -200,7 +200,7 @@ const LOCK_FILES: &[&str] = &[
 ];
 
 impl Session {
-    /// 当前的冲突会话；不在合并、变基、拣选、还原中时返回 `None`。
+    /// The current conflict session; `None` when not merging, rebasing, cherry-picking or reverting.
     pub fn merge_session(&self) -> Result<Option<MergeSession>> {
         let kind = match self.state()?.state {
             RepoMode::Normal => return Ok(None),
@@ -222,7 +222,7 @@ impl Session {
 
         let index = repo.index().map_err(|e| CoreError::git("读取索引失败", e))?;
         let mut files = Vec::new();
-        // 只有一个版本的条目：两边重命名成不同名字时，git 把原名（只有原始版本）、你的新名、对方的新名分成三条
+        // Entries with only one version: when both sides rename to different names, git splits the original name (base only), your new name and their new name into three entries
         let mut lone: Vec<(usize, char, Vec<u8>)> = Vec::new();
         for c in index.conflicts().map_err(|e| CoreError::git("读取冲突失败", e))? {
             let Ok(c) = c else { continue };
@@ -263,13 +263,13 @@ impl Session {
         }
         let mut files = pair_renames(files, &lone);
         files.sort_by(|a, b| a.path.cmp(&b.path));
-        // 每个修改块是哪个提交引入的（说明书 8.10 的 Block.origin）：在这一侧的提交上 blame
+        // Which commit introduced each change block (Block.origin in spec §8.10): blame on that side's commit
         let mine_rev = (kind != SessionKind::Unstash).then(|| mine.commit.clone()).flatten();
         let theirs_rev = matches!(kind, SessionKind::Merge | SessionKind::Rebase | SessionKind::CherryPick).then(|| theirs.commit.clone()).flatten();
         for f in files.iter_mut().filter(|f| f.kind == FileKind::Text) {
             self.fill_origins(f, mine_rev.as_deref(), theirs_rev.as_deref());
         }
-        // 已经解决的文件：这次操作里记下过、现在没有冲突了
+        // Resolved files: recorded during this operation and no longer conflicted
         let key = format!(
             "{:?}:{}:{}:{}",
             kind,
@@ -287,7 +287,7 @@ impl Session {
         Ok(self.strand_dir()?.join("conflicts.json"))
     }
 
-    /// 把这次的冲突文件并进记录，返回记录里有、现在已经没有冲突的文件（标记为已解决）
+    /// Merge this run's conflicted files into the record and return the recorded files that no longer conflict (marked resolved)
     fn record_conflicts(&self, key: &str, current: &[ConflictFile]) -> Vec<ConflictFile> {
         let Ok(path) = self.conflict_record_file() else { return Vec::new() };
         let mut rec: ConflictRecord = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -306,7 +306,7 @@ impl Session {
                 });
             }
         }
-        // git 在 MERGE_MSG 里记着这次一开始有冲突的文件（“# Conflicts:”下面）：Strand 打开之前就在命令行里解决了的也算上
+        // git records the files that conflicted at the start in MERGE_MSG (under "# Conflicts:"): include those resolved on the command line before Strand opened
         if !key.starts_with("Unstash")
             && let Ok(git_dir) = self.git2().map(|r| r.path().to_path_buf())
             && let Ok(msg) = std::fs::read_to_string(git_dir.join("MERGE_MSG"))
@@ -347,7 +347,7 @@ impl Session {
         done
     }
 
-    /// 操作结束（完成或中止）：清掉冲突记录
+    /// The operation ended (finished or aborted): clear the conflict record
     pub(crate) fn clear_conflict_record(&self) {
         if let Ok(p) = self.conflict_record_file() {
             let _ = std::fs::remove_file(p);
@@ -357,7 +357,7 @@ impl Session {
         }
     }
 
-    /// 在两边的提交上 blame 这个文件，给每个修改块找出引入它的提交（取这几行里最新的那个）
+    /// Blame this file on both sides' commits to find the commit that introduced each change block (the newest among those lines)
     fn fill_origins(&self, f: &mut ConflictFile, mine_rev: Option<&str>, theirs_rev: Option<&str>) {
         let blame = |rev: Option<&str>| -> Option<Vec<String>> {
             let rev = rev?;
@@ -388,7 +388,7 @@ impl Session {
                 })
                 .clone()
         };
-        // 一段行里最新的那个提交
+        // The newest commit among a range of lines
         let mut newest = |by_line: &Option<Vec<String>>, from: usize, len: usize| -> Option<Origin> {
             let by_line = by_line.as_ref()?;
             let ids: Vec<String> = by_line.get(from..(from + len).min(by_line.len()))?.to_vec();
@@ -417,8 +417,8 @@ impl Session {
         }
     }
 
-    /// 按标记生成一个文本文件的结果，写回工作区并标记为已解决。
-    /// 有修改块没标记时返回 `UNMARKED_BLOCKS`，`detail.ids` 是没标记完的那几处。
+    /// Build a text file's result from the marks, write it to the worktree and mark it resolved.
+    /// Returns `UNMARKED_BLOCKS` when blocks are unmarked, with the incomplete ones in `detail.ids`.
     pub fn merge_apply_file(&self, path: &str, marks: &HashMap<String, ChangeMark>) -> Result<()> {
         let session = self.merge_session()?.ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "现在没有要解决的冲突"))?;
         let file = session
@@ -465,14 +465,14 @@ impl Session {
         Ok(())
     }
 
-    /// 整个文件接受一边（说明书 8.7）。这一边删除了文件时，结果就是删除。
+    /// Take one side for the whole file (spec §8.7). When that side deleted the file, the result is a deletion.
     pub fn merge_take_file(&self, path: &str, side: Side) -> Result<()> {
         let session = self.merge_session()?.ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "现在没有要解决的冲突"))?;
         let file = session
             .unresolved()
             .find(|f| f.path == path)
             .ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("{path} 没有冲突，或已经解决")))?;
-        // 重命名冲突：留下选中那一边的新名字，另一个新名字和原名都去掉
+        // Rename conflict: keep the chosen side's new name, remove the other new name and the original
         if file.kind == FileKind::Rename {
             let (keep, other) = match side {
                 Side::Mine => (&file.mine_path, &file.theirs_path),
@@ -495,7 +495,7 @@ impl Session {
             git_cli::run(self.path(), &["rm", "--quiet", "--", path], None)?;
             return Ok(());
         }
-        // 变基时“你的”是 git 的 theirs
+        // During a rebase "yours" is git's theirs
         let git_side = match (side, session.kind == SessionKind::Rebase) {
             (Side::Mine, false) | (Side::Theirs, true) => "--ours",
             _ => "--theirs",
@@ -505,8 +505,8 @@ impl Session {
         Ok(())
     }
 
-    /// 完成：所有文件都解决后提交（合并、拣选、还原）或继续变基。
-    /// 变基停在下一个有冲突的提交时返回下一步的会话。
+    /// Finish: once every file is resolved, commit (merge, cherry-pick, revert) or continue the rebase.
+    /// Returns the next session when the rebase stops at the next conflicting commit.
     pub fn merge_finish(&self) -> Result<FinishResult> {
         let session = self.merge_session()?.ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "现在没有要解决的冲突"))?;
         let open: Vec<&ConflictFile> = session.unresolved().collect();
@@ -521,7 +521,7 @@ impl Session {
             )
             .with_detail(serde_json::json!({ "files": open.iter().map(|f| &f.path).collect::<Vec<_>>() })));
         }
-        // 结果里不能残留冲突标记（说明书 8.8）
+        // No conflict markers may remain in the result (spec §8.8)
         if let Err(e) = git_cli::run(self.path(), &["diff", "--cached", "--check"], None) {
             let out = e.detail.as_ref().and_then(|d| d.get("stdout")).and_then(|s| s.as_str()).unwrap_or("").to_string();
             let hits: Vec<String> = out.lines().filter(|l| l.contains("conflict marker")).map(|l| l.split(": ").next().unwrap_or(l).to_string()).collect();
@@ -532,12 +532,12 @@ impl Session {
         }
         let args: &[&str] = match session.kind {
             SessionKind::Unstash => {
-                // 取回没有要继续的 git 命令：冲突都解决了就结束，按需删除条目
+                // Restoring has no git command to continue: finish once all conflicts are resolved, deleting the entry if needed
                 self.unstash_finish()?;
                 self.clear_conflict_record();
                 return Ok(FinishResult { done: true, next: None });
             }
-            // 压缩合并：结果提交成一个普通提交，不记成合并（说明书 6.7）
+            // Squash merge: commit the result as a normal commit, not a merge (spec §6.7)
             SessionKind::Merge if self.squash_pending().is_some() => {
                 self.squash_commit()?;
                 self.clear_conflict_record();
@@ -551,7 +551,7 @@ impl Session {
         self.continue_or_next(args)
     }
 
-    /// 跳过当前这个提交（只用于变基）。
+    /// Skip the current commit (rebase only).
     pub fn merge_skip(&self) -> Result<FinishResult> {
         if self.state()?.state != RepoMode::Rebasing {
             return Err(CoreError::new(ErrorCode::InvalidRange, "只有变基时可以跳过提交"));
@@ -561,7 +561,7 @@ impl Session {
 
     fn continue_or_next(&self, args: &[&str]) -> Result<FinishResult> {
         let r = git_cli::run(self.path(), args, None);
-        // 变基继续后可能又停在冲突上：此时 git 返回失败，但这是正常的下一步
+        // Continuing the rebase may stop on conflicts again: git reports failure then, but that is the normal next step
         let next = self.merge_session()?;
         match (r, next) {
             (_, Some(s)) if s.unresolved().next().is_some() => Ok(FinishResult { done: false, next: Some(s) }),
@@ -575,7 +575,7 @@ impl Session {
     }
 }
 
-/// 一处的结果（说明书 8.6）。
+/// The result for one block (spec §8.6).
 fn resolve(c: &Change, m: &ChangeMark) -> Vec<String> {
     let take_m = c.mine.is_some() && m.mine == Mark::Accept;
     let take_t = c.theirs.is_some() && m.theirs == Mark::Accept;
@@ -591,9 +591,9 @@ fn resolve(c: &Change, m: &ChangeMark) -> Vec<String> {
     }
 }
 
-/// 三方合并：按原始内容的行把两边的改动对齐，重叠或相邻的改动合成一处。
+/// Three-way merge: align both sides' changes by base lines and combine overlapping or adjacent changes into one block.
 fn segments(base: &[String], mine: &[String], theirs: &[String]) -> Vec<Segment> {
-    // 每一侧的改动：原始内容里被替换的范围 [start, end)，以及替换成的行
+    // Each side's changes: the replaced range [start, end) in the base, and the replacement lines
     struct Edit<'a> {
         start: usize,
         end: usize,
@@ -618,7 +618,7 @@ fn segments(base: &[String], mine: &[String], theirs: &[String]) -> Vec<Segment>
     let mut i = 0usize;
     let mut n = 0usize;
     while i < edits.len() {
-        // 合并重叠或相邻的改动（和 git 一样，紧挨着的两处改动也算一处）
+        // Combine overlapping or adjacent changes (like git, two changes right next to each other count as one)
         let start = edits[i].start;
         let mut end = edits[i].end;
         let mut j = i + 1;
@@ -630,7 +630,7 @@ fn segments(base: &[String], mine: &[String], theirs: &[String]) -> Vec<Segment>
             out.push(Segment::Context { lines: base[pos..start].to_vec() });
         }
         let group = &edits[i..j];
-        // 某一侧在 [start, end) 范围里改成了什么
+        // What one side changed the range [start, end) into
         let side_text = |side: Side| -> Option<Vec<String>> {
             let es: Vec<&Edit> = group.iter().filter(|e| e.side == side).collect();
             if es.is_empty() {
@@ -648,7 +648,7 @@ fn segments(base: &[String], mine: &[String], theirs: &[String]) -> Vec<Segment>
         };
         let (m, t) = (side_text(Side::Mine), side_text(Side::Theirs));
         if m.is_some() && m == t {
-            // 两边做了一样的修改：不算冲突
+            // Both sides made the same change: not a conflict
             out.push(Segment::Context { lines: m.unwrap_or_default() });
         } else {
             n += 1;
@@ -660,7 +660,7 @@ fn segments(base: &[String], mine: &[String], theirs: &[String]) -> Vec<Segment>
     if pos < base.len() {
         out.push(Segment::Context { lines: base[pos..].to_vec() });
     }
-    // 相邻的上下文合并成一段
+    // Merge adjacent context into one segment
     let mut merged: Vec<Segment> = Vec::new();
     for s in out {
         match (merged.last_mut(), s) {
@@ -671,8 +671,8 @@ fn segments(base: &[String], mine: &[String], theirs: &[String]) -> Vec<Segment>
     merged
 }
 
-/// 一个冲突文件的类型和冲突处数（拉取摘要面板用，说明书 7.2）。`None` 表示这一边没有这个文件。
-/// 冲突处数只对文本文件有意义：两边都改了同一段的地方；其余类型为 0。
+/// A conflicted file's kind and number of conflicts (for the pull summary panel, spec §7.2). `None` means that side doesn't have the file.
+/// The count only makes sense for text files: places where both sides changed the same section; 0 for other kinds.
 pub(crate) fn classify(path: &str, base: Option<&[u8]>, mine: Option<&[u8]>, theirs: Option<&[u8]>) -> (FileKind, u32) {
     let name = path.rsplit('/').next().unwrap_or(path);
     let kind = match (mine, theirs) {
@@ -704,12 +704,12 @@ fn is_binary(b: &[u8]) -> bool {
     b.iter().take(8000).any(|&c| c == 0)
 }
 
-/// 结果文件是否以换行结尾：沿用工作区里（带冲突标记的）文件，一般和两边一致。
+/// Whether the result ends with a newline: follow the worktree file (with conflict markers), which usually matches both sides.
 fn ends_with_newline(root: &Path, path: &str) -> bool {
     std::fs::read(root.join(path)).map(|b| b.last() == Some(&b'\n')).unwrap_or(true)
 }
 
-/// 两边的说明，按场景转换（说明书 8.1）。
+/// Labels for the two sides, depending on the scenario (spec §8.1).
 fn sides(dir: &Path, git_dir: &Path, kind: SessionKind) -> (SideInfo, SideInfo, Option<RebaseStep>) {
     let rev = |r: &str| -> (Option<String>, Option<String>) {
         match git_cli::run(dir, &["log", "-1", "--format=%H%x00%s", r], None) {
@@ -721,7 +721,7 @@ fn sides(dir: &Path, git_dir: &Path, kind: SessionKind) -> (SideInfo, SideInfo, 
         }
     };
     let name_of = |r: &str| -> Option<String> {
-        // 不用 origin/HEAD 这类符号引用，要真正的分支名
+        // Use the real branch name, not a symbolic ref like origin/HEAD
         git_cli::run(dir, &["name-rev", "--name-only", "--no-undefined", "--exclude=tags/*", "--exclude=*/HEAD", r], None)
             .ok()
             .map(|s| s.trim().trim_start_matches("remotes/").to_string())
@@ -770,8 +770,8 @@ fn sides(dir: &Path, git_dir: &Path, kind: SessionKind) -> (SideInfo, SideInfo, 
     }
 }
 
-/// 两边把同一个文件重命名成不同名字：git 留下三条只有一个版本的条目（原名只有原始版本、
-/// 你的新名只有你的、对方的新名只有对方的）。按内容相近程度配成一组，合成一个“重命名”冲突。
+/// Both sides renamed the same file to different names: git leaves three single-version entries (the original name has only base,
+/// your new name only yours, their new name only theirs). Pair them by content similarity and combine into one "rename" conflict.
 fn pair_renames(files: Vec<ConflictFile>, lone: &[(usize, char, Vec<u8>)]) -> Vec<ConflictFile> {
     let similar_enough = |a: &[u8], b: &[u8]| a == b || similar::TextDiff::from_lines(&*String::from_utf8_lossy(a), &*String::from_utf8_lossy(b)).ratio() >= 0.5;
     let mut used: Vec<usize> = Vec::new();
@@ -823,7 +823,7 @@ mod tests {
         let mine = v("a,B1,c,d,e,f,g2");
         let theirs = v("a,B2,c,d,E,f,g");
         let s = segments(&base, &mine, &theirs);
-        // b 两边都改了（冲突）；e 只有对方改；g 只有你改
+        // b changed on both sides (conflict); e only theirs; g only yours
         assert_eq!(kinds(&s), vec!["ctx1", "mt", "ctx2", "t", "ctx1", "m"]);
         let Segment::Change(c) = &s[1] else { panic!() };
         assert_eq!((c.base.clone(), c.mine.clone().unwrap(), c.theirs.clone().unwrap()), (v("b"), v("B1"), v("B2")));
@@ -837,7 +837,7 @@ mod tests {
 
     #[test]
     fn adjacent_edits_form_one_conflict() {
-        // 你改了 b，对方改了紧挨着的 c：算一处冲突
+        // You changed b and they changed the adjacent c: counts as one conflict
         let s = segments(&v("a,b,c,d"), &v("a,B,c,d"), &v("a,b,C,d"));
         assert_eq!(kinds(&s), vec!["ctx1", "mt", "ctx1"]);
         let Segment::Change(c) = &s[1] else { panic!() };
@@ -855,7 +855,7 @@ mod tests {
         assert_eq!(resolve(c, &mk(Mark::Discard, Mark::Discard)), Vec::<String>::new());
     }
 
-    /// 说明书 8.6 结果表的每一行（未标记的两行由 `merge_apply_file` 拒绝，见 tests/conflict.rs）
+    /// Every row of the result table in spec §8.6 (the two unmarked rows are rejected by `merge_apply_file`, see tests/conflict.rs)
     #[test]
     fn result_table_rows() {
         let s = segments(&v("a,b,c,d,e"), &v("a,M,c,d,e2"), &v("a,T,c,d,e"));

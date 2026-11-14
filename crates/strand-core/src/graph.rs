@@ -1,21 +1,21 @@
-//! 图谱泳道布局。
+//! Graph lane layout.
 //!
-//! 输入是已经排好序的提交（新的在前），每个提交给出父提交所在的行号；
-//! 输出每一行所在的泳道，以及从这一行画到下一行的所有线段。
+//! Input is the commits already sorted (newest first), each with the rows of its parents;
+//! output is each row's lane and all segments drawn from that row to the next.
 //!
-//! 做法：维护一组“活动泳道”，每条泳道记着它下一步等待的提交（行号）。
-//! 处理一行时，先找等待这个提交的泳道（可能有多条，汇合到最左边那条），
-//! 然后第一个父提交沿用本泳道，其余父提交找已在等待它的泳道或开新泳道。
+//! Approach: keep a set of "active lanes", each recording the commit (row) it waits for next.
+//! For each row, first find the lanes waiting for this commit (possibly several, merging into the leftmost),
+//! then the first parent continues in this lane and other parents take a lane already waiting for them or open a new one.
 //!
-//! 长连线折叠（和 JetBrains 一样）：子提交到父提交跨过超过 [`LONG`] 行的线，画 [`STUB`] 行后用向下的箭头收住
-//! （`CutOut`），泳道空出来给别的线用；到父提交上方 [`STUB`] 行时重新占一条泳道，从箭头接回来（`CutIn`）。
-//! 分支多的仓库里，大部分泳道都是这种跨过几千行的长线，折叠后宽度降到十几条。
+//! Long edges are collapsed (like JetBrains): an edge from child to parent spanning more than [`LONG`] rows is drawn for [`STUB`] rows and then capped with a down arrow
+//! (`CutOut`), freeing the lane for other edges; [`STUB`] rows above the parent it takes a lane again and continues from an arrow (`CutIn`).
+//! In repositories with many branches most lanes are such edges spanning thousands of rows; collapsing brings the width down to a dozen or so.
 
 use crate::model::{Edge, EdgeKind, GraphRow};
 
-/// 跨过超过这么多行的连线折叠
+/// Collapse edges spanning more than this many rows
 pub const LONG: usize = 30;
-/// 折叠的线在两头各留这么多行
+/// A collapsed edge keeps this many rows at each end
 pub const STUB: usize = 4;
 
 pub struct Layout {
@@ -23,31 +23,31 @@ pub struct Layout {
     pub lanes: u32,
 }
 
-/// 一条活动泳道：等待的父提交所在的行（`>= n` 表示不在列表里，线一直画到底），以及在哪一行折叠
+/// An active lane: the row of the parent it waits for (`>= n` means not in the list; the line runs to the bottom), and the row where it collapses
 #[derive(Clone, Copy, PartialEq)]
 struct Slot {
     wait: usize,
     park_at: Option<usize>,
-    /// 这条线从哪一行出发（最近连上它的子提交）
+    /// The row this edge starts from (the child that last connected to it)
     from: usize,
 }
 
-/// `parents[i]` 是第 i 行提交的父提交所在的行号；父提交不在列表里时用 `>= parents.len()` 的数，
-/// 线会一直画到底部（太长时同样折叠，只是不再接回来）。
+/// `parents[i]` is the rows of the parents of the commit in row i; a parent not in the list uses a number `>= parents.len()`,
+/// and the line runs to the bottom (collapsed the same way when too long, but never rejoined).
 pub fn layout(parents: &[Vec<u32>]) -> Layout {
     let n = parents.len();
     let mut active: Vec<Option<Slot>> = Vec::new();
     let mut rows = Vec::with_capacity(n);
     let mut max_lanes = 0usize;
-    // 折叠了的线：(在哪一行接回来, 父提交所在的行, 出发的行)，按接回的行排序后从末尾取
+    // Collapsed edges: (row where it rejoins, parent's row, start row), sorted by rejoin row and taken from the end
     let mut parked: Vec<(usize, usize, usize)> = Vec::new();
-    // 新开一条等 p 的泳道：跨度太长时记下在哪一行折叠
+    // Open a new lane waiting for p: when the span is too long, record the row where it collapses
     let slot = |row: usize, p: usize| Slot { wait: p, park_at: (p.min(n) - row > LONG).then_some(row + STUB), from: row };
 
     for (row, ps) in parents.iter().enumerate() {
-        // 0. 到了接回来的位置：重新占一条泳道（已经有泳道在等同一个提交时就接在它上面）
-        // 本行提交自己也连到这个父提交时，等第 2 步分好泳道后，箭头画在连过去的那条泳道上
-        // 接回来的泳道和这条线出发的行
+        // 0. At a rejoin position: take a lane again (if a lane is already waiting for the same commit, join it)
+        // If this row's commit also connects to this parent, the arrow is drawn on that lane after step 2 assigns lanes
+        // The rejoining lane and the row this edge started from
         let mut cut_in: Vec<(usize, usize)> = Vec::new();
         let mut cut_in_later: Vec<(usize, usize)> = Vec::new();
         while let Some(&(at, p, from)) = parked.last() {
@@ -70,25 +70,25 @@ pub fn layout(parents: &[Vec<u32>]) -> Layout {
             cut_in.push((l, from));
         }
 
-        // 1. 找出所有在等这个提交的泳道
+        // 1. Find every lane waiting for this commit
         let waiting: Vec<usize> = active.iter().enumerate().filter_map(|(i, w)| w.is_some_and(|s| s.wait == row).then_some(i)).collect();
         let lane = match waiting.first() {
             Some(&l) => l,
             None => free_lane(&mut active),
         };
         let before = active.clone();
-        // 其余等这个提交的泳道在这里汇合，之后空出来
+        // The other lanes waiting for this commit merge here and are freed afterwards
         for &l in waiting.iter().skip(1) {
             active[l] = None;
         }
 
-        // 2. 父提交分配泳道
+        // 2. Assign lanes to parents
         let ps: Vec<usize> = ps.iter().map(|&p| p as usize).collect();
         let mut merge_lanes = Vec::new();
         active[lane] = ps.first().map(|&p| slot(row, p));
         for &p in ps.iter().skip(1) {
             let l = match active.iter().position(|w| w.is_some_and(|s| s.wait == p)) {
-                // 连到已有的线上：从本行起重新算在哪里折叠，免得刚连上就收住
+                // Connected to an existing line: recompute where it collapses from this row, so it doesn't cap right after connecting
                 Some(l) => {
                     active[l] = Some(slot(row, p));
                     l
@@ -101,7 +101,7 @@ pub fn layout(parents: &[Vec<u32>]) -> Layout {
             };
             merge_lanes.push(l);
         }
-        // 第一个父提交如果已经有别的泳道在等：两条线要汇合，保留靠左的那条，让主线始终在左边
+        // If another lane already waits for the first parent, the two lines merge: keep the left one so the main line stays on the left
         let mut fork_to = None;
         let mut pulled_in = None;
         if let Some(&p) = ps.first()
@@ -112,13 +112,13 @@ pub fn layout(parents: &[Vec<u32>]) -> Layout {
                 active[other] = Some(slot(row, p));
                 fork_to = Some(other);
             } else {
-                // 拉过来的线以本行为起点重新算要不要折叠
+                // A line pulled over starts from this row when deciding whether to collapse
                 active[other] = None;
                 pulled_in = Some(other);
             }
         }
 
-        // 3. 生成从本行到下一行的线段；经过的泳道到了折叠的那一行就收住
+        // 3. Emit segments from this row to the next; lanes passing their collapse row are capped
         let mut edges = Vec::new();
         for (l, w) in before.iter().enumerate() {
             if l == lane || waiting.contains(&l) {
@@ -131,7 +131,7 @@ pub fn layout(parents: &[Vec<u32>]) -> Layout {
                 let target = (w.wait < n).then_some(w.wait as u32);
                 edges.push(Edge { from_lane: l as u32, to_lane: l as u32, kind: EdgeKind::CutOut, target });
                 active[l] = None;
-                // 同一个父提交已经有折叠的线等着接回来时，不用再接一次
+                // When a collapsed edge to the same parent is already waiting to rejoin, don't rejoin again
                 if w.wait < n && !parked.iter().any(|&(_, p, _)| p == w.wait) {
                     let at = w.wait - STUB;
                     let i = parked.partition_point(|&(a, _, _)| a > at);
@@ -153,7 +153,7 @@ pub fn layout(parents: &[Vec<u32>]) -> Layout {
         for l in merge_lanes {
             edges.push(Edge { from_lane: lane as u32, to_lane: l as u32, kind: EdgeKind::Merge, target: None });
         }
-        // 接回来的线和本行连向同一个父提交：箭头画在那条泳道上
+        // The rejoining edge and this row connect to the same parent: draw the arrow on that lane
         for (p, from) in cut_in_later {
             if let Some(l) = active.iter().position(|w| w.is_some_and(|s| s.wait == p)) {
                 edges.push(Edge { from_lane: l as u32, to_lane: l as u32, kind: EdgeKind::CutIn, target: Some(from as u32) });
@@ -188,7 +188,7 @@ mod tests {
         l.rows.iter().map(|r| r.lane).collect()
     }
 
-    /// 用名字写测试：`ids` 新的在前，`parents` 按名字给出
+    /// Write tests with names: `ids` newest first, `parents` given by name
     fn by_name(ids: &[char], parents: &[&[char]]) -> Layout {
         let pos = |c: &char| ids.iter().position(|x| x == c).unwrap() as u32;
         layout(&parents.iter().map(|ps| ps.iter().map(pos).collect()).collect::<Vec<_>>())
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn branch_and_merge() {
-        // 5 合并了 4 和 3；4、3 都从 2 分出来；2 -> 1
+        // 5 merges 4 and 3; 4 and 3 both branch from 2; 2 -> 1
         //   5
         //   |\
         //   4 |
@@ -216,16 +216,16 @@ mod tests {
         assert_eq!(lanes(&l), vec![0, 0, 1, 0, 0]);
         assert_eq!(l.lanes, 2);
         assert!(l.rows[0].edges.contains(&Edge { from_lane: 0, to_lane: 1, kind: EdgeKind::Merge, target: None }));
-        // 第 2 行：泳道 0 从旁边经过
+        // Row 2: lane 0 passes by
         assert!(l.rows[2].edges.contains(&Edge { from_lane: 0, to_lane: 0, kind: EdgeKind::Straight, target: None }));
-        // 3 的父提交 2 已经在泳道 0 等着，所以 3 这条线汇回泳道 0
+        // 3's parent 2 is already waited for in lane 0, so 3's line merges back into lane 0
         assert!(l.rows[2].edges.contains(&Edge { from_lane: 1, to_lane: 0, kind: EdgeKind::Fork, target: None }));
     }
 
     #[test]
     fn mainline_stays_left() {
-        // m 合并了 u（主线）和 h（功能分支），两者都来自 r：
-        // r 应当回到泳道 0，而不是留在功能分支的泳道 1
+        // m merges u (main line) and h (feature branch), both from r:
+        // r should return to lane 0 rather than stay in the feature branch's lane 1
         let l = by_name(&['m', 'h', 'u', 'r'], &[&['u', 'h'], &['r'], &['r'], &[]]);
         assert_eq!(lanes(&l), vec![0, 1, 0, 0]);
         assert!(l.rows[2].edges.contains(&Edge { from_lane: 1, to_lane: 0, kind: EdgeKind::Fork, target: None }));
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn two_unrelated_tips() {
-        // 两个分支头 b、a 都指向 r
+        // Two branch heads b and a both point at r
         let l = by_name(&['b', 'a', 'r'], &[&['r'], &['r'], &[]]);
         assert_eq!(lanes(&l), vec![0, 1, 0]);
     }
@@ -243,48 +243,48 @@ mod tests {
         l.rows.iter().enumerate().flat_map(|(i, r)| r.edges.iter().filter(|e| e.from_lane == lane && e.to_lane == lane).map(move |e| (i, e.kind))).collect()
     }
 
-    /// 主线 0..=99 一条直线；第 0 行另有一个分支头 t，父提交是第 80 行：跨 79 行，折叠
+    /// Main line 0..=99 is straight; row 0 also has a branch head t whose parent is row 80: spans 79 rows, collapsed
     #[test]
     fn long_edge_is_cut_and_comes_back() {
         let n = 100u32;
-        // 第 0 行是 t，第 1..100 行是主线（第 i 行的父提交是 i+1）
+        // Row 0 is t, rows 1..100 are the main line (row i's parent is i+1)
         let mut parents: Vec<Vec<u32>> = vec![vec![80]];
         parents.extend((1..n).map(|i| if i + 1 < n { vec![i + 1] } else { vec![] }));
         let l = layout(&parents);
-        // 主线从第 1 行开始在泳道 0（t 占了泳道 0），t 的线在泳道 0 往下……
+        // The main line starts in lane 0 at row 1 (t holds lane 0), t's line goes down lane 0...
         assert_eq!(l.rows[0].lane, 0);
         assert_eq!(l.rows[1].lane, 1);
         let t = kinds_on(&l, 0);
-        // 第 0..4 行是直线，第 4 行收住；第 76 行接回来，一直画到第 79 行（第 80 行是父提交）
+        // Rows 0..4 are straight and capped at row 4; it rejoins at row 76 and runs to row 79 (row 80 is the parent)
         assert_eq!(t.iter().find(|(_, k)| *k == EdgeKind::CutOut).map(|x| x.0), Some(4));
         assert_eq!(t.iter().find(|(_, k)| *k == EdgeKind::CutIn).map(|x| x.0), Some(76));
         assert!(t.iter().all(|&(i, _)| i <= 4 || i >= 76), "中间不画：{t:?}");
-        // 点箭头跳到另一头：收住处指向父提交（第 80 行），接回处指向出发的子提交（第 0 行）
+        // Clicking an arrow jumps to the other end: the cap points at the parent (row 80), the rejoin points at the child it started from (row 0)
         let target = |row: usize, k: EdgeKind| l.rows[row].edges.iter().find(|e| e.kind == k).and_then(|e| e.target);
         assert_eq!(target(4, EdgeKind::CutOut), Some(80));
         assert_eq!(target(76, EdgeKind::CutIn), Some(0));
-        // 第 80 行两条线汇合，主线回到最左边的泳道 0
+        // The two lines merge at row 80 and the main line returns to the leftmost lane 0
         assert_eq!(l.rows[80].lane, 0);
-        // 主线始终只用一条泳道：最多两条
+        // The main line always uses a single lane: at most two
         assert_eq!(l.lanes, 2);
     }
 
-    /// 很多条分支都从很早的一个提交分出来：折叠后中间那段只剩主线
+    /// Many branches split off from one very early commit: after collapsing, only the main line remains in the middle
     #[test]
     fn many_long_branches_take_few_lanes() {
-        // 第 0..20 行是 20 个分支头，父提交都是第 500 行；第 20..600 行是主线
+        // Rows 0..20 are 20 branch heads whose parent is row 500; rows 20..600 are the main line
         let n = 600u32;
         let mut parents: Vec<Vec<u32>> = (0..20).map(|_| vec![500]).collect();
         parents.extend((20..n).map(|i| if i + 1 < n { vec![i + 1] } else { vec![] }));
         let l = layout(&parents);
-        // 第 300 行附近只有主线经过
+        // Only the main line passes around row 300
         assert!(l.rows[300].edges.len() <= 1, "{:?}", l.rows[300].edges);
-        // 接回来时同一个父提交只接一次
+        // A parent is rejoined only once
         let ins: usize = l.rows.iter().map(|r| r.edges.iter().filter(|e| e.kind == EdgeKind::CutIn).count()).sum();
         assert_eq!(ins, 1);
     }
 
-    /// 父提交不在列表里的长线：折叠后不再接回来
+    /// Long edges whose parent isn't in the list: not rejoined after collapsing
     #[test]
     fn edge_to_outside_is_cut_without_coming_back() {
         let n = 50u32;
@@ -297,10 +297,10 @@ mod tests {
         assert!(l.rows.iter().all(|r| r.edges.iter().all(|e| e.kind != EdgeKind::CutIn)));
     }
 
-    /// 随机生成带分支和合并的历史，检查线是连续的：
-    /// - 本行经过的线（不是本行提交的泳道）要么是上一行连下来的，要么是接回来的箭头；
-    /// - 上一行连下来的线要么落在本行的提交上，要么在本行继续往下（或在本行收住）；
-    /// - 有子提交的提交，本行一定有线连进来（除非它的子提交的线都折叠了、还在箭头那里接回）。
+    /// Randomly generate histories with branches and merges and check that lines are continuous:
+    /// - lines passing a row (not the commit's lane) either come down from the previous row or are rejoin arrows;
+    /// - lines coming down from the previous row either land on this row's commit or continue down (or are capped here);
+    /// - a commit with children always has a line coming in on its row (unless all its children's lines collapsed and are still waiting at an arrow).
     #[test]
     fn random_histories_stay_connected() {
         let mut seed = 0x2545_f491_4f6c_dd1du64;
@@ -312,7 +312,7 @@ mod tests {
         };
         for _ in 0..20 {
             let n = 1500usize;
-            // 第 i 行的父提交在它下面：多数是下一行，有时跳很远（老分支），有时是合并
+            // Row i's parents are below it: usually the next row, sometimes far (old branches), sometimes a merge
             let parents: Vec<Vec<u32>> = (0..n)
                 .map(|i| {
                     if i + 1 >= n {
@@ -329,7 +329,7 @@ mod tests {
                 })
                 .collect();
             let l = layout(&parents);
-            // 出错时打印出事前后几行，方便看
+            // On failure print a few rows around it for easier reading
             let around = |i: usize| (i.saturating_sub(6)..=i).map(|k| format!("{k}: 泳道 {} 父提交 {:?} 线段 {:?}", l.rows[k].lane, parents[k], l.rows[k].edges)).collect::<Vec<_>>().join("\n");
             for i in 1..n {
                 let prev = &l.rows[i - 1];
@@ -342,7 +342,7 @@ mod tests {
                     assert!(to == cur.lane || cur.edges.iter().any(|e| e.from_lane == to), "第 {} 行连到泳道 {to} 的线在第 {i} 行断了\n{}", i - 1, around(i));
                 }
             }
-            // 收住处的目标在下面、接回处的目标在上面
+            // A cap's target is below, a rejoin's target is above
             for (i, r) in l.rows.iter().enumerate() {
                 for e in &r.edges {
                     match e.kind {

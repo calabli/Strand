@@ -1,7 +1,7 @@
-// 分隔线：拖动调整相邻区域的大小。左右的（提交面板、提交详情、分支树的宽度）盖在两栏交界处；
-// 上下的（提交详情里文件列表、提交信息的高度）放在两块之间。
-// 拖动时直接改容器上的 CSS 变量，不重新渲染界面；松开时存进设置。双击恢复默认。
-// 焦点在分隔线上时方向键每次调 16 像素（Shift 时 64），Home / End 到最小、最大。
+// Splitter: drag to resize neighboring areas. Horizontal ones (commit panel, commit details, branch tree widths) sit over the boundary between columns;
+// vertical ones (file list and commit info heights in commit details) sit between the two blocks.
+// Dragging changes CSS variables on the container directly without re-rendering; releasing saves to settings. Double-click restores the default.
+// With focus on the splitter, arrow keys adjust by 16 px (64 with Shift), Home / End go to min and max.
 
 import { useRef } from "react";
 import { DEFAULTS, setSettings, settings, type Settings } from "../settings";
@@ -10,23 +10,23 @@ import { t } from "../i18n";
 type Key = "paneLeft" | "paneRight" | "paneTree" | "detailFiles" | "detailInfo" | "paneHistory";
 
 interface Props {
-  /** 设置里的哪个尺寸 */
+  /** Which size in settings */
   name: Key;
-  /** 写 CSS 变量的元素 */
+  /** The element that receives the CSS variable */
   host: React.RefObject<HTMLElement | null>;
-  /** 往哪个方向拖是变大：右、左（宽度），下、上（高度） */
+  /** Which drag direction grows it: right, left (width), down, up (height) */
   grow: "right" | "left" | "down" | "up";
-  /** 允许的范围；max 按当时容器的大小算 */
+  /** Allowed range; max is computed from the container's current size */
   min: number;
   max: () => number;
-  /** 现在实际的大小（设置里是自动时从界面上量） */
+  /** The current actual size (measured from the UI when the setting is automatic) */
   size?: () => number;
   label: string;
 }
 
 export const cssVar = (name: Key) => `--${name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}`;
 
-/** 设置里的尺寸换成 CSS 变量；自动（null）的不写 */
+/** Turn the sizes in settings into CSS variables; automatic (null) ones aren't written */
 export const sizeVars = (s: Settings, keys: Key[]) =>
   Object.fromEntries(keys.filter((k) => s[k] != null).map((k) => [cssVar(k), `${s[k]}px`])) as React.CSSProperties;
 export const paneVars = (s: Settings) => sizeVars({ ...s, paneLeft: Math.max(260, s.paneLeft) }, ["paneLeft", "paneRight", "paneTree"]);

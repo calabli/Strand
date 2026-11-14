@@ -7,7 +7,7 @@ import "./styles/tokens.css";
 import "./styles/app.css";
 import { useLang } from "./i18n";
 
-/** 最外层：订阅语言变化，切换语言时整个界面就地重画（不重新加载窗口，不会白屏闪一下） */
+/** Root: subscribes to language changes; switching re-draws the whole UI in place (no window reload, no white flash) */
 function Root() {
   useLang();
   return (

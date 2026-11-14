@@ -1,6 +1,6 @@
-// 应用补丁：粘贴补丁、选择 .patch / .diff 文件，或把文件拖进窗口。先列出改了哪些文件、带不带提交、能不能直接应用，
-// 再选“生成提交”（git format-patch 生成的邮件格式才有，保留作者和说明）或“只应用到工作区”。
-// 应用到工作区时有冲突，照常进入冲突列表逐个处理。
+// Apply a patch: paste a patch, choose a .patch / .diff file, or drag a file into the window. First lists which files it changes, whether it carries commits, and whether it applies cleanly,
+// then choose "create commits" (only for the mailbox format from git format-patch, keeping author and message) or "apply to worktree only".
+// Conflicts when applying to the worktree go to the conflict list as usual, one by one.
 
 import { useEffect, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -11,7 +11,7 @@ import { useReturnFocus } from "./focus";
 import { t, tr } from "../i18n";
 
 interface Props {
-  /** 拖进窗口或别处带来的补丁 */
+  /** A patch dragged into the window or brought from elsewhere */
   initial?: { text: string; name?: string } | null;
   onClose: () => void;
   done: (st: RepoState, message: string, op?: OpInfo) => void;
@@ -19,7 +19,7 @@ interface Props {
   say: (message: string) => void;
 }
 
-/** 选一个补丁文件，读出文字；取消时返回 null */
+/** Pick a patch file and read its text; null when cancelled */
 export async function pickPatchFile(): Promise<{ text: string; name: string } | null> {
   if (!inTauri) return { text: await api.fileReadText(""), name: "fix-graph.patch" };
   const { open } = await import("@tauri-apps/plugin-dialog");
@@ -36,7 +36,7 @@ export function ApplyPatch({ initial, onClose, done, failed, say }: Props) {
   const [commit, setCommit] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // 内容变了 300 ms 后重新看一遍
+  // Look again 300 ms after the content changes
   useEffect(() => {
     if (!text.trim()) {
       setPv({ data: null, loading: false, error: null });
@@ -49,7 +49,7 @@ export function ApplyPatch({ initial, onClose, done, failed, say }: Props) {
         (data) => {
           if (!live) return;
           setPv({ data, loading: false, error: null });
-          // 带提交而且能直接应用时默认生成提交，否则默认应用到工作区
+          // Default to creating commits when it carries commits and applies cleanly, otherwise to applying to the worktree
           setCommit(data.commits.length > 0 && data.fit === "clean");
         },
         (e) => live && setPv({ data: null, loading: false, error: errOf(e).message }),

@@ -1,7 +1,7 @@
-// 面板（说明书 12.1）：命令面板和分支弹窗（6.2）共用的组件，只是内容不同。
-// 顶部搜索框，下面是分组的列表：↑ ↓ 选择（跳过不可用的项），回车执行，Esc 或点外面关闭。
-// 有 onBack（在子菜单里）时，Esc 和输入框为空时的退格先回到上一级。
-// 行可以带图标、左边的灰色前缀（如短哈希）、右边的说明和快捷键；不可用的行变淡并显示原因。
+// Palette (spec §12.1): the component shared by the command palette and the branch popup (§6.2), with different content.
+// A search box on top, a grouped list below: ↑ ↓ select (skipping disabled items), Enter runs, Esc or clicking outside closes.
+// With onBack (inside a submenu), Esc and Backspace on an empty input go back a level first.
+// Rows can have an icon, a grey prefix on the left (e.g. a short hash), a description and shortcut on the right; disabled rows fade and show the reason.
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -11,22 +11,22 @@ import { MenuIcon } from "./Menu";
 
 export interface PaletteRow {
   key: string;
-  /** 分组名：和上一行不同时显示组标题 */
+  /** Group name: a group heading shows when it differs from the previous row */
   section?: string;
   label: string;
   icon?: string;
-  /** 左边的灰色等宽前缀，如短哈希 */
+  /** Grey monospace prefix on the left, e.g. a short hash */
   prefix?: string;
-  /** 右边的灰色说明，如跟踪的远程分支、日期 */
+  /** Grey description on the right, e.g. the tracked remote branch, a date */
   detail?: string;
-  /** 快捷键提示 */
+  /** Shortcut hint */
   hint?: string;
   disabled?: boolean;
   why?: string;
   danger?: boolean;
-  /** 进入子菜单：执行后不关闭面板 */
+  /** Enter a submenu: the palette stays open after running */
   stay?: boolean;
-  /** 右边显示“›”，表示有子菜单 */
+  /** Shows "›" on the right, meaning it has a submenu */
   more?: boolean;
   run: () => void;
 }
@@ -38,10 +38,10 @@ interface Props {
   onQuery: (q: string) => void;
   rows: PaletteRow[];
   onClose: () => void;
-  /** 在子菜单里时：回到上一级 */
+  /** Inside a submenu: go back a level */
   onBack?: () => void;
   empty: string;
-  /** 列表下面的补充内容 */
+  /** Extra content below the list */
   footer?: ReactNode;
   className?: string;
 }
@@ -50,16 +50,16 @@ export function Palette({ label, placeholder, query, onQuery, rows, onClose, onB
   useReturnFocus();
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  // 默认高亮第一个可用的项；子菜单里跳过“返回”
+  // Highlight the first enabled item by default; skip "back" inside submenus
   const firstOk = () => {
     const i = rows.findIndex((r, k) => !r.disabled && !(k === 0 && r.key === BACK && rows.length > 1));
     return i < 0 ? Math.max(0, rows.findIndex((r) => !r.disabled)) : i;
   };
-  // 内容刚换掉时，停在原处的鼠标不抢高亮；鼠标真的动了才跟随
+  // Right after the content changes, a mouse resting in place doesn't steal the highlight; follow only when it really moves
   const moved = useRef(false);
   const [hi, setHi] = useState(firstOk);
 
-  // 换了内容（输入变了、进出子菜单）时回到第一个可用的项，焦点回到输入框
+  // When the content changes (input changed, entering or leaving a submenu), go back to the first enabled item and refocus the input
   const sig = rows.map((r) => r.key).join("\n");
   useEffect(() => {
     moved.current = false;
@@ -151,6 +151,6 @@ export function Palette({ label, placeholder, query, onQuery, rows, onClose, onB
   );
 }
 
-/** 在子菜单里的面板顶部那一行“返回” */
+/** The "back" row at the top of the palette inside a submenu */
 const BACK = "\u0000back";
 export const backRow = (onBack: () => void): PaletteRow => ({ key: BACK, label: t("← 返回"), stay: true, run: onBack });

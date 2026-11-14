@@ -1,6 +1,6 @@
-// 提交说明的作者选项（对照 JetBrains 提交选项里的 Author 和 Co-authors）：
-// 换作者提交（只对下一次提交有效，提交后清空）；共同作者写成说明末尾的 Co-authored-by 行，GitHub 和 GitLab 都认。
-// 可以从日志里出现过的作者里挑，也可以直接写“名字 <邮箱>”。
+// Author options for the commit message (like Author and Co-authors in JetBrains commit options):
+// commit as another author (only for the next commit, cleared after committing); co-authors are written as Co-authored-by lines at the end of the message, recognized by GitHub and GitLab.
+// Pick from authors seen in the log, or type "Name <email>" directly.
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/commands";
@@ -11,7 +11,7 @@ const CO = /^co-authored-by:\s*(.+)$/i;
 
 export const identOk = (s: string) => /^[^<>]*[^<>\s][^<>]*\s*<[^<>\s]+>$/.test(s.trim());
 
-/** 说明末尾的共同作者 */
+/** Co-authors at the end of the message */
 export function coAuthorsOf(msg: string): string[] {
   return msg
     .split("\n")
@@ -19,7 +19,7 @@ export function coAuthorsOf(msg: string): string[] {
     .filter((x): x is string => !!x);
 }
 
-/** 在说明末尾加一行共同作者：已有尾注时接在后面，否则空一行再写 */
+/** Add a co-author line at the end of the message: after existing trailers if there are any, otherwise after a blank line */
 export function addCoAuthor(msg: string, who: string): string {
   if (coAuthorsOf(msg).some((x) => x.toLowerCase() === who.toLowerCase())) return msg;
   const body = msg.replace(/\s+$/, "");
@@ -61,7 +61,7 @@ export function AuthorOptions({ repoPath, me, author, setAuthor, msg, setMsg }: 
   const addCo = () => {
     const v = co.trim();
     if (!v) return;
-    // 只写了名字：在作者里找
+    // Only a name was typed: look it up among the authors
     const hits = idents.filter((x) => x.toLowerCase().includes(v.toLowerCase()));
     const hit = identOk(v) ? v : hits.length === 1 ? hits[0] : hits.find((x) => x.toLowerCase().startsWith(v.toLowerCase()));
     if (!hit) return setErr(t("共同作者要写成“名字 <邮箱>”"));

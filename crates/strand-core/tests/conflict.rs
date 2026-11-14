@@ -1,4 +1,4 @@
-//! 冲突会话：读出修改块、按标记应用、整文件接受、完成、变基逐个提交、跳过。
+//! Conflict session: read change blocks, apply by marks, take whole files, finish, rebase commit by commit, skip.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,7 +30,7 @@ fn write(dir: &Path, f: &str, s: &str) {
     std::fs::write(dir.join(f), s).unwrap();
 }
 
-/// main 和 feature 都改了 a.txt 的第 2 行；feature 还改了第 6 行（无冲突），删了 d.txt；main 改了 d.txt。
+/// main and feature both changed line 2 of a.txt; feature also changed line 6 (no conflict) and deleted d.txt; main changed d.txt.
 fn repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -88,7 +88,7 @@ fn merge_session_and_finish() {
     assert!(changes[0].mine.is_some() && changes[0].theirs.is_some(), "第 2 行是冲突");
     assert!(changes[1].mine.is_none() && changes[1].theirs.is_some(), "第 6 行只有对方改");
 
-    // 没标记完不能应用，也不能完成
+    // Can't apply or finish until everything is marked
     let mut marks = HashMap::new();
     marks.insert("c1".to_string(), mark(Mark::Accept, Mark::None));
     let e = s.merge_apply_file("a.txt", &marks).unwrap_err();
@@ -96,7 +96,7 @@ fn merge_session_and_finish() {
     assert_eq!(e.detail.unwrap()["ids"], serde_json::json!(["c1", "c2"]));
     assert_eq!(s.merge_finish().unwrap_err().code, ErrorCode::UnmarkedBlocks);
 
-    // 两边都接受 + 接受对方的无冲突修改
+    // Accept both sides + accept their non-conflicting change
     marks.insert("c1".into(), mark(Mark::Accept, Mark::Accept));
     marks.insert("c2".into(), mark(Mark::None, Mark::Accept));
     s.merge_apply_file("a.txt", &marks).unwrap();
@@ -104,11 +104,11 @@ fn merge_session_and_finish() {
 
     s.merge_take_file("Cargo.lock", Side::Theirs).unwrap();
     assert_eq!(std::fs::read_to_string(p.join("Cargo.lock")).unwrap(), "lock feature\n");
-    // 对方删除了 d.txt：接受对方的就是删除
+    // They deleted d.txt: taking theirs means deleting
     s.merge_take_file("d.txt", Side::Theirs).unwrap();
     assert!(!p.join("d.txt").exists());
 
-    // 都解决了：files 里还在，标记为已解决
+    // All resolved: still in files, marked resolved
     let ms = s.merge_session().unwrap().unwrap();
     assert!(ms.unresolved().next().is_none());
     assert_eq!(ms.files.iter().filter(|f| f.resolved).map(|f| f.path.as_str()).collect::<Vec<_>>(), ["Cargo.lock", "a.txt", "d.txt"]);
@@ -131,7 +131,7 @@ fn manual_edit_and_conflict_markers() {
     s.merge_take_file("Cargo.lock", Side::Mine).unwrap();
     s.merge_take_file("d.txt", Side::Mine).unwrap();
     assert!(p.join("d.txt").exists());
-    // 结果里残留冲突标记，不能完成
+    // Conflict markers left in the result: can't finish
     assert_eq!(s.merge_finish().unwrap_err().code, ErrorCode::ConflictMarkers);
     s.merge_abort().unwrap();
 }
@@ -140,7 +140,7 @@ fn manual_edit_and_conflict_markers() {
 fn rebase_swaps_sides_and_steps() {
     let d = repo();
     let p = d.path();
-    // main 上再加一个改第 6 行的提交（和对方的第 6 行冲突），变成两个要重放的提交
+    // Add another commit on main that changes line 6 (conflicting with their line 6), so there are two commits to replay
     write(p, "a.txt", "1\n2 你的\n3\n4\n5\n6 你的\n7\n");
     ok(p, &["commit", "-q", "-am", "main 第二次修改"]);
     let s = Session::open(p).unwrap();
@@ -151,7 +151,7 @@ fn rebase_swaps_sides_and_steps() {
     assert_eq!(ms.kind, SessionKind::Rebase);
     let step = ms.step.clone().unwrap();
     assert_eq!((step.index, step.total), (1, 2));
-    // 变基时“你的”是正在重放的本地提交，“对方的”是目标分支
+    // During a rebase "yours" is the local commit being replayed and "theirs" is the target branch
     assert_eq!(ms.mine.title.as_deref(), Some("main 的修改"));
     assert_eq!(ms.theirs.label, "feature");
     let a = ms.files.iter().find(|f| f.path == "a.txt").unwrap();
@@ -159,7 +159,7 @@ fn rebase_swaps_sides_and_steps() {
     assert_eq!(c.mine.as_deref(), Some(&["2 你的".to_string()][..]));
     assert_eq!(c.theirs.as_ref().unwrap()[0], "2 对方");
 
-    // 第一个提交：a.txt 用对方的（保留了对方的第 6 行，第二个提交会在第 6 行冲突），其余用你的
+    // First commit: a.txt takes theirs (keeping their line 6, so the second commit will conflict on line 6), the rest take yours
     for f in &ms.files {
         let side = if f.path == "a.txt" { Side::Theirs } else { Side::Mine };
         s.merge_take_file(&f.path, side).unwrap();
@@ -170,14 +170,14 @@ fn rebase_swaps_sides_and_steps() {
     assert_eq!(next.step.unwrap().index, 2);
     assert_eq!(next.mine.title.as_deref(), Some("main 第二次修改"));
 
-    // 第二个提交：跳过
+    // Second commit: skip
     let r = s.merge_skip().unwrap();
     assert!(r.done);
     assert_eq!(s.state().unwrap().state, RepoMode::Normal);
     assert_eq!(ok(p, &["log", "-1", "--format=%s"]), "main 的修改");
 }
 
-/// 已解决的文件也列出来（说明书 8.2、8.10 的 resolved）：在命令行里 git add 的也算；完成或中止后记录清掉
+/// Resolved files are listed too (resolved in spec §8.2, §8.10): including those git add-ed on the command line; the record is cleared after finishing or aborting
 #[test]
 fn resolved_files_are_listed() {
     let d = repo();
@@ -192,11 +192,11 @@ fn resolved_files_are_listed() {
     assert!(a.resolved && a.segments.is_empty());
     assert_eq!((a.kind, a.mine_change, a.theirs_change), (FileKind::Text, SideChange::Modified, SideChange::Modified));
     assert_eq!(ms.unresolved().count(), 2);
-    // 应用已解决的文件：不再有冲突
+    // Apply the resolved file: no conflicts left
     assert_eq!(s.merge_take_file("a.txt", Side::Mine).unwrap_err().code, ErrorCode::NotFound);
     s.merge_abort().unwrap();
     assert!(!p.join(".git/strand/conflicts.json").exists());
-    // 再合并一次：上次的“已解决”不会带过来
+    // Merge again: the previous "resolved" isn't carried over
     let _ = s.branch_merge("feature");
     assert!(s.merge_session().unwrap().unwrap().files.iter().all(|f| !f.resolved));
     s.merge_abort().unwrap();
@@ -217,12 +217,12 @@ fn resolved_before_strand_looked() {
     assert_eq!(ms.unresolved().count(), 2);
 }
 
-/// 每个修改块是哪个提交引入的（说明书 8.10 的 Block.origin）
+/// Which commit introduced each change block (Block.origin in spec §8.10)
 #[test]
 fn change_blocks_carry_origin() {
     let d = repo();
     let p = d.path();
-    // main 上再加一个提交，只改第 2 行：这一块的来源应该是它，而不是更早的“main 的修改”
+    // Add another commit on main that only changes line 2: this block's origin should be it, not the earlier "main's change"
     write(p, "a.txt", "1\n2 你的（又改）\n3\n4\n5\n6\n7\n");
     ok(p, &["commit", "-q", "-am", "main 再改第 2 行"]);
     let s = Session::open(p).unwrap();
@@ -234,12 +234,12 @@ fn change_blocks_carry_origin() {
     assert_eq!(c1.mine_origin.as_ref().unwrap().title, "main 再改第 2 行");
     assert_eq!(c1.theirs_origin.as_ref().unwrap().title, "feature 的修改");
     assert_eq!(c1.mine_origin.as_ref().unwrap().author, "林夏");
-    // 只有对方改的那一块：你的一侧没有来源
+    // A block only they changed: no origin on your side
     let c2 = changes.iter().find(|c| c.mine.is_none()).unwrap();
     assert!(c2.mine_origin.is_none() && c2.theirs_origin.is_some());
 }
 
-/// 两边把同一个文件重命名成不同名字（说明书 8.3）：合成一个“重命名”冲突，选一边的名字
+/// Both sides renamed the same file to different names (spec §8.3): combined into one "rename" conflict, pick one side's name
 #[test]
 fn rename_rename_conflict() {
     for side in [Side::Mine, Side::Theirs] {
@@ -270,7 +270,7 @@ fn rename_rename_conflict() {
         s.merge_take_file("old.txt", side).unwrap();
         let after = s.merge_session().unwrap().unwrap();
         assert!(after.unresolved().next().is_none());
-        // 解决后只列一行“old.txt 已解决”，两个新名字不当成单独的文件
+        // After resolving only one row "old.txt resolved" is listed; the two new names aren't separate files
         assert_eq!(after.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["old.txt"]);
         assert!(s.merge_finish().unwrap().done);
         let (keep, gone) = if side == Side::Mine { ("mine.txt", "theirs.txt") } else { ("theirs.txt", "mine.txt") };

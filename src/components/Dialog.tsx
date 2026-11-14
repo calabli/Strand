@@ -1,5 +1,5 @@
-// 通用对话框：确认、输入名字、二选一。按说明书 3.4：回车确认、Esc 取消；
-// 输入校验失败（如 INVALID_NAME）时错误显示在输入框下方，对话框不关闭。
+// Generic dialog: confirm, enter a name, choose one of two. Per spec §3.4: Enter confirms, Esc cancels;
+// when input validation fails (e.g. INVALID_NAME) the error shows below the input and the dialog stays open.
 
 import { useReturnFocus } from "./focus";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,23 +8,23 @@ import { t, tr } from "../i18n";
 export interface DialogSpec {
   title: string;
   message?: string;
-  /** 列表形式的补充信息，如冲突的文件 */
+  /** Extra information as a list, e.g. conflicted files */
   items?: string[];
   input?: { initial: string; placeholder?: string; label?: string; mono?: boolean; multiline?: boolean };
-  /** 第二个输入框（多行，可以空着），如带说明的标签的说明；内容作为 onSubmit 第三个参数的 note */
+  /** A second input (multi-line, may be empty), e.g. an annotated tag's message; passed as note in onSubmit's third argument */
   note?: { label: string; placeholder?: string };
-  /** 单选项（如重置方式）；选中的 value 作为 onSubmit 的第一个参数 */
+  /** Radio options (e.g. reset mode); the selected value is onSubmit's first argument */
   choices?: { value: string; label: string; hint?: string }[];
   initialChoice?: string;
-  /** 选中某些项时确认按钮变红 */
+  /** The confirm button turns red when certain options are selected */
   dangerWhen?: (value: string) => boolean;
   confirm: string;
   danger?: boolean;
-  /** 第二个操作按钮，如“先贮藏再切换” */
+  /** A second action button, e.g. "stash first, then switch" */
   alt?: string;
   /**
-   * 点确认（或第二个按钮）时执行。返回字符串表示出错，对话框不关闭并显示这段文字；
-   * 返回 undefined 表示完成，对话框关闭。
+   * Runs on confirm (or the second button). Returning a string means an error: the dialog stays open and shows the text;
+   * returning undefined means done and the dialog closes.
    */
   onSubmit: (value: string, alt: boolean, extra: { note: string; choice: string }) => Promise<string | void> | string | void;
 }
@@ -39,7 +39,7 @@ export function useDialog() {
 function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: () => void }) {
   useReturnFocus();
   const [value, setValue] = useState(spec.input?.initial ?? spec.initialChoice ?? spec.choices?.[0]?.value ?? "");
-  // 同时有输入框和单选项时，单选项单独记
+  // With both an input and radio options, the option is kept separately
   const [choice, setChoice] = useState(spec.initialChoice ?? spec.choices?.[0]?.value ?? "");
   const [note, setNote] = useState("");
   const both = !!spec.input && !!spec.choices;
@@ -66,7 +66,7 @@ function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: () => void }) {
   useEffect(() => {
     if (input.current) {
       input.current.focus();
-      // 预填 feature/ 时光标放在末尾，方便接着输入
+      // When prefilled with feature/, put the cursor at the end so typing continues
       const n = input.current.value.length;
       input.current.setSelectionRange(n, n);
     } else okBtn.current?.focus();

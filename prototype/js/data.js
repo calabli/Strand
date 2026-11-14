@@ -1,4 +1,4 @@
-/* Strand 原型 · 示例数据：全局状态 S 和冲突文件 */
+/* Strand prototype · sample data: global state S and conflicted files */
 var S = {
   view: 'history', selected: 'a41f9c2', merging: false, sheet: false, modal: null, rb: null, amend: false, hq: '', ha: '', hpath: '',
   branch: 'feature/commit-graph', cmp: '', pullMode: 'merge',

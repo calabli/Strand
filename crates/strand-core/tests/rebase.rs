@@ -1,4 +1,4 @@
-//! 整理提交（说明书第 9 节）。
+//! Rebasing commits (spec §9).
 
 use std::path::Path;
 use std::process::Command;
@@ -34,7 +34,7 @@ fn titles(p: &Path, n: usize) -> String {
     git(p, &["log", &format!("-{n}"), "--format=%s"])
 }
 
-/// main: M1 - M2；feature 从 M1 分出：A B C D（每个提交改自己的文件）
+/// main: M1 - M2; feature branches from M1: A B C D (each commit changes its own file)
 struct R {
     dir: tempfile::TempDir,
     a: String,
@@ -86,7 +86,7 @@ fn reorder_squash_and_drop() {
     let r = sample();
     let p = r.dir.path();
     let mut s = Session::open(p).unwrap();
-    // 新顺序：D、B、C 并入 B、A 丢弃
+    // New order: D, B, C squashed into B, A dropped
     let steps = vec![step(&r.d, StepAction::Pick), step(&r.b, StepAction::Pick), step(&r.c, StepAction::Squash), step(&r.a, StepAction::Drop)];
     let (res, op) = s.run_op("整理 4 个提交", OpKind::Commit, |s| s.rebase_apply(&steps)).unwrap();
     assert_eq!((res.before, res.after), (4, 2));
@@ -95,7 +95,7 @@ fn reorder_squash_and_drop() {
     assert!(!p.join("a.txt").exists() && p.join("c.txt").exists());
     assert_eq!(git(p, &["status", "--porcelain"]), "");
 
-    // 整个整理是一步，可以撤销
+    // The whole rebase is one step and can be undone
     assert!(op.is_some());
     s.reload().unwrap();
     s.oplog_undo(None, false).unwrap();
@@ -107,17 +107,17 @@ fn first_squash_is_kept_all_drop_resets_and_bad_steps_rejected() {
     let r = sample();
     let p = r.dir.path();
     let mut s = Session::open(p).unwrap();
-    // 不连续（漏了 B）
+    // Not contiguous (B missing)
     let bad = vec![step(&r.a, StepAction::Pick), step(&r.c, StepAction::Pick), step(&r.d, StepAction::Pick)];
     assert_eq!(s.rebase_apply(&bad).unwrap_err().code, ErrorCode::InvalidRange);
 
-    // 只整理 C、D：第一行“并入”按保留
+    // Rebase only C and D: a squash on the first line counts as keep
     let res = s.rebase_apply(&[step(&r.c, StepAction::Squash), step(&r.d, StepAction::Squash)]).unwrap();
     assert_eq!(res.after, 1);
     assert_eq!(titles(p, 3), "C\nB\nA");
     s.reload().unwrap();
 
-    // 全部丢弃：分支退回到范围之前，工作区里没提交的改动保留
+    // Drop everything: the branch goes back to before the range, uncommitted worktree changes are kept
     std::fs::write(p.join("m.txt"), "我在改\n").unwrap();
     let ids: Vec<String> = s.rebase_range(None).unwrap().commits.into_iter().map(|c| c.id).collect();
     let all: Vec<Step> = ids.iter().map(|i| step(i, StepAction::Drop)).collect();
@@ -130,7 +130,7 @@ fn first_squash_is_kept_all_drop_resets_and_bad_steps_rejected() {
 fn reorder_conflict_stops_in_rebase() {
     let r = sample();
     let p = r.dir.path();
-    // E 和 F 改同一个文件，交换顺序必然冲突
+    // E and F change the same file, so swapping them must conflict
     commit(p, "x.txt", "e\n", "E");
     commit(p, "x.txt", "f\n", "F");
     let mut s = Session::open(p).unwrap();
@@ -159,7 +159,7 @@ fn fixup_and_squash_into() {
     assert_eq!(git(p, &["show", "HEAD~2:b.txt"]), "b 改过");
     assert_eq!(git(p, &["status", "--porcelain"]), "M d.txt", "没勾选的改动留在工作区");
 
-    // Squash Into：并入并换说明（多行）
+    // Squash Into: fold in and replace the message (multi-line)
     std::fs::write(p.join("c.txt"), "c 改过\n").unwrap();
     let s = Session::open(p).unwrap();
     let c = git(p, &["rev-parse", "HEAD~1"]);
@@ -171,12 +171,12 @@ fn fixup_and_squash_into() {
     assert_eq!(git(p, &["status", "--porcelain"]), "M d.txt");
 }
 
-/// 说明书第 16 节“整理提交”：范围里有已推送的提交时给出警告，整理后分支需要强制推送
+/// Spec §16 "rebasing commits": warn when the range includes pushed commits; the branch needs a force push after rebasing
 #[test]
 fn pushed_commits_in_range_warn_and_need_force() {
     let r = sample();
     let p = r.dir.path();
-    // 假装 A、B 已经推送到 origin/feature
+    // Pretend A and B were already pushed to origin/feature
     git(p, &["update-ref", "refs/remotes/origin/feature", &r.b]);
     git(p, &["remote", "add", "origin", "/nonexistent"]);
     git(p, &["config", "branch.feature.remote", "origin"]);
@@ -188,7 +188,7 @@ fn pushed_commits_in_range_warn_and_need_force() {
     assert_eq!(pushed, [true, true, false, false]);
     let feature = |s: &Session| s.refs_list().unwrap().branches.into_iter().find(|b| b.name == "feature").unwrap();
     assert!(!feature(&s).needs_force);
-    // 调换 A 和 B：改写了已推送的提交
+    // Swap A and B: pushed commits were rewritten
     let steps = vec![step(&r.b, StepAction::Pick), step(&r.a, StepAction::Pick), step(&r.c, StepAction::Pick), step(&r.d, StepAction::Pick)];
     s.run_op("整理", OpKind::Commit, |s| s.rebase_apply(&steps)).unwrap();
     s.reload().unwrap();

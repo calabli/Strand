@@ -1,4 +1,4 @@
-//! 比较、补丁、查看某个版本的仓库（说明书 10.3–10.5）。都是只读的。
+//! Compare, patches, and browsing the repository at a revision (spec §10.3–10.5). All read-only.
 
 use serde::Serialize;
 
@@ -7,21 +7,21 @@ use crate::model::{Commit, FileChange, FileDiff, Selection};
 use crate::worktree::find_renames;
 use crate::{diff, git_cli, Session};
 
-/// 一边最多列出的提交数
+/// Maximum commits listed per side
 pub const COMPARE_MAX: usize = 500;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Comparison {
-    /// 起点和终点（完整哈希）
+    /// Start and end (full hashes)
     pub from: String,
     pub to: String,
-    /// 只在起点这边的提交（从起点能到达、从终点不能），新的在前
+    /// Commits only on the start side (reachable from start, not from end), newest first
     pub only_from: Vec<Commit>,
-    /// 只在终点这边的提交
+    /// Commits only on the end side
     pub only_to: Vec<Commit>,
-    /// 某一边超过上限被截断
+    /// One side was truncated at the limit
     pub truncated: bool,
-    /// 起点到终点有差异的文件
+    /// Files that differ between start and end
     pub files: Vec<FileChange>,
 }
 
@@ -34,7 +34,7 @@ impl Session {
         repo.revparse_single(rev).and_then(|o| o.peel_to_commit()).map(|c| c.id()).map_err(|_| not_found(rev))
     }
 
-    /// 比较两个提交（可以是哈希、分支名、标签名）
+    /// Compare two commits (hashes, branch names or tag names)
     pub fn compare(&self, from: &str, to: &str) -> Result<Comparison> {
         let repo = self.git2()?;
         let (a, b) = (self.resolve(&repo, from)?, self.resolve(&repo, to)?);
@@ -71,12 +71,12 @@ impl Session {
         Ok(Comparison { from: a.to_string(), to: b.to_string(), only_from, only_to, truncated, files })
     }
 
-    /// 两个提交之间某个文件的差异
+    /// The diff of one file between two commits
     pub fn diff_compare(&self, from: &str, to: &str, path: &str) -> Result<FileDiff> {
         self.diff_compare_ctx(from, to, path, 3)
     }
 
-    /// 同 [`Session::diff_compare`]，指定上下文行数
+    /// Same as [`Session::diff_compare`], with the number of context lines
     pub fn diff_compare_ctx(&self, from: &str, to: &str, path: &str, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
         let (a, b) = (self.resolve(&repo, from)?, self.resolve(&repo, to)?);
@@ -89,7 +89,7 @@ impl Session {
         diff::first_file(&d, path)
     }
 
-    /// 提交内容；在日志里的带引用和未推送标记，不在的（如被整理掉的）只带基本信息
+    /// Commit contents; ones in the log carry refs and unpushed markers, ones not in it (e.g. rewritten) carry only basic info
     fn commits_by_id(&self, ids: &[String]) -> Result<Vec<Commit>> {
         let repo = self.git2()?;
         ids.iter()
@@ -114,14 +114,14 @@ impl Session {
             .collect()
     }
 
-    /// 某个提交的完整补丁，格式同 `git format-patch`（说明书 10.4）
+    /// The full patch of a commit, in `git format-patch` format (spec §10.4)
     pub fn patch_commit(&self, id: &str) -> Result<String> {
         let repo = self.git2()?;
         let oid = self.resolve(&repo, id)?.to_string();
         git_cli::run(self.path(), &["format-patch", "-1", "--stdout", "--binary", "--no-signature", &oid], None)
     }
 
-    /// 勾选文件的工作区改动，格式同 `git diff`（整文件；行级勾选在补丁里不生效）
+    /// The worktree changes of the checked files, in `git diff` format (whole files; line-level picks don't apply to patches)
     pub fn patch_worktree(&self, selection: &Selection) -> Result<String> {
         let mut paths: Vec<&str> = Vec::new();
         for f in &selection.files {
@@ -142,7 +142,7 @@ impl Session {
         Ok(text)
     }
 
-    /// 某个提交时仓库里的全部文件，按路径排序（说明书 10.5）
+    /// All files in the repository at a commit, sorted by path (spec §10.5)
     pub fn commit_tree(&self, id: &str) -> Result<Vec<String>> {
         let repo = self.git2()?;
         let oid = self.resolve(&repo, id)?;
@@ -160,7 +160,7 @@ impl Session {
     }
 }
 
-/// 两段文字的整个文件差异（任意两个文件对比、和剪贴板对比）；`name` 用来认语言和显示
+/// Whole-file diff between two texts (compare any two files, compare with clipboard); `name` is used to detect the language and for display
 pub fn text_diff(left: &str, right: &str, name: &str) -> crate::Result<crate::model::FileDiff> {
     crate::diff::buffers_diff(left.as_bytes(), right.as_bytes(), name, 1_000_000)
 }

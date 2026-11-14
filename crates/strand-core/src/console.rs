@@ -1,15 +1,15 @@
-//! 控制台（说明书 5.8）和本地日志文件（说明书 15）。
+//! Console (spec §5.8) and local log file (spec §15).
 //!
-//! 核心层执行的 git 命令按时间顺序记在这里：`$` 一条是命令（后面跟输出），`#` 一条是客户端自己的操作
-//! （如搁置、撤销），没有直接对应的 git 命令。界面通过 `set_sink` 收到新的条目，打开时用 `tail` 取最近的。
+//! Git commands run by the core layer are recorded here in order: a `$` entry is a command (followed by its output), a `#` entry is the client's own operation
+//! (e.g. shelve, undo) with no direct git command. The UI receives new entries through `set_sink` and uses `tail` for the latest when opened.
 //!
-//! - 只记会改动仓库或访问网络的命令；查询类命令（rev-parse、cherry、diff、log 等）不记，
-//!   否则每次刷新分支列表都会冒出几十行，有用的内容很快被挤掉。
-//! - 每条命令最多留 `MAX_OUTPUT` 行输出；网络命令的进度行（百分比）只留最后一行。
-//! - 一共保留最近 `MAX_LINES` 行（命令和输出都算），可以清空。不随撤销回退。
-//! - 命令和输出里的凭据打码：地址里的密码、`Authorization:` 后面的内容、`password=` 后面的内容。
+//! - Only commands that change the repository or use the network are recorded; queries (rev-parse, cherry, diff, log, etc.) are not,
+//!   otherwise every branch list refresh would add dozens of lines and push out what matters.
+//! - Each command keeps at most `MAX_OUTPUT` lines of output; for network commands only the last progress (percentage) line is kept.
+//! - Only the latest `MAX_LINES` lines are kept in total (commands and output both count), and it can be cleared. Undo doesn't roll it back.
+//! - Credentials in commands and output are masked: passwords in URLs, whatever follows `Authorization:`, whatever follows `password=`.
 //!
-//! 同样的内容也追加到本地日志文件（`set_log_dir` 设置目录，每天一个文件，保留 7 天，不上传）。
+//! The same content is also appended to a local log file (directory set by `set_log_dir`, one file per day, kept 7 days, never uploaded).
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -27,29 +27,29 @@ const LOG_KEEP_DAYS: i64 = 7;
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EntryKind {
-    /// `$`：执行的 git 命令
+    /// `$`: a git command that ran
     Command,
-    /// `#`：客户端自己的操作
+    /// `#`: the client's own operation
     Note,
 }
 
-/// 控制台里的一条
+/// One console entry
 #[derive(Debug, Clone, Serialize)]
 pub struct Entry {
     pub seq: u64,
-    /// 毫秒时间戳
+    /// Timestamp in milliseconds
     pub time: i64,
     pub kind: EntryKind,
-    /// 命令（不含开头的 `$`）或操作说明（不含 `#`），已经打码
+    /// The command (without the leading `$`) or the operation description (without `#`), already masked
     pub text: String,
-    /// 命令的输出（标准输出和标准错误），已经打码、截断
+    /// The command's output (stdout and stderr), masked and truncated
     pub output: Vec<String>,
-    /// 截掉的输出行数
+    /// Number of output lines cut off
     #[serde(skip_serializing_if = "is_zero")]
     pub more: usize,
-    /// 命令成功；操作说明总是 true
+    /// The command succeeded; always true for operations
     pub ok: bool,
-    /// 用时（毫秒）
+    /// Duration (ms)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ms: Option<u64>,
 }
@@ -75,12 +75,12 @@ fn buffer() -> &'static Mutex<VecDeque<Entry>> {
     B.get_or_init(Default::default)
 }
 
-/// 有新条目时通知界面
+/// Notify the UI about new entries
 pub fn set_sink(s: Sink) {
     *SINK.write().unwrap() = Some(s);
 }
 
-/// 设置本地日志文件的目录，并删掉 7 天以前的日志文件
+/// Set the directory for local log files and delete log files older than 7 days
 pub fn set_log_dir(dir: PathBuf) {
     let _ = std::fs::create_dir_all(&dir);
     if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -98,25 +98,25 @@ pub fn set_log_dir(dir: PathBuf) {
     *LOG_DIR.write().unwrap() = Some(dir);
 }
 
-/// 最近的条目（从旧到新），最多 `limit` 条
+/// The latest entries (oldest to newest), at most `limit`
 pub fn tail(limit: usize) -> Vec<Entry> {
     let b = buffer().lock().unwrap();
     b.iter().skip(b.len().saturating_sub(limit)).cloned().collect()
 }
 
-/// 清空控制台（日志文件不动）
+/// Clear the console (log files are untouched)
 pub fn clear() {
     buffer().lock().unwrap().clear();
 }
 
-/// 记一条客户端自己的操作（`#`）
+/// Record one of the client's own operations (`#`)
 pub fn note(text: &str) {
     push(EntryKind::Note, mask(text), Vec::new(), 0, true, None);
 }
 
-/// 记一条 git 命令。查询类命令不记。
+/// Record a git command. Queries are not recorded.
 pub(crate) fn command(args: &[&str], stdout: &str, stderr: &str, ok: bool, took: Duration) {
-    // 查询类命令失败也不记：很多是预期内的（如没有跟踪分支时问 @{upstream}）
+    // Failed queries aren't recorded either: many are expected (e.g. asking for @{upstream} with no upstream)
     if is_query(args) {
         return;
     }
@@ -128,7 +128,7 @@ pub(crate) fn command(args: &[&str], stdout: &str, stderr: &str, ok: bool, took:
         if line.trim().is_empty() {
             continue;
         }
-        // 进度行（百分比）只留每一段的最后一行
+        // Keep only the last progress (percentage) line of each run
         if is_progress(line) {
             let head = line.split(':').next().unwrap_or("");
             if let Some(p) = &progress
@@ -153,7 +153,7 @@ pub(crate) fn command(args: &[&str], stdout: &str, stderr: &str, ok: bool, took:
     push(EntryKind::Command, text, out, more, ok, Some(took.as_millis() as u64));
 }
 
-/// 运行计时：`let t = Timer::start(); ...; t.done(args, out, err, ok)`
+/// Timing: `let t = Timer::start(); ...; t.done(args, out, err, ok)`
 pub(crate) struct Timer(Instant);
 
 impl Timer {
@@ -194,7 +194,7 @@ fn write_log(e: &Entry) {
         EntryKind::Command => format!("{stamp} $ {}{}{}", e.text, if e.ok { "" } else { "  [失败]" }, e.ms.map(|m| format!("  ({m} ms)")).unwrap_or_default()),
         EntryKind::Note => format!("{stamp} # {}", e.text),
     };
-    // 一次写入：几个线程同时记的时候各条不会交错
+    // One write: entries from several threads don't interleave
     let mut text = head + "\n";
     for l in &e.output {
         text += &format!("    {l}\n");
@@ -205,9 +205,9 @@ fn write_log(e: &Entry) {
     let _ = f.write_all(text.as_bytes());
 }
 
-/// 只读、不访问网络的命令：不记进控制台
+/// Read-only commands that don't touch the network: not recorded in the console
 fn is_query(args: &[&str]) -> bool {
-    // 跳过 `-c key=value`、`-C dir` 这类全局选项
+    // Skip global options like `-c key=value` and `-C dir`
     let mut i = 0;
     while i < args.len() && args[i].starts_with('-') {
         i += if matches!(args[i], "-c" | "-C") { 2 } else { 1 };
@@ -219,7 +219,7 @@ fn is_query(args: &[&str]) -> bool {
         "rev-parse" | "cherry" | "rev-list" | "cat-file" | "merge-base" | "for-each-ref" | "ls-files" | "ls-tree" | "show" | "log" | "diff" | "blame"
         | "status" | "symbolic-ref" | "var" | "version" | "check-ignore" | "check-attr" | "name-rev" | "describe" | "count-objects" | "format-patch"
         | "show-ref" | "check-ref-format" | "diff-tree" | "diff-index" | "diff-files" | "shortlog" | "grep" | "hash-object" | "credential" => true,
-        // 只刷新文件状态
+        // Only refreshes file status
         "update-index" => has("--refresh"),
         "config" => rest.iter().any(|a| matches!(*a, "--get" | "--get-all" | "--get-regexp" | "-l" | "--list")) || (rest.len() == 1 && !rest[0].starts_with('-')),
         "remote" => rest.is_empty() || has("-v") || has("get-url"),
@@ -236,7 +236,7 @@ fn is_progress(line: &str) -> bool {
     l.split_whitespace().any(|w| w.ends_with('%') && w[..w.len() - 1].parse::<u8>().is_ok())
 }
 
-/// 带空格或引号的参数加引号，方便复制到终端
+/// Quote arguments with spaces or quotes so they can be copied into a terminal
 fn quote(a: &str) -> String {
     if a.is_empty() {
         "''".into()
@@ -247,12 +247,12 @@ fn quote(a: &str) -> String {
     }
 }
 
-/// 凭据打码
+/// Mask credentials
 pub fn mask(text: &str) -> String {
     static RE: OnceLock<[(regex::Regex, &'static str); 3]> = OnceLock::new();
     let res = RE.get_or_init(|| {
         [
-            // https://user:password@host → https://user:***@host；https://token@host → https://***@host
+            // https://user:password@host → https://user:***@host; https://token@host → https://***@host
             (regex::Regex::new(r"(?i)([a-z][a-z0-9+.-]*://)([^/@\s:]+):([^/@\s]+)@").unwrap(), "${1}${2}:***@"),
             (regex::Regex::new(r"(?i)(authorization:\s*\S+\s+|authorization:\s*)\S+").unwrap(), "${1}***"),
             (regex::Regex::new(r"(?i)\b(password|passwd|token|secret)=\S+").unwrap(), "${1}=***"),
@@ -273,7 +273,7 @@ fn days(secs: i64) -> i64 {
     secs.div_euclid(86_400)
 }
 
-/// 1970-01-01 起的天数 → (年, 月, 日)（Howard Hinnant 的算法）
+/// Days since 1970-01-01 → (year, month, day) (Howard Hinnant's algorithm)
 fn civil(z: i64) -> (i64, i64, i64) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);
@@ -286,7 +286,7 @@ fn civil(z: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
-/// (年, 月, 日) → 1970-01-01 起的天数
+/// (year, month, day) → days since 1970-01-01
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);

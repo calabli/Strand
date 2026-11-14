@@ -1,4 +1,4 @@
-//! 合并方式（说明书 6.3、6.7）：不快进、压缩合并（含冲突解决后完成、中止）。
+//! Merge modes (spec §6.3, §6.7): no fast-forward, squash merge (including finishing after conflict resolution, and aborting).
 
 use std::path::Path;
 use std::process::Command;
@@ -19,7 +19,7 @@ fn commit(dir: &Path, file: &str, text: &str, msg: &str) {
     git(dir, &["commit", "-q", "-m", msg]);
 }
 
-/// main：初始提交；feature 从这里分出：f1、f2（main 没动，能快进）
+/// main: initial commit; feature branches from here: f1, f2 (main unchanged, can fast-forward)
 fn repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -62,13 +62,13 @@ fn squash_makes_one_plain_commit_and_undo() {
     assert!(p.join("f.txt").exists() && p.join("g.txt").exists());
     assert_eq!(git(p, &["status", "--porcelain"]), "");
     assert_eq!(s.state().unwrap().state, RepoMode::Normal);
-    // feature 没有被记成合并进来
+    // feature isn't recorded as merged in
     assert_ne!(git(p, &["merge-base", "HEAD", "feature"]), git(p, &["rev-parse", "feature"]));
     s.oplog_undo(None, false).unwrap();
     assert_eq!(git(p, &["rev-parse", "HEAD"]), before);
 }
 
-/// 说明书 6.7：压缩合并前先让人改说明；预填的说明和不改时用的一样
+/// Spec §6.7: let the user edit the message before a squash merge; the prefilled message equals the one used when unedited
 #[test]
 fn squash_with_edited_message() {
     let d = repo();
@@ -89,7 +89,7 @@ fn squash_with_conflict_finishes_as_one_commit() {
     let e = s.branch_merge_mode("feature", MergeMode::Squash).unwrap_err();
     assert_eq!(e.code, ErrorCode::Conflicts, "{e:?}");
     assert_eq!(s.state().unwrap().state, RepoMode::Merging);
-    // 解决冲突后完成：仍是一个普通提交
+    // Finish after resolving conflicts: still a normal commit
     std::fs::write(p.join("f.txt"), "合好的 f\n").unwrap();
     git(p, &["add", "f.txt"]);
     assert!(s.merge_finish().unwrap().done);
@@ -113,7 +113,7 @@ fn squash_conflict_abort_and_stale_marker() {
     assert_eq!(git(p, &["rev-parse", "HEAD"]), before);
     assert!(!p.join(".git/strand/squash").exists());
 
-    // 压缩合并停在冲突时在命令行中止，之后的普通合并照常生成合并提交
+    // A squash merge stopped on conflicts and aborted on the command line; a later normal merge creates a merge commit as usual
     assert_eq!(s.branch_merge_mode("feature", MergeMode::Squash).unwrap_err().code, ErrorCode::Conflicts);
     git(p, &["merge", "--abort"]);
     assert_eq!(s.branch_merge("feature").unwrap_err().code, ErrorCode::Conflicts);

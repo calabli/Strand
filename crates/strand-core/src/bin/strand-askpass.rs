@@ -1,4 +1,4 @@
-//! 测试用的 askpass 程序（说明书 7.5）。客户端本身在 main 开头调用同一个 `client_main`，不需要这个文件。
+//! The askpass program used in tests (spec §7.5). The client itself calls the same `client_main` at the start of main and doesn't need this file.
 fn main() {
     std::process::exit(strand_core::askpass::client_main().unwrap_or(1));
 }

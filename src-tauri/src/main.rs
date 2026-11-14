@@ -2,11 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    // git 需要输入密码时会以 askpass 方式运行本程序（说明书 7.5）：只转发提示和回答，不启动界面
+    // When git needs a password it runs this program in askpass mode (spec §7.5): it only relays the prompt and answer, without starting the UI
     if let Some(code) = strand_core::askpass::client_main() {
         std::process::exit(code);
     }
-    // 从访达、程序坞启动时用终端里的 PATH，这样用的是同一个 git（凭据、配置一致）
+    // When launched from Finder or the Dock, use the terminal's PATH so the same git is used (same credentials and config)
     #[cfg(unix)]
     let adopted = strand_core::shell_path::adopt_login_path();
     #[cfg(not(unix))]

@@ -1,5 +1,5 @@
-// 撤销、重做和操作时间线（说明书第 11 节）。
-// 工具栏的撤销/重做、提示条上的撤销图标、日志底部的时间线、⌘Z / ⇧⌘Z 都调用这里。
+// Undo, redo and the op timeline (spec §11).
+// The toolbar's undo/redo, the undo icon on toasts, the timeline at the bottom of the log, and ⌘Z / ⇧⌘Z all call this.
 
 import { useCallback, useEffect, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -8,10 +8,10 @@ import type { DialogSpec } from "./Dialog";
 import { t, tr } from "../i18n";
 
 interface Deps {
-  /** 每次仓库变化都换一个值，时间线随之刷新 */
+  /** Changes on every repository change, refreshing the timeline */
   refreshKey: string | null;
   ask: (d: DialogSpec) => void;
-  /** 撤销或重做完成：更新仓库状态、刷新日志、显示提示 */
+  /** Undo or redo finished: update repository state, refresh the log, show a notice */
   applied: (state: RepoState, message: string) => void;
   failed: (message: string) => void;
 }
@@ -80,7 +80,7 @@ export function useOplog({ refreshKey, ask, applied, failed }: Deps) {
 
   const live = list.entries.filter((o) => !o.undone);
   const nextUndo = live.find((o) => o.kind !== "push");
-  // 下一次重做恢复的是最近一次撤销的那组，也就是被撤销的里面最早的那条
+  // The next redo restores the group of the latest undo, i.e. the earliest entry among those undone
   const undoneIds = list.entries.filter((o) => o.undone);
   const nextRedo = undoneIds[undoneIds.length - 1];
 
@@ -119,7 +119,7 @@ function ago(at: number) {
   return t("{0} 天前", Math.floor(s / 86400));
 }
 
-/** 日志底部的操作时间线：最近 5 步，最新的在左；点一步回到这一步之前 */
+/** The op timeline at the bottom of the log: the last 5 steps, newest on the left; clicking a step returns to before it */
 export function Timeline({ oplog, disabled, onReflog }: { oplog: Oplog; disabled: boolean; onReflog?: () => void }) {
   const steps = oplog.live.slice(0, 5);
   if (!steps.length) return null;

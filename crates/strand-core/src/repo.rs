@@ -1,4 +1,4 @@
-//! 打开仓库、读取状态和日志（只读，用 gix）。
+//! Opening the repository and reading state and the log (read-only, with gix).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,46 +10,46 @@ use crate::model::{
     Author, Commit, GraphRow, Head, HeadKind, LogPage, Ref, RefKind, RepoMode, RepoState,
 };
 
-/// 每次分页最多返回的行数，和说明书第 15 节“单批不超过 500 行”一致。
+/// Maximum rows returned per page, matching spec §15 "no more than 500 rows per batch".
 pub const MAX_PAGE: usize = 500;
 
-/// 提交数达到这个数量才在后台生成 commit-graph；小仓库遍历本来就很快。
+/// Generate a commit-graph in the background only at this many commits; small repositories walk fast anyway.
 pub const COMMIT_GRAPH_MIN: usize = 2_000;
 
-/// 一个打开的仓库。
+/// An open repository.
 ///
-/// 打开时只读日志的“骨架”：每个提交的编号、父提交和提交时间，据此排好顺序、算好图谱。
-/// 说明、作者这些内容在 `log_page` 按页读取，所以打开大仓库时不用解码每个提交的全部内容。
+/// Opening only reads the log's "skeleton": each commit's id, parents and commit time, from which order and graph are computed.
+/// Messages and authors are read per page in `log_page`, so opening a large repository doesn't decode every commit in full.
 pub struct Session {
     pub(crate) repo: gix::ThreadSafeRepository,
     path: PathBuf,
-    /// 按显示顺序排好的提交编号
+    /// Commit ids in display order
     pub(crate) ids: Vec<gix::ObjectId>,
-    /// 编号 → 在 `ids` 里的位置
+    /// id → position in `ids`
     pub(crate) index: HashMap<gix::ObjectId, u32>,
-    /// 每行的父提交所在行（只含日志里有的父提交）
+    /// Each row's parent rows (only parents present in the log)
     pub(crate) parents: Vec<Vec<u32>>,
-    /// 每行的提交时间（committer time），按时间排序用
+    /// Each row's commit time (committer time), for sorting by time
     pub(crate) times: Vec<i64>,
     graph: Vec<GraphRow>,
     lanes: u32,
     pub(crate) refs: HashMap<gix::ObjectId, Vec<Ref>>,
-    /// 上次读取时 HEAD 指向的分支和提交（`reload_if_changed` 用来判断要不要重新读；“未推送”按当前分支算）
+    /// The branch and commit HEAD pointed to at the last read (used by `reload_if_changed` to decide whether to re-read; "unpushed" is relative to the current branch)
     loaded_head: (Option<String>, Option<gix::ObjectId>),
-    /// 每行：从 HEAD 能到达
+    /// Per row: reachable from HEAD
     pub(crate) head_reach: Vec<bool>,
-    /// 每行：未推送（从 HEAD 能到达，但不在跟踪分支里）
+    /// Per row: unpushed (reachable from HEAD but not in the upstream)
     pub(crate) unpushed: Vec<bool>,
     stats: LoadStats,
-    /// 过滤用的缓存（作者、上次的过滤结果、路径命中），日志重新读取时清空
+    /// Caches for filtering (authors, the last filter result, path hits), cleared when the log is re-read
     pub(crate) filter_cache: crate::log_filter::Cache,
-    /// 操作日志（第一次用到时从 `.git/strand/oplog.json` 读入）
+    /// The op log (read from `.git/strand/oplog.json` on first use)
     pub(crate) oplog: crate::oplog::OpLog,
-    /// 写操作结束时顺带算好的工作区状态：界面紧接着来要时直接给（只用一次，2 秒内有效；说明书 15）
+    /// Worktree status computed along with a write operation: handed over directly when the UI asks right after (used once, valid for 2 seconds; spec §15)
     pub(crate) status_cache: std::sync::Mutex<Option<(std::time::Instant, crate::model::WorktreeStatus)>>,
 }
 
-/// 最近一次读取日志各阶段的耗时（毫秒），用来对照说明书第 15 节的性能目标。
+/// Time spent in each stage of the last log read (ms), for checking the performance targets in spec §15.
 #[derive(Debug, Clone, Copy, Default, serde::Serialize)]
 pub struct LoadStats {
     pub refs_ms: f64,
@@ -58,7 +58,7 @@ pub struct LoadStats {
     pub layout_ms: f64,
     pub total_ms: f64,
     pub commits: usize,
-    /// 遍历时用上了 commit-graph 文件
+    /// The walk used a commit-graph file
     pub commit_graph: bool,
 }
 
@@ -95,14 +95,14 @@ impl Session {
         Ok(s)
     }
 
-    /// 仓库没有 commit-graph 文件、或者有但不带“改过哪些路径”的过滤器时，在后台用系统 git 生成一份，
-    /// 下次读取日志就能快很多（8.6 万提交的仓库：遍历从约 800 ms 降到约 35 ms）。
-    /// 带上 `--changed-paths`：按路径过滤和逐行追溯能跳过没改过这个文件的提交
-    /// （10 万提交的仓库：按路径过滤从 6.5 秒降到 0.3 秒，追溯首屏从 650 ms 降到 270 ms）。
-    /// 之后 git 自己重写 commit-graph（抓取、gc）时会保留这些过滤器。
+    /// When the repository has no commit-graph file, or has one without changed-path filters, generate one in the background with system git,
+    /// making the next log read much faster (86k commits: the walk goes from about 800 ms to about 35 ms).
+    /// With `--changed-paths`, path filtering and blame can skip commits that didn't touch the file
+    /// (100k commits: path filtering from 6.5 s to 0.3 s, blame first screen from 650 ms to 270 ms).
+    /// git keeps these filters when it rewrites the commit-graph itself later (fetch, gc).
     ///
-    /// commit-graph 只是加速用的缓存文件，`git fetch`、`git gc` 也会生成它；
-    /// 仓库配置了 `core.commitGraph = false` 时不生成。失败时什么也不做。
+    /// The commit-graph is only an acceleration cache that `git fetch` and `git gc` also generate;
+    /// not generated when the repository sets `core.commitGraph = false`. Does nothing on failure.
     fn write_commit_graph_in_background(&self) {
         let repo = self.repo.to_thread_local();
         if repo.config_snapshot().boolean("core.commitGraph") == Some(false) {
@@ -122,12 +122,12 @@ impl Session {
         self.stats
     }
 
-    /// 打开同一个仓库的 git2 句柄（工作区状态、差异用）。打开很便宜，每次调用新开一个。
+    /// Open a git2 handle on the same repository (for worktree status and diffs). Opening is cheap, so each call opens a new one.
     pub(crate) fn git2(&self) -> Result<git2::Repository> {
         git2::Repository::open(&self.path).map_err(|e| CoreError::git("打开仓库失败", e))
     }
 
-    /// 读取日志里的一个提交；不在日志里（比如刚被外部工具改写）返回 `NOT_FOUND`。
+    /// Read one commit in the log; `NOT_FOUND` when it isn't in the log (e.g. just rewritten by an external tool).
     pub(crate) fn find_logged(&self, id: &str) -> Result<Commit> {
         let not_found = || CoreError::new(ErrorCode::NotFound, "提交不存在，日志可能已经变化");
         let oid = gix::ObjectId::from_hex(id.as_bytes()).map_err(|_| not_found())?;
@@ -141,9 +141,9 @@ impl Session {
         Ok(commit)
     }
 
-    /// 重新读取日志和图谱。仓库发生变化（`repo_changed` 的 `refs`）后调用。
-    /// 引用和 HEAD 和上次读取时一样就什么都不做，返回假；否则重新读取，返回真。
-    /// 文件监听触发的刷新用它：Strand 自己的写操作已经重新读过，监听紧接着又来一次时不用再读一遍（几万提交的仓库上省下几百毫秒）。
+    /// Re-read the log and graph. Call after the repository changes (`refs` in `repo_changed`).
+    /// Does nothing and returns false when refs and HEAD are the same as last time; otherwise re-reads and returns true.
+    /// Used by refreshes triggered by file watching: Strand's own writes have already re-read, so the watcher's follow-up doesn't read again (saves hundreds of ms on repositories with tens of thousands of commits).
     pub fn reload_if_changed(&mut self) -> Result<bool> {
         let repo = self.repo.to_thread_local();
         let refs = collect_refs(&repo)?;
@@ -157,21 +157,21 @@ impl Session {
     pub fn reload(&mut self) -> Result<()> {
         let t0 = Instant::now();
         let mut repo = self.repo.to_thread_local();
-        // 遍历时会反复解压同一批增量对象，给一块缓存
+        // The walk decompresses the same delta objects repeatedly; give it a cache
         repo.object_cache_size_if_unset(32 * 1024 * 1024);
         let refs = collect_refs(&repo)?;
         let mut tips: Vec<gix::ObjectId> = refs.keys().copied().collect();
-        // 引用表是 HashMap，顺序每次都不一样；排好序，同一时间的提交每次读出来的顺序才一致
-        // （否则提交没变也会被当成变了，过滤缓存和后台的路径查询白白重来）
+        // The ref table is a HashMap with a different order each time; sort it so commits with the same time come out in a consistent order
+        // (otherwise unchanged commits would look changed, and the filter cache and background path queries would restart for nothing)
         tips.sort_unstable();
-        // 让 HEAD 排在最前，同一时间的提交里当前分支优先
+        // Put HEAD first so the current branch wins among commits with the same time
         if let Ok(id) = repo.head_id() {
             tips.retain(|t| *t != id.detach());
             tips.insert(0, id.detach());
         }
         let refs_ms = ms(t0);
 
-        // 1. 遍历：只取编号、父提交和提交时间
+        // 1. Walk: only ids, parents and commit times
         let t1 = Instant::now();
         let mut walk_ids: Vec<gix::ObjectId> = Vec::new();
         let mut walk_parents: Vec<Vec<gix::ObjectId>> = Vec::new();
@@ -195,7 +195,7 @@ impl Session {
         }
         let walk_ms = ms(t1);
 
-        // 2. 排序：子提交在父提交前，其余按时间
+        // 2. Sort: children before parents, the rest by time
         let t2 = Instant::now();
         let walk_index: HashMap<gix::ObjectId, u32> =
             walk_ids.iter().enumerate().map(|(i, id)| (*id, i as u32)).collect();
@@ -214,7 +214,7 @@ impl Session {
         let index: HashMap<gix::ObjectId, u32> = ids.iter().enumerate().map(|(i, id)| (*id, i as u32)).collect();
         let order_ms = ms(t2);
 
-        // 3. 图谱
+        // 3. Graph
         let t3 = Instant::now();
         let layout = graph::layout(&row_parents);
         let layout_ms = ms(t3);
@@ -228,8 +228,8 @@ impl Session {
             commits: ids.len(),
             commit_graph,
         };
-        // 提交没变（如抓取了但没有新东西）时保留过滤缓存，正在后台跑的路径过滤也不用重来；
-        // 只有引用变了时，过滤结果要重算（分支过滤按引用算），作者信息和路径查询还能用
+        // When commits are unchanged (e.g. a fetch with nothing new), keep the filter cache and don't restart background path filtering;
+        // when only refs changed, filter results must be recomputed (branch filters depend on refs), but author info and path queries are still valid
         let same_commits = ids == self.ids;
         let same_refs = same_commits && refs == self.refs;
         self.times = order.iter().map(|&i| times[i as usize]).collect();
@@ -283,14 +283,14 @@ impl Session {
         Ok(RepoState { path: self.path.display().to_string(), name, head, state, bisecting })
     }
 
-    /// 某个提交（完整哈希、哈希前缀、分支名或标签名）在日志里的行号，用来跳转和定位。
+    /// The row of a commit (full hash, hash prefix, branch name or tag name) in the log, for jumping and locating.
     pub fn log_locate(&self, rev: &str) -> Option<usize> {
         let repo = self.repo.to_thread_local();
         let id = repo.rev_parse_single(rev).ok()?.object().ok()?.peel_to_commit().ok()?.id;
         self.index.get(&id).map(|&i| i as usize)
     }
 
-    /// 一页日志（不过滤、按图谱顺序）。这一页的提交内容在这里才读取和解码。
+    /// One page of the log (unfiltered, graph order). Commit contents for the page are only read and decoded here.
     pub fn log_page(&self, offset: usize, limit: usize) -> Result<LogPage> {
         let total = self.ids.len();
         let start = offset.min(total);
@@ -299,7 +299,7 @@ impl Session {
         Ok(LogPage { offset: start, rows, graph: self.graph[start..end].to_vec(), total, lanes: self.lanes, partial: false, folded: Vec::new() })
     }
 
-    /// 读取并解码若干行的提交内容
+    /// Read and decode the commit contents of some rows
     pub(crate) fn commits_at(&self, rows: impl Iterator<Item = u32>) -> Result<Vec<Commit>> {
         let repo = self.repo.to_thread_local();
         rows.map(|r| {
@@ -313,10 +313,10 @@ impl Session {
     }
 }
 
-/// 按 `git log --date-order` 的规则排序：子提交一定排在父提交前面，其余按提交时间从新到旧。
-/// 输入是遍历顺序下每个提交的父提交位置和时间，返回显示顺序（遍历位置的排列）。
+/// Sort by the rules of `git log --date-order`: children always before parents, the rest by commit time, newest first.
+/// Input is each commit's parent positions and time in walk order; returns the display order (a permutation of walk positions).
 ///
-/// 只按时间排序时，同一秒内的提交（脚本批量提交、变基）可能出现父提交排在子提交前面，图谱会画乱。
+/// Sorting by time alone can put a parent before a child for commits within the same second (scripted commits, rebases), garbling the graph.
 fn date_order(parents: &[Vec<u32>], times: &[i64]) -> Vec<u32> {
     use std::cmp::Reverse;
     use std::collections::BinaryHeap;
@@ -328,7 +328,7 @@ fn date_order(parents: &[Vec<u32>], times: &[i64]) -> Vec<u32> {
             children[p as usize] += 1;
         }
     }
-    // 堆顶是时间最新的；时间相同时按遍历的先后
+    // The heap top is the newest; ties go by walk order
     let mut heap: BinaryHeap<(i64, Reverse<u32>)> =
         (0..n as u32).filter(|&i| children[i as usize] == 0).map(|i| (times[i as usize], Reverse(i))).collect();
     let mut order = Vec::with_capacity(n);
@@ -348,8 +348,8 @@ fn ms(t: Instant) -> f64 {
     t.elapsed().as_secs_f64() * 1000.0
 }
 
-/// 每个提交上挂着哪些引用（HEAD、本地分支、远程分支、标签）。
-/// HEAD 指向的分支（分离时为空）和提交
+/// Which refs sit on each commit (HEAD, local branches, remote branches, tags).
+/// The branch HEAD points to (empty when detached) and the commit
 fn head_of(repo: &gix::Repository) -> (Option<String>, Option<gix::ObjectId>) {
     let name = repo.head_name().ok().flatten().map(|n| n.as_bstr().to_string());
     (name, repo.head_id().ok().map(|i| i.detach()))
@@ -368,7 +368,7 @@ fn collect_refs(repo: &gix::Repository) -> Result<HashMap<gix::ObjectId, Vec<Ref
             _ => continue,
         };
         let name = r.name().shorten().to_string();
-        // 远程的 HEAD 符号引用（origin/HEAD）不单独显示
+        // The remote's HEAD symbolic ref (origin/HEAD) isn't shown separately
         if kind == RefKind::Remote && name.ends_with("/HEAD") {
             continue;
         }
@@ -404,7 +404,7 @@ fn to_commit(c: &gix::Commit<'_>, refs: Option<&Vec<Ref>>) -> Result<Commit> {
     })
 }
 
-/// commit-graph 里有没有“改过哪些路径”的过滤器（BIDX 块）。`objects` 是对象目录。
+/// Whether the commit-graph has changed-path filters (BIDX chunk). `objects` is the objects directory.
 fn has_changed_paths(objects: &Path) -> bool {
     let has = |f: &Path| {
         use std::io::Read;
@@ -415,7 +415,7 @@ fn has_changed_paths(objects: &Path) -> bool {
     if single.exists() {
         return has(&single);
     }
-    // 分层的 commit-graph：每一层都要有
+    // Split commit-graph: every layer must have them
     let dir = objects.join("info").join("commit-graphs");
     let Ok(rd) = std::fs::read_dir(&dir) else { return false };
     let layers: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "graph")).collect();
@@ -444,7 +444,7 @@ mod changed_paths_tests {
         assert!(!has_changed_paths(&objects), "没带 --changed-paths");
         git(p, &["commit-graph", "write", "--reachable", "--changed-paths"]);
         assert!(has_changed_paths(&objects));
-        // 分层的
+        // Split
         std::fs::remove_file(objects.join("info/commit-graph")).unwrap();
         git(p, &["commit-graph", "write", "--reachable", "--split", "--changed-paths"]);
         assert!(has_changed_paths(&objects));

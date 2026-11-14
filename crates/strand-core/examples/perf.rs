@@ -1,9 +1,9 @@
-//! 说明书第 15 节的性能指标，在一个仓库上逐项计时（核心层部分，不含界面渲染）。
-//! 写操作照应用里的做法：记操作日志（前后各拍一次快照，操作后的快照和重新读取日志同时进行）、读状态和第一页。
+//! Times each performance metric in spec §15 on one repository (core layer only, no UI rendering).
+//! Write operations follow what the app does: record the op log (a snapshot before and after; the after snapshot runs alongside re-reading the log), read status and the first page.
 //!
 //! cargo run --release -p strand-core --example perf -- /path/to/repo
-//! 仓库用 scripts/gen_perf_repo.py 造（里面有 big/diff.txt、big/blame.txt、src/d023、src/d042、feature-10 分支）；
-//! 测试会改动工作区和分支，用临时仓库。
+//! Build the repository with scripts/gen_perf_repo.py (it has big/diff.txt, big/blame.txt, src/d023, src/d042 and a feature-10 branch);
+//! the test changes the worktree and branches, so use a throwaway repository.
 
 use std::time::Instant;
 
@@ -24,14 +24,14 @@ fn main() {
     let path = std::env::args().nth(1).expect("仓库路径");
     let p = std::path::Path::new(&path);
 
-    // 1. 打开仓库到第一屏日志
+    // 1. Open the repository to the first screen of the log
     let t = Instant::now();
     let mut s = Session::open(&path).unwrap();
     let first = s.log_page(0, 200).unwrap();
     row("打开仓库 + 第一屏日志", "1 s", ms(t), 1000.0);
     println!("    （{} 个提交，commit-graph：{}）", first.total, if s.load_stats().commit_graph { "有" } else { "没有" });
 
-    // 2. 日志翻页
+    // 2. Log paging
     let t = Instant::now();
     let mid = s.log_page(first.total / 2, 200).unwrap();
     row("日志中间一页（200 行）", "50 ms", ms(t), 50.0);
@@ -40,7 +40,7 @@ fn main() {
     row("日志最后一页（200 行）", "50 ms", ms(t), 50.0);
     assert_eq!(mid.rows.len(), 200);
 
-    // 3. 工作区状态
+    // 3. Worktree status
     let t = Instant::now();
     let st = s.status().unwrap();
     row("工作区状态（干净）", "300 ms", ms(t), 300.0);
@@ -51,7 +51,7 @@ fn main() {
     row("工作区状态（改了 1 个文件）", "300 ms", ms(t), 300.0);
     assert_eq!(st.changes.len(), 1);
 
-    // 4. 2000 行改动的差异
+    // 4. Diff of a 2000-line change
     let head = s.state().unwrap().head.commit.unwrap();
     let t = Instant::now();
     let d = s.diff_commit(&head, "big/diff.txt").unwrap();
@@ -65,10 +65,10 @@ fn main() {
     s.diff_worktree("big/diff.txt", false, 3).unwrap();
     row("工作区里 2000 行改动的差异", "200 ms", ms(t), 200.0);
 
-    // 工作区里的 2000 行改动放回去，免得切换分支时和别的分支冲突
+    // Put the 2000-line worktree change back so switching branches doesn't conflict with other branches
     std::fs::write(p.join("big/diff.txt"), text).unwrap();
 
-    // 5. 搜索和过滤
+    // 5. Search and filter
     let f = LogFilter { text: "第 7777".into(), ..Default::default() };
     let t = Instant::now();
     let r = s.log_query(&f, LogSort::Topo, 0, 200).unwrap();
@@ -80,7 +80,7 @@ fn main() {
     row("按路径过滤（首批）", "300 ms", ms(t), 300.0);
     println!("    （首批 {} 个，partial={}）", r.total, r.partial);
 
-    // 6. 逐行追溯：首屏 300 行
+    // 6. Blame: first screen of 300 lines
     let t = Instant::now();
     let b = s.blame_file("big/blame.txt", None, 0, 300).unwrap();
     row("逐行追溯 5000 行文件（首屏）", "500 ms", ms(t), 500.0);
@@ -88,7 +88,7 @@ fn main() {
     s.blame_file("big/blame.txt", None, 300, 4700).unwrap();
     println!("    （共 {} 行；其余 4700 行后台读取 {:.0} ms）", b.total, ms(t));
 
-    // 7. 本地写操作：照应用里的做法，记操作日志 + 重新读取 + 读状态
+    // 7. Local write operations: as the app does it, record the op log + re-read + read status
     let write = |s: &mut Session, name: &str, f: &mut dyn FnMut(&mut Session)| {
         let t = Instant::now();
         s.run_op_reload(name, OpKind::Other, |s| {
@@ -107,7 +107,7 @@ fn main() {
     write(&mut s, "提交 1 个文件", &mut |s| {
         s.commit_create("性能测试的提交", &sel, false, None).unwrap();
     });
-    // 切换分支：相距 10 个提交（一般情况）；切到 feature-10（相距很远、很多文件要改写，极端情况）
+    // Switch branches: 10 commits apart (typical); switch to feature-10 (far apart, many files rewritten, worst case)
     let near = s.log_page(10, 1).unwrap().rows[0].id.clone();
     std::process::Command::new("git").args(["branch", "-f", "near", &near]).current_dir(p).output().unwrap();
     s.reload().unwrap();

@@ -1,4 +1,4 @@
-//! 行级提交、丢弃改动、未跟踪文件的操作（说明书 4.3、4.7、4.8）。
+//! Line-level commits, discarding changes, untracked file operations (spec §4.3, §4.7, §4.8).
 
 use std::path::Path;
 use std::process::Command;
@@ -36,7 +36,7 @@ fn numbered(n: usize) -> String {
     (1..=n).map(|i| format!("第 {i} 行\n")).collect()
 }
 
-/// 某个文件里，满足条件的改动行
+/// Changed lines in a file that match a condition
 fn pick(s: &Session, path: &str, f: impl Fn(LineKind, &str) -> bool) -> Vec<LineRef> {
     let d = s.diff_worktree(path, false, 3).unwrap();
     let mut out = Vec::new();
@@ -58,7 +58,7 @@ fn partial(path: &str, lines: Vec<LineRef>) -> SelectedFile {
 fn commit_only_some_lines() {
     let d = repo(&[("a.txt", &numbered(30)), ("b.txt", "b\n")]);
     let p = d.path();
-    // 第 2 行改掉、第 29 行改掉（两个修改块），另一个文件整文件提交
+    // Line 2 changed and line 29 changed (two change blocks), another file committed whole
     let changed = numbered(30).replace("第 2 行\n", "第二行\n").replace("第 29 行\n", "第二十九行\n");
     std::fs::write(p.join("a.txt"), &changed).unwrap();
     std::fs::write(p.join("b.txt"), "b2\n").unwrap();
@@ -78,25 +78,25 @@ fn commit_only_some_lines() {
 
 #[test]
 fn one_pair_and_no_newline_at_end() {
-    // 最后一行没有换行
+    // The last line has no newline
     let d = repo(&[("c.txt", "一\n二\n三")]);
     let p = d.path();
     std::fs::write(p.join("c.txt"), "零\n一\n二改\n三").unwrap();
     let s = Session::open(p).unwrap();
-    // 只提交“删掉二、加上二改”这一对，开头新加的“零”不提交
+    // Commit only the pair "delete 二, add 二改", not the new "零" at the top
     let lines = pick(&s, "c.txt", |_, t| t == "二" || t == "二改");
     assert_eq!(lines.len(), 2);
     s.commit_create("改二", &Selection { files: vec![partial("c.txt", lines)] }, false, None).unwrap();
     let raw = Command::new("git").args(["cat-file", "-p", "HEAD:c.txt"]).current_dir(p).output().unwrap().stdout;
     assert_eq!(String::from_utf8(raw).unwrap(), "一\n二改\n三", "文件末尾没有换行的保持不变");
 
-    // 再提交剩下的“零”
+    // Then commit the remaining "零"
     let s = Session::open(p).unwrap();
     let lines = pick(&s, "c.txt", |_, t| t == "零");
     s.commit_create("加零", &Selection { files: vec![partial("c.txt", lines)] }, false, None).unwrap();
     assert_eq!(git(p, &["status", "--porcelain"]), "");
 
-    // 同一块里只选一部分：和 git add -p 一样，没选的删除行留在原处，选中的新增行接在它后面
+    // Selecting part of one block: like git add -p, unselected deleted lines stay in place and selected added lines follow them
     std::fs::write(p.join("c.txt"), "零\n一\nA\nB").unwrap();
     let s = Session::open(p).unwrap();
     let lines = pick(&s, "c.txt", |_, t| t == "二改" || t == "A");
@@ -148,12 +148,12 @@ fn sign_off_line() {
     git(p, &["config", "user.name", "林夏"]);
     git(p, &["config", "user.email", "linxia@example.com"]);
     let s = Session::open(p).unwrap();
-    // 整文件提交
+    // Whole-file commit
     std::fs::write(p.join("a.txt"), numbered(30).replace("第 1 行\n", "第一行\n")).unwrap();
     let sel = Selection { files: vec![SelectedFile { path: "a.txt".into(), old_path: None, whole: true, lines: vec![] }] };
     s.commit_create("加签名", &sel, true, None).unwrap();
     assert!(git(p, &["log", "-1", "--format=%B"]).contains("Signed-off-by: 林夏 <linxia@example.com>"));
-    // 部分行提交
+    // Partial-line commit
     let s = Session::open(p).unwrap();
     std::fs::write(p.join("a.txt"), numbered(30).replace("第 1 行\n", "第一行\n").replace("第 30 行\n", "第三十行\n")).unwrap();
     let lines = pick(&s, "a.txt", |_, _| true);

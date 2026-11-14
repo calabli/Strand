@@ -1,8 +1,8 @@
-//! 项目文件浏览和文件修改链：
-//! - `project_files`：项目里的文件（已跟踪的，加上没被忽略的未跟踪文件），给左侧的目录树；
-//! - `file_text`：某个文件现在（工作区）或某个版本时的内容；
-//! - `file_history`：改过这个文件的提交，从新到旧，跟着重命名往前找（`git log --follow`）；
-//! - `file_diff_versions`：同一个文件两个版本之间的差异，两边的路径可以不同（中间改过名），新的一边可以是工作区。
+//! Browsing project files and a file's change chain:
+//! - `project_files`: files in the project (tracked, plus untracked files that aren't ignored), for the tree on the left;
+//! - `file_text`: a file's content now (worktree) or at a revision;
+//! - `file_history`: commits that changed the file, newest first, following renames (`git log --follow`);
+//! - `file_diff_versions`: the diff between two versions of one file; the two paths may differ (renamed in between), and the newer side may be the worktree.
 
 use serde::Serialize;
 
@@ -12,33 +12,33 @@ use crate::git_cli;
 use crate::model::{Author, Commit, FileDiff, FileStatus};
 use crate::repo::Session;
 
-/// 文件内容最多读这么多字节，超过的截断
+/// Read at most this many bytes of file content; truncate beyond
 const MAX_BYTES: usize = 4 << 20;
-/// 修改链最多列这么多个版本
+/// List at most this many versions in the change chain
 pub const MAX_VERSIONS: usize = 2000;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FileText {
     pub path: String,
-    /// 文字内容；二进制文件或不存在时没有
+    /// Text content; absent for binary or missing files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     pub binary: bool,
-    /// 这个版本（或工作区）里没有这个文件
+    /// The file doesn't exist at this revision (or in the worktree)
     pub missing: bool,
-    /// 字节数
+    /// Size in bytes
     pub size: u64,
-    /// 太大，只读了前面一部分
+    /// Too large, only the beginning was read
     pub truncated: bool,
 }
 
-/// 修改链里的一个版本
+/// One version in the change chain
 #[derive(Debug, Clone, Serialize)]
 pub struct FileVersion {
     pub commit: Commit,
-    /// 这个提交里文件的路径
+    /// The file's path in this commit
     pub path: String,
-    /// 这个提交把文件从哪个路径改名过来
+    /// The path this commit renamed the file from
     #[serde(skip_serializing_if = "Option::is_none")]
     pub old_path: Option<String>,
     pub status: FileStatus,
@@ -49,14 +49,14 @@ pub struct FileVersion {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FileHistory {
-    /// 从新到旧
+    /// Newest first
     pub versions: Vec<FileVersion>,
-    /// 超过 MAX_VERSIONS，更早的没有列出
+    /// Over MAX_VERSIONS, older ones aren't listed
     pub truncated: bool,
 }
 
 impl Session {
-    /// 项目里的文件，按路径排序：已跟踪的，加上没被 .gitignore 忽略的未跟踪文件
+    /// Project files sorted by path: tracked, plus untracked files not ignored by .gitignore
     pub fn project_files(&self) -> Result<Vec<String>> {
         let out = git_cli::run(self.path(), &["ls-files", "-z", "--cached", "--others", "--exclude-standard"], None)?;
         let mut list: Vec<String> = out.split('\0').filter(|p| !p.is_empty()).map(str::to_string).collect();
@@ -65,7 +65,7 @@ impl Session {
         Ok(list)
     }
 
-    /// 文件内容：`rev` 为空时读工作区里的，否则读这个版本（哈希、分支名都行）里的
+    /// File content: from the worktree when `rev` is empty, otherwise from that revision (hash or branch name)
     pub fn file_text(&self, path: &str, rev: Option<&str>) -> Result<FileText> {
         let repo = self.git2()?;
         let data = self.content(&repo, path, rev)?;
@@ -82,14 +82,14 @@ impl Session {
         Ok(FileText { path: path.to_string(), text, binary, missing: false, size, truncated })
     }
 
-    /// 改过这个文件的提交（从当前 HEAD 往前），跟着重命名找到最早的版本
+    /// Commits that changed this file (back from the current HEAD), following renames to the earliest version
     pub fn file_history(&self, path: &str) -> Result<FileHistory> {
         let mut h = history_at(self.path(), path)?;
         self.fill_versions(&mut h);
         Ok(h)
     }
 
-    /// 在日志里的提交换成完整的（带引用和未推送标记）
+    /// Replace commits that are in the log with full ones (with refs and unpushed markers)
     pub fn fill_versions(&self, h: &mut FileHistory) {
         for v in &mut h.versions {
             if let Ok(c) = self.find_logged(&v.commit.id) {
@@ -98,13 +98,13 @@ impl Session {
         }
     }
 
-    /// 同一个文件两个版本之间的差异。`from` 为空表示旧的一边没有这个文件（新增）；`to` 为空表示新的一边是工作区。
-    /// 两边的路径可以不同（中间改过名）。
+    /// The diff between two versions of the same file. `from` empty means the old side doesn't have the file (added); `to` empty means the new side is the worktree.
+    /// The two paths may differ (renamed in between).
     pub fn file_diff_versions(&self, from: Option<&str>, from_path: &str, to: Option<&str>, to_path: &str) -> Result<FileDiff> {
         self.file_diff_versions_ctx(from, from_path, to, to_path, 3)
     }
 
-    /// 同 [`Session::file_diff_versions`]，指定上下文行数
+    /// Same as [`Session::file_diff_versions`], with the number of context lines
     pub fn file_diff_versions_ctx(&self, from: Option<&str>, from_path: &str, to: Option<&str>, to_path: &str, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
         let old = match from {
@@ -131,10 +131,10 @@ impl Session {
         Ok(fd)
     }
 
-    /// 保存工作区里的一个文件（在差异里直接编辑后保存）。
-    /// `expected` 是开始编辑时读到的内容：磁盘上的已经被别处改了就不覆盖（STATE_DIVERGED），免得冲掉别人的改动。
-    /// 原文件用 CRLF 换行时，保存的内容也换成 CRLF（编辑框会把换行统一成 LF）。
-    /// 只能写仓库里已有的普通文件，路径不能跳出仓库，也不能写进 .git。
+    /// Save a file in the worktree (after editing directly in the diff).
+    /// `expected` is the content read when editing started: if the file on disk was changed elsewhere, don't overwrite it (STATE_DIVERGED) so others' changes aren't lost.
+    /// When the original file uses CRLF, the saved content is converted to CRLF too (the editor normalizes line endings to LF).
+    /// Only existing regular files in the repository can be written; the path can't escape the repository or point into .git.
     pub fn save_worktree_file(&self, path: &str, text: &str, expected: &str) -> Result<()> {
         check_rel_path(path)?;
         let rel = std::path::Path::new(path);
@@ -151,7 +151,7 @@ impl Session {
         std::fs::write(&full, out).map_err(|e| CoreError::git("写入文件失败", e))
     }
 
-    /// 文件在某个版本（或工作区）里的内容；没有这个文件时返回 None
+    /// A file's content at a revision (or in the worktree); None when the file doesn't exist
     fn content(&self, repo: &git2::Repository, path: &str, rev: Option<&str>) -> Result<Option<Vec<u8>>> {
         let Some(rev) = rev else {
             let full = self.path().join(path);
@@ -170,8 +170,8 @@ impl Session {
     }
 }
 
-/// 修改链里费时的部分（`git log --follow` 要翻全部历史），不需要 Session：命令层在后台跑它，不占着仓库，
-/// 跑完再用 [`Session::fill_versions`] 补上引用
+/// The slow part of the change chain (`git log --follow` walks the whole history); needs no Session: the command layer runs it in the background without holding the repository,
+/// then fills in refs with [`Session::fill_versions`]
 pub fn history_at(dir: &std::path::Path, path: &str) -> Result<FileHistory> {
     let max = format!("--max-count={}", MAX_VERSIONS + 1);
     let out = git_cli::run(
@@ -180,7 +180,7 @@ pub fn history_at(dir: &std::path::Path, path: &str) -> Result<FileHistory> {
         None,
     )
     .or_else(|e| {
-        // 还没有提交的仓库：没有历史
+        // A repository with no commits yet: no history
         if git2::Repository::open(dir).is_ok_and(|r| r.head().is_err()) { Ok(String::new()) } else { Err(e) }
     })?;
     let mut versions = parse_history(&out);
@@ -189,7 +189,7 @@ pub fn history_at(dir: &std::path::Path, path: &str) -> Result<FileHistory> {
     Ok(FileHistory { versions, truncated })
 }
 
-/// 解析 `git log --format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s --raw --numstat -z` 的输出
+/// Parse the output of `git log --format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s --raw --numstat -z`
 pub fn parse_history(out: &str) -> Vec<FileVersion> {
     let mut list = Vec::new();
     for rec in out.split('\x1e').filter(|r| !r.trim().is_empty()) {
@@ -222,7 +222,7 @@ pub fn parse_history(out: &str) -> Vec<FileVersion> {
                 continue;
             }
             if let Some(raw) = tok.strip_prefix(':') {
-                // ":100644 100644 abc def M" 后面跟路径；改名、复制（R100、C75）跟两个路径
+                // ":100644 100644 abc def M" is followed by a path; renames and copies (R100, C75) by two paths
                 let st = raw.split_whitespace().last().unwrap_or("M");
                 let two = st.starts_with('R') || st.starts_with('C');
                 let (a, b) = if two { (toks.get(i).copied(), toks.get(i + 1).copied()) } else { (None, toks.get(i).copied()) };
@@ -241,7 +241,7 @@ pub fn parse_history(out: &str) -> Vec<FileVersion> {
                     };
                 }
             } else if tok.contains('\t') {
-                // "增\t删\t路径"；改名时路径为空，后面跟旧路径和新路径
+                // "added\tdeleted\tpath"; for renames the path is empty, followed by the old and new paths
                 let mut p = tok.splitn(3, '\t');
                 let (a, d, path) = (p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""));
                 if path.is_empty() {
@@ -280,7 +280,7 @@ mod tests {
     }
 }
 
-/// 工作区里的相对路径：不能是空的、绝对路径、带 `..`，也不能在 .git 里
+/// A relative path in the worktree: not empty, not absolute, no `..`, and not inside .git
 pub(crate) fn check_rel_path(path: &str) -> Result<()> {
     let rel = std::path::Path::new(path);
     let bad = path.is_empty()
@@ -293,7 +293,7 @@ pub(crate) fn check_rel_path(path: &str) -> Result<()> {
 }
 
 impl Session {
-    /// 文件某个版本的原始字节（图片对比用）；`rev` 为空是工作区。超过 30 MB 或这个版本里没有这个文件时报错
+    /// A file's raw bytes at a revision (for image diffs); `rev` empty means the worktree. Fails when over 30 MB or the file doesn't exist at this revision
     pub fn file_bytes(&self, path: &str, rev: Option<&str>) -> Result<Vec<u8>> {
         check_rel_path(path)?;
         const MAX: usize = 30 << 20;
@@ -307,7 +307,7 @@ impl Session {
                 }
                 std::fs::read(&full).map_err(|e| CoreError::git("读取文件失败", e))
             }
-            // 冲突时索引里的各方：":1" 共同祖先、":2" 当前分支（ours）、":3" 合并进来的（theirs）
+            // The sides in the index during a conflict: ":1" common ancestor, ":2" current branch (ours), ":3" the one being merged in (theirs)
             Some(r @ (":1" | ":2" | ":3")) => {
                 let repo = self.git2()?;
                 let stage: i32 = r[1..].parse().unwrap_or(2);

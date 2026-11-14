@@ -1,5 +1,5 @@
-// 前后端之间的数据结构，必须和 crates/strand-core/src/model.rs、error.rs 保持一致。
-// 对应说明书第 13、14 节。
+// Data structures shared by frontend and backend; must match crates/strand-core/src/model.rs and error.rs.
+// Corresponds to spec §13 and §14.
 
 export type HeadKind = "branch" | "detached" | "unborn";
 export type RepoMode = "normal" | "merging" | "rebasing" | "cherry_picking" | "reverting" | "unstashing";
@@ -15,7 +15,7 @@ export interface RepoState {
   name: string;
   head: Head;
   state: RepoMode;
-  /** 二分查找进行中 */
+  /** Bisect in progress */
   bisecting?: boolean;
 }
 
@@ -32,23 +32,23 @@ export interface Commit {
   title: string;
   body: string;
   author: { name: string; email: string };
-  /** Unix 秒 */
+  /** Unix seconds */
   time: number;
   refs: Ref[];
   is_merge: boolean;
-  /** 从当前分支能到达、但不在它的跟踪分支里 */
+  /** Reachable from the current branch but not in its upstream */
   unpushed: boolean;
 }
 
-/** cut_out：长连线在这里折叠，往下一小段后是向下的箭头；cut_in：折叠的长连线从这一行顶部的箭头接回来，再画到下一行 */
+/** cut_out: a long edge collapses here, a short segment down then a down arrow; cut_in: a collapsed long edge rejoins from an arrow at the top of this row, then continues to the next row */
 export type EdgeKind = "straight" | "fork" | "merge" | "cut_out" | "cut_in";
 
-/** 从本行画到下一行的一段线 */
+/** A segment from this row to the next */
 export interface Edge {
   from_lane: number;
   to_lane: number;
   kind: EdgeKind;
-  /** 折叠的线另一头所在的行（cut_out 指向父提交，cut_in 指向出发的子提交），点箭头跳过去 */
+  /** The row at the other end of a collapsed edge (cut_out points to the parent, cut_in to the child it started from); clicking the arrow jumps there */
   target?: number;
 }
 
@@ -61,15 +61,15 @@ export interface LogPage {
   offset: number;
   rows: Commit[];
   graph: GraphRow[];
-  /** 折叠线性分支时：和 rows 对应，这一行下面折叠了几个提交 */
+  /** With linear branches collapsed: matches rows, how many commits are folded under this row */
   folded?: number[];
   total: number;
   lanes: number;
-  /** 过滤结果还没算完：total 是目前找到的数目，过一会儿再查会更多（说明书 15） */
+  /** Filter results not complete yet: total is the count so far, querying again later gives more (spec §15) */
   partial?: boolean;
 }
 
-/** 日志过滤条件（说明书 5.1），省略的项不过滤 */
+/** Log filter conditions (spec §5.1); omitted ones don't filter */
 export type MatchKind = "contains" | "prefix" | "suffix" | "regex";
 export interface AuthorMatch {
   kind: MatchKind;
@@ -80,27 +80,27 @@ export interface LogFilter {
   text?: string;
   regex?: boolean;
   case_sensitive?: boolean;
-  /** 只看从这个分支能到达的提交 */
+  /** Only commits reachable from this branch */
   branch?: string | null;
-  /** 作者邮箱（只选一个时的旧写法） */
+  /** Author email (old single-author form) */
   author?: string | null;
-  /** 选中的作者邮箱（多选） */
+  /** Selected author emails (multiple) */
   authors?: string[];
-  /** 按规则匹配作者（名字或邮箱），和选中的作者是“或” */
+  /** Match authors by rule (name or email), OR-ed with the selected authors */
   author_match?: AuthorMatch | null;
-  /** 作者时间不早于（Unix 秒） */
+  /** Author time not earlier than (Unix seconds) */
   since?: number | null;
-  /** 作者时间早于（Unix 秒，不含） */
+  /** Author time earlier than (Unix seconds, exclusive) */
   until?: number | null;
-  /** 搜索文字搜哪里：提交说明（默认），还是改动内容（git log -S / -G） */
+  /** Where the search text searches: commit messages (default) or changes (git log -S / -G) */
   search_in?: "message" | "changes";
-  /** 只看第一父提交 */
+  /** First parent only */
   first_parent?: boolean;
-  /** 不显示合并提交 */
+  /** Hide merge commits */
   no_merges?: boolean;
-  /** 折叠线性分支（没有别的过滤、按图谱顺序时） */
+  /** Collapse linear branches (without other filters, in graph order) */
   collapse_linear?: boolean;
-  /** 路径子串 */
+  /** Path substring */
   path?: string | null;
 }
 
@@ -150,9 +150,9 @@ export interface CoreError {
   detail?: unknown;
 }
 
-// ---------- 工作区、差异、提交详情 ----------
+// ---------- Worktree, diffs, commit details ----------
 
-/** T 是类型变化（如普通文件变成符号链接），界面按 M 显示 */
+/** T is a type change (e.g. a regular file became a symlink), shown as M in the UI */
 export type FileStatus = "M" | "A" | "D" | "R" | "T";
 
 export interface FileChange {
@@ -162,7 +162,7 @@ export interface FileChange {
   added: number;
   deleted: number;
   binary: boolean;
-  /** 部分克隆里文件内容不在本地、也没能下载：行数不可用 */
+  /** In a partial clone the file content isn't local and couldn't be downloaded: line counts unavailable */
   no_stats?: boolean;
 }
 
@@ -200,7 +200,7 @@ export interface CommitDetail {
   caps: CommitCaps;
 }
 
-/** 一个操作能不能用；不能用时给出原因（说明书 5.6） */
+/** Whether an operation is available; the reason when it isn't (spec §5.6) */
 export interface Cap {
   ok: boolean;
   why?: string;
@@ -214,23 +214,23 @@ export interface CommitCaps {
   undo: Cap;
   reword: Cap;
   drop: Cap;
-  /** 从这里开始整理（说明书 9.2） */
+  /** Rebase from here (spec §9.2) */
   rebase_from: Cap;
-  /** Fixup / Squash Into（还要求提交面板有勾选） */
+  /** Fixup / Squash Into (also requires checked files in the commit panel) */
   fixup: Cap;
-  /** 和本地比较（说明书 10.3） */
+  /** Compare with local (spec §10.3) */
   compare_local: Cap;
-  /** 推送到这里为止（说明书 5.6） */
+  /** Push up to here (spec §5.6) */
   push_to: Cap;
   parent?: string;
   child?: string;
-  /** 托管平台上这个提交的页面 */
+  /** This commit's page on the hosting service */
   web_url?: string;
 }
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-/** 逐行追溯的一页（说明书 10.2） */
+/** One page of blame (spec §10.2) */
 export interface BlamePage {
   total: number;
   offset: number;
@@ -238,19 +238,19 @@ export interface BlamePage {
   commits: { id: string; title: string; body: string; author: string; email: string; time: number; in_log: boolean; uncommitted: boolean }[];
 }
 
-/** 比较的结果（说明书 10.3） */
+/** Comparison result (spec §10.3) */
 export interface Comparison {
   from: string;
   to: string;
-  /** 只在起点这边的提交，新的在前 */
+  /** Commits only on the start side, newest first */
   only_from: Commit[];
-  /** 只在终点这边的提交 */
+  /** Commits only on the end side */
   only_to: Commit[];
   truncated: boolean;
   files: FileChange[];
 }
 
-// ---------- 整理提交（说明书第 9 节） ----------
+// ---------- Rebasing commits (spec §9) ----------
 
 export interface RangeCommit {
   id: string;
@@ -262,7 +262,7 @@ export interface RangeCommit {
 }
 
 export interface RebaseRange {
-  /** 从旧到新 */
+  /** Oldest first */
   commits: RangeCommit[];
   has_pushed: boolean;
 }
@@ -281,7 +281,7 @@ export interface RebaseResult {
 }
 
 export interface Selection {
-  /** whole 为假时只提交 lines 里的改动行：diff_worktree（不忽略空白、3 行上下文）里第 hunk 块第 line 行 */
+  /** When whole is false only the changed lines in lines are committed: line `line` of block `hunk` in diff_worktree (keep whitespace, 3 lines of context) */
   files: { path: string; old_path?: string; whole: boolean; lines?: { hunk: number; line: number }[] }[];
 }
 
@@ -293,7 +293,7 @@ export interface CommitCreated {
 
 export type ChangeScope = "refs" | "status" | "stash" | "shelf";
 
-// ---------- 分支、远程分支、标签 ----------
+// ---------- Branches, remote branches, tags ----------
 
 export interface Branch {
   name: string;
@@ -302,19 +302,19 @@ export interface Branch {
   ahead: number;
   behind: number;
   is_current: boolean;
-  /** 已完全包含在当前分支里，删除不会丢提交 */
+  /** Fully contained in the current branch; deleting loses no commits */
   merged: boolean;
-  /** 在另一个工作目录里检出（那个目录的路径），这里切换不过去 */
+  /** Checked out in another worktree (that directory's path), can't be switched to here */
   worktree?: string;
-  /** 本地改写了已经推送的提交：推送需要强制推送；这时 behind 是远程上的旧版本，不该拉取 */
+  /** Local history rewrote pushed commits: pushing needs a force push; behind then counts old versions on the remote and shouldn't be pulled */
   needs_force: boolean;
-  /** 不能把当前分支变基到它之上的原因（核心层的中文，显示时 tr()）；能变基时没有 */
+  /** Why the current branch can't be rebased onto it (Chinese from the core layer, shown via tr()); absent when it can */
   rebase_block?: string;
-  /** 收藏了（存在仓库的 .git/strand/favorites 里） */
+  /** Favorite (stored in the repository's .git/strand/favorites) */
   favorite?: boolean;
 }
 
-/** 工作目录（说明书 6.6） */
+/** Worktree (spec §6.6) */
 export interface Worktree {
   path: string;
   branch?: string;
@@ -322,7 +322,7 @@ export interface Worktree {
   is_main: boolean;
   is_current: boolean;
   locked: boolean;
-  /** 文件夹已经不在了 */
+  /** The folder no longer exists */
   prunable: boolean;
 }
 
@@ -330,16 +330,16 @@ export interface RemoteBranch {
   name: string;
   remote: string;
   head: string;
-  /** 同 Branch.rebase_block */
+  /** Same as Branch.rebase_block */
   rebase_block?: string;
 }
 
 export interface Tag {
   name: string;
   at: string;
-  /** 带说明的标签的说明；轻量标签没有 */
+  /** The message of an annotated tag; lightweight tags have none */
   message?: string;
-  /** 还没推送到 origin（按上次抓取时记下的远程标签）；从没抓取过时为 false */
+  /** Not pushed to origin yet (per the remote tags recorded at the last fetch); false if never fetched */
   unpushed: boolean;
 }
 
@@ -348,40 +348,40 @@ export interface RefsList {
   remotes: RemoteBranch[];
   tags: Tag[];
   head: Head;
-  /** 第一个是主工作目录 */
+  /** The first one is the main worktree */
   worktrees: Worktree[];
 }
 
 export type MergeResult = "up_to_date" | "fast_forward" | "merged" | "squashed";
-/** 合并方式（说明书 6.7）：能快进就快进 / 总是生成合并提交 / 压缩成一个提交 */
+/** Merge mode (spec §6.7): fast-forward when possible / always create a merge commit / squash into one commit */
 export type MergeMode = "auto" | "no_ff" | "squash";
 
-/** 变基前的检查（说明书 6.3） */
+/** Pre-rebase check (spec §6.3) */
 export interface RebasePlan {
   branch: string;
   onto: string;
-  /** 当前分支独有的提交数 */
+  /** Commits only on the current branch */
   own: number;
-  /** 其中已经推送过的 */
+  /** How many of them are pushed */
   pushed: number;
-  /** 目标分支上当前分支还没有的提交数 */
+  /** Commits on the target branch the current branch doesn't have */
   incoming: number;
   has_merge: boolean;
 }
 
 export type RebaseOutcome = "up_to_date" | "fast_forward" | "rebased";
 
-/** 写操作的返回：操作结果和最新的仓库状态 */
+/** What write operations return: the operation result and the latest repository state */
 export interface Written<T> {
   result: T;
   state: RepoState;
-  /** 这次操作写进操作日志的那一条（说明书第 11 节）；没有记日志时省略 */
+  /** The op log entry this operation wrote (spec §11); omitted when nothing was logged */
   op?: OpInfo;
-  /** 给用户的补充说明，如拉取后自动搁置的改动没能放回（说明书 7.2） */
+  /** Extra notes for the user, e.g. auto-shelved changes couldn't be restored after a pull (spec §7.2) */
   note?: string;
 }
 
-// ---------- 贮藏和暂存架（说明书 4.9） ----------
+// ---------- Stash and shelf (spec §4.9) ----------
 
 export interface StashEntry {
   /** stash@{index} */
@@ -399,7 +399,7 @@ export interface ShelfEntry {
   base: string;
 }
 
-// ---------- 撤销、重做和操作时间线 ----------
+// ---------- Undo, redo and the op timeline ----------
 
 export type OpKind = "commit" | "branch" | "switch" | "merge" | "checkout" | "tag" | "pull" | "push" | "stash" | "shelf" | "other";
 
@@ -409,27 +409,27 @@ export interface OpInfo {
   kind: OpKind;
   time: number;
   undoable: boolean;
-  /** 已撤销，等待重做 */
+  /** Undone, waiting for redo */
   undone: boolean;
-  /** 不能撤销的原因 */
+  /** Why it can't be undone */
   reason?: string;
 }
 
 export interface OpList {
-  /** 新的在前 */
+  /** Newest first */
   entries: OpInfo[];
   can_undo: boolean;
   can_redo: boolean;
 }
 
-// ---------- 远程操作 ----------
+// ---------- Remote operations ----------
 
 export interface FetchResult {
-  /** 抓取改动了引用（远程分支、标签）；没改时界面不重新读取日志 */
+  /** The fetch changed refs (remote branches, tags); when not, the UI doesn't re-read the log */
   refs_changed?: boolean;
-  /** 抓取后当前分支落后跟踪分支的提交数 */
+  /** After fetching, how many commits the current branch is behind its upstream */
   behind: number;
-  /** 这次新到的提交数 */
+  /** Commits newly arrived this time */
   incoming: number;
 }
 
@@ -441,17 +441,17 @@ export interface PullResult {
   incoming: number;
 }
 
-/** 拉取摘要面板里的一个冲突文件（说明书 7.2） */
+/** One conflicted file in the pull summary panel (spec §7.2) */
 export interface PreviewConflict {
   path: string;
   kind: "text" | "modify_delete" | "binary" | "lock";
-  /** 文本文件里两边改了同一段的处数 */
+  /** Number of places in a text file where both sides changed the same section */
   blocks: number;
-  /** 变基方式：第一次冲突出现在哪个本地提交（标题） */
+  /** Rebase mode: which local commit (title) the first conflict appears in */
   commit?: string;
 }
 
-/** 拉取的预演：按上次抓取的结果在内存里合并一遍，不改仓库 */
+/** Pull dry run: merge once in memory using the last fetch's result, without changing the repository */
 export interface PullPreview {
   branch: string;
   upstream: string;
@@ -460,7 +460,7 @@ export interface PullPreview {
   ahead: number;
   auto_merged: number;
   conflicts: PreviewConflict[];
-  /** 工作区里已跟踪文件的改动数（会先搁置到暂存架） */
+  /** Number of changes to tracked worktree files (shelved first) */
   dirty: number;
 }
 
@@ -471,17 +471,17 @@ export interface PushPreview {
   commits: { id: string; title: string }[];
   behind: number;
   needs_force: boolean;
-  /** 推送到哪个远程 */
+  /** Which remote to push to */
   remote: string;
-  /** 仓库里所有的远程 */
+  /** All remotes in the repository */
   remotes: string[];
-  /** 推送到这个提交为止（说明书 5.6）：commits 只含它和它之前的 */
+  /** Push up to this commit (spec §5.6): commits contains only it and those before it */
   to?: string;
-  /** 推送到某个提交为止时，它之后留在本地的提交数 */
+  /** When pushing up to a commit, the number of commits after it that stay local */
   left: number;
-  /** 还没推送的本地标签 */
+  /** Local tags not pushed yet */
   unpushed_tags: string[];
-  /** 还没抓取过，不知道远程有哪些标签 */
+  /** Never fetched, so the remote's tags are unknown */
   tags_unknown: boolean;
 }
 
@@ -491,17 +491,17 @@ export interface TaskProgress {
   percent?: number;
 }
 
-// ---------- 冲突解决（说明书 8.10） ----------
+// ---------- Conflict resolution (spec §8.10) ----------
 
 export type SessionKind = "merge" | "rebase" | "cherry_pick" | "revert" | "unstash";
 export type FileKind = "text" | "modify_delete" | "binary" | "lock" | "rename";
 export type SideChange = "modified" | "deleted" | "added" | "renamed";
 
-/** 引入一个修改块的提交（说明书 8.10 的 Block.origin） */
+/** The commit that introduced a change block (Block.origin in spec §8.10) */
 export interface Origin {
   commit: string;
   author: string;
-  /** Unix 秒 */
+  /** Unix seconds */
   time: number;
   title: string;
 }
@@ -517,10 +517,10 @@ export interface SideInfo {
 export interface Change {
   id: string;
   base: string[];
-  /** 这一侧改成的内容；null 表示这一侧没有改动 */
+  /** What this side changed it to; null means this side has no change */
   mine: string[] | null;
   theirs: string[] | null;
-  /** 引入这一侧这段内容的提交；没有时显示这一侧的提交 */
+  /** The commit that introduced this side's content; when absent, this side's commit is shown */
   mine_origin?: Origin;
   theirs_origin?: Origin;
 }
@@ -533,9 +533,9 @@ export interface ConflictFile {
   mine_change: SideChange;
   theirs_change: SideChange;
   segments: Segment[];
-  /** 这次操作里有过冲突、现在已经解决（含在命令行里 git add 的） */
+  /** Had conflicts during this operation and is resolved now (including git add on the command line) */
   resolved?: boolean;
-  /** 重命名冲突：两边各自的新名字（path 是原来的名字） */
+  /** Rename conflict: each side's new name (path is the original name) */
   mine_path?: string;
   theirs_path?: string;
 }
@@ -545,9 +545,9 @@ export interface MergeSession {
   step?: { index: number; total: number };
   mine: SideInfo;
   theirs: SideInfo;
-  /** 这次操作里有冲突的文件；resolved 为真的是已经解决的 */
+  /** Files with conflicts in this operation; those with resolved true are resolved */
   files: ConflictFile[];
-  /** 撤销“中止合并”后放回来的标记：中止时交给核心层的 localStorage 条目（键 → 内容） */
+  /** Marks restored after undoing "abort merge": the localStorage entries (key → content) handed to the core layer when aborting */
   saved_marks?: Record<string, unknown>;
 }
 
@@ -562,7 +562,7 @@ export interface FinishResult {
   next?: MergeSession;
 }
 
-// ---------- 提交前格式化和检查（说明书 4.4、4.6） ----------
+// ---------- Format and check before committing (spec §4.4, §4.6) ----------
 
 export interface ChecksConfig {
   format_command: string;
@@ -571,7 +571,7 @@ export interface ChecksConfig {
   check_on_commit: boolean;
 }
 
-/** 配置和按仓库文件推测的建议命令 */
+/** Settings, plus suggested commands guessed from the repository's files */
 export interface ChecksInfo extends ChecksConfig {
   suggest_format: string[];
   suggest_check: string[];
@@ -583,7 +583,7 @@ export interface CheckIssue {
   path: string;
   line?: number | null;
   col?: number | null;
-  /** error、warning 或空 */
+  /** error, warning or empty */
   level: string;
   message: string;
 }
@@ -598,35 +598,35 @@ export interface CheckRun {
   timed_out: boolean;
   issues: CheckIssue[];
   ms: number;
-  /** 格式化改动了的文件 */
+  /** Files the formatter changed */
   changed: string[];
 }
 
-/** 控制台里的一条（说明书 5.8）：`$` 是执行的 git 命令，`#` 是客户端自己的操作 */
+/** One console entry (spec §5.8): `$` is a git command that ran, `#` is the client's own operation */
 export interface ConsoleEntry {
   seq: number;
-  /** 毫秒时间戳 */
+  /** Timestamp in milliseconds */
   time: number;
   kind: "command" | "note";
-  /** 命令（不含 `$`）或操作说明（不含 `#`），凭据已打码 */
+  /** The command (without `$`) or operation description (without `#`), credentials masked */
   text: string;
-  /** 命令的输出，凭据已打码，最多 12 行 */
+  /** The command's output, credentials masked, at most 12 lines */
   output: string[];
-  /** 截掉的输出行数 */
+  /** Number of output lines cut off */
   more?: number;
   ok: boolean;
-  /** 用时（毫秒） */
+  /** Duration (ms) */
   ms?: number;
 }
 
-// ---------- 项目文件和文件修改链 ----------
+// ---------- Project files and file change chains ----------
 
 export interface FileText {
   path: string;
-  /** 文字内容；二进制或不存在时没有 */
+  /** Text content; absent for binary or missing files */
   text?: string;
   binary: boolean;
-  /** 这个版本（或工作区）里没有这个文件 */
+  /** The file doesn't exist at this revision (or in the worktree) */
   missing: boolean;
   size: number;
   truncated: boolean;
@@ -634,9 +634,9 @@ export interface FileText {
 
 export interface FileVersion {
   commit: Commit;
-  /** 这个提交里文件的路径 */
+  /** The file's path in this commit */
   path: string;
-  /** 这个提交把文件从哪个路径改名过来 */
+  /** The path this commit renamed the file from */
   old_path?: string;
   status: FileChange["status"];
   added: number;
@@ -645,16 +645,16 @@ export interface FileVersion {
 }
 
 export interface FileHistory {
-  /** 从新到旧 */
+  /** Newest first */
   versions: FileVersion[];
   truncated: boolean;
 }
 
-// ---------- 按内容搜索 ----------
+// ---------- Searching by content ----------
 
 export interface ChangeMatch {
   path: string;
-  /** 匹配的改动行数 */
+  /** Number of matching changed lines */
   lines: number;
 }
 
@@ -675,7 +675,7 @@ export interface ProjectSearch {
   truncated: boolean;
 }
 
-/** 应用补丁：补丁里的文件 */
+/** Applying patches: a file in the patch */
 export interface PatchFile {
   path: string;
   old_path?: string;
@@ -684,40 +684,40 @@ export interface PatchFile {
   deleted: number;
   binary: boolean;
 }
-/** 补丁能不能应用：直接能、要按三方合并（可能有冲突）、应用不了 */
+/** Whether the patch applies: cleanly, needs a three-way apply (may conflict), or not at all */
 export type PatchFit = "clean" | "three_way" | "fails";
 export interface PatchPreview {
   files: PatchFile[];
-  /** 邮件格式（git format-patch）时的提交 */
+  /** Commits in mailbox format (git format-patch) */
   commits: { title: string; author: string }[];
   fit: PatchFit;
   reason?: string;
 }
 
-/** 操作记录（reflog）的一条，从新到旧 */
+/** One reflog entry, newest first */
 export interface ReflogEntry {
   index: number;
   id: string;
   old_id: string;
-  /** 如 commit、checkout、reset、merge origin/main */
+  /** E.g. commit, checkout, reset, merge origin/main */
   action: string;
   message: string;
   time: number;
   title: string;
-  /** 提交还在仓库里 */
+  /** The commit still exists in the repository */
   exists: boolean;
-  /** 提交在日志里 */
+  /** The commit is in the log */
   in_log: boolean;
 }
 
-/** 提交的签名状态 */
+/** A commit's signature status */
 export type SigStatus = "good" | "untrusted" | "bad" | "expired" | "expired_key" | "revoked" | "unknown" | "none";
 export interface Signature {
   status: SigStatus;
   signer: string;
   key: string;
 }
-/** 这个仓库的签名设置（git config 的生效值） */
+/** This repository's signing settings (effective git config values) */
 export interface SigningConfig {
   commit: boolean;
   tag: boolean;
@@ -725,34 +725,34 @@ export interface SigningConfig {
   format: string;
 }
 
-/** 一个远程 */
+/** A remote */
 export interface RemoteInfo {
   name: string;
   url: string;
   push_url?: string;
 }
 
-/** 二分查找的标记 */
+/** A bisect mark */
 export type BisectMark = "good" | "bad" | "skip";
-/** 二分查找的状态 */
+/** Bisect state */
 export interface BisectStatus {
   active: boolean;
-  /** 开始前在哪个分支，结束时回到这里 */
+  /** The branch before starting; we return here at the end */
   start: string;
   bad?: string | null;
   good: string[];
   skipped: string[];
-  /** 现在检出的、等着测试的提交 */
+  /** The commit currently checked out, waiting to be tested */
   current?: string | null;
-  /** 测完这个之后还剩多少个可能 */
+  /** How many candidates remain after testing this one */
   remaining?: number | null;
-  /** 大约还要几步 */
+  /** Roughly how many steps are left */
   steps?: number | null;
   first_bad?: string | null;
   first_bad_title?: string | null;
 }
 
-/** 写说明用的：说明模板（去掉注释行）、自己写过的说明（新的在前）、当前身份 */
+/** For writing messages: the template (comment lines removed), your past messages (newest first), the current identity */
 export interface ComposeInfo {
   template?: string | null;
   template_path?: string | null;
@@ -760,15 +760,15 @@ export interface ComposeInfo {
   me?: string | null;
 }
 
-/** 变更列表：第一个是默认列表（id "default"，name 为空时显示“改动”） */
+/** Changelists: the first is the default list (id "default"; shown as "Changes" when name is empty) */
 export interface Changelist {
   id: string;
   name: string;
 }
 export interface Changelists {
   lists: Changelist[];
-  /** 新出现的改动放进哪个列表 */
+  /** Which list new changes go into */
   active: string;
-  /** 路径 → 列表 id；不在这里的路径属于活动列表 */
+  /** path → list id; paths not listed belong to the active list */
   files: Record<string, string>;
 }

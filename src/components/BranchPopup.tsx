@@ -1,8 +1,8 @@
-// 分支弹窗（说明书 6.2）：工具栏分支按钮打开，用命令面板的组件（Palette），只是内容不同。
-// - 常用操作：拉取、提交、推送、抓取（由外面给）、新建分支、新建工作目录、检出标签或指定版本。
-// - 本地分支：收藏的在前，右边是跟踪的远程分支或“本地”；回车进入分支子菜单，第一项是“返回”。
-// - 远程分支：回车检出为本地分支。
-// - 有搜索词时另外列出跨分支的操作：把它合并到当前分支、和当前分支比较。
+// Branch popup (spec §6.2): opened by the toolbar's branch button, using the command palette's component (Palette) with different content.
+// - Common actions: pull, commit, push, fetch (provided from outside), new branch, new worktree, check out a tag or revision.
+// - Local branches: favorites first, with the tracked remote branch or "local" on the right; Enter opens the branch submenu, whose first item is "back".
+// - Remote branches: Enter checks out as a local branch.
+// - With a search term, cross-branch actions are listed too: merge it into the current branch, compare with the current branch.
 
 import { useMemo, useState } from "react";
 import type { Branch, RefsList } from "../api/types";
@@ -19,14 +19,14 @@ interface Props {
   favs: Set<string>;
   toggleFav: (name: string) => void;
   merging: boolean;
-  /** 外面给的常用操作：拉取、提交、推送、抓取（key 分别是 pull、commit、push、fetch） */
+  /** Common actions provided from outside: pull, commit, push, fetch (keys pull, commit, push, fetch) */
   common: PaletteRow[];
-  /** 日志只看这个分支的提交 */
+  /** Show only this branch's commits in the log */
   onShowOnly: (name: string) => void;
   onClose: () => void;
 }
 
-/** 菜单项换成面板的行（去掉分隔线） */
+/** Turn menu items into palette rows (dropping separators) */
 const fromMenu = (items: MenuEntry[], prefix: string): PaletteRow[] =>
   items
     .filter((x): x is MenuItem => x !== "-")
@@ -40,14 +40,14 @@ export function BranchPopup({ refs, ops, favs, toggleFav, merging, common, onSho
     setQ("");
   };
 
-  /** 分支子菜单（说明书 6.2 的表） */
+  /** Branch submenu (table in spec §6.2) */
   const subRows = (b: Branch): PaletteRow[] => {
     const rows: PaletteRow[] = [];
     if (b.is_current) rows.push(...common.filter((c) => c.key === "pull" || c.key === "push"));
-    // 当前分支：切换、合并、比较、删除这些对它不适用的不列出来（说明书 6.2 的表）
+    // Current branch: switch, merge, compare and delete don't apply to it and aren't listed (table in spec §6.2)
     const acts = fromMenu(branchActions(b, ops, favs.has(b.name), toggleFav, merging), "b");
     rows.push(...(b.is_current ? acts.filter((r) => !r.disabled) : acts));
-    // “只看它的提交”放在新建分支后面
+    // "Show only its commits" goes after new branch
     const at = rows.findIndex((r) => r.label === t("从这里新建分支…"));
     rows.splice(at < 0 ? rows.length : at + 1, 0, { key: "only", label: t("只看它的提交"), icon: I.base, run: () => onShowOnly(b.name) });
     return rows;
@@ -103,7 +103,7 @@ export function BranchPopup({ refs, ops, favs, toggleFav, merging, common, onSho
           why: t("合并还没完成"),
         })),
     );
-    // 有搜索词时列出跨分支的操作（说明书 6.2）
+    // With a search term, list cross-branch actions (spec §6.2)
     if (f && ops.current) {
       const cross = (refs?.branches ?? []).filter((b) => !b.is_current && match(b.name)).slice(0, 5);
       for (const b of cross) {

@@ -1,6 +1,6 @@
-// 操作记录（reflog）：HEAD 或某个本地分支指向过哪些提交，从新到旧。
-// 用来找回误删的分支、重置或变基之前的提交（包括命令行里做的、Strand 的撤销覆盖不到的）。
-// 每一行：第几步、动作、说明、提交标题、短哈希、时间；悬停有在日志里定位、从这里新建分支、检出这个版本、复制版本号。
+// Reflog: which commits HEAD or a local branch pointed to, newest first.
+// For recovering deleted branches and commits from before a reset or rebase (including ones done on the command line that Strand's undo can't cover).
+// Each row: step number, action, description, commit title, short hash, time; hovering offers locate in log, new branch from here, check out this revision, copy commit id.
 
 import { useEffect, useMemo, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -9,7 +9,7 @@ import { formatTime, relTime, shortId } from "./format";
 import { useReturnFocus } from "./focus";
 import { lazy, t, tr } from "../i18n";
 
-/** 常见动作的说明（其余原样显示） */
+/** Labels for common actions (others shown as is) */
 const ACTION = lazy(() => ({
   commit: t("提交"),
   "commit (initial)": t("第一个提交"),
@@ -39,7 +39,7 @@ const ACTION = lazy(() => ({
 function actionText(a: string): string {
   const known = (ACTION as Record<string, string>)[a];
   if (known) return known;
-  // merge origin/main、pull origin main 之类：认前面的词
+  // Things like merge origin/main, pull origin main: recognize the first word
   const head = a.split(" ")[0];
   const k2 = (ACTION as Record<string, string>)[head];
   return k2 ? `${k2} ${a.slice(head.length + 1)}`.trim() : a;
@@ -66,7 +66,7 @@ interface Props {
   onBranch: (id: string) => void;
   onCheckout: (id: string) => void;
   say: (m: string) => void;
-  /** 合并或变基进行中：不能检出、新建分支 */
+  /** Merge or rebase in progress: can't check out or create branches */
   busy: boolean;
 }
 

@@ -1,4 +1,4 @@
-//! 写说明用的信息（说明历史、提交说明模板、身份）、换作者提交、变更列表的保存。
+//! Info for writing messages (message history, commit template, identity), committing as another author, saving changelists.
 
 use std::path::Path;
 use std::process::Command;
@@ -68,7 +68,7 @@ fn commit_with_other_author() {
     s.commit_create("改\n\nCo-authored-by: 别人 <o@x.cn>", &sel(&["a.txt"]), false, Some("王五 <w@x.cn>")).unwrap();
     assert_eq!(git(d.path(), &["log", "-1", "--format=%an <%ae>|%cn"]), "王五 <w@x.cn>|林夏");
     assert_eq!(git(d.path(), &["log", "-1", "--format=%(trailers:key=Co-authored-by,valueonly)"]), "别人 <o@x.cn>");
-    // 修订时只换作者
+    // Change only the author when amending
     s.reload().unwrap();
     s.commit_amend(None, &sel(&[]), false, Some("赵六 <z@x.cn>")).unwrap();
     assert_eq!(git(d.path(), &["log", "-1", "--format=%an|%s"]), "赵六|改");
@@ -87,14 +87,14 @@ fn changelists_roundtrip_and_normalize() {
     let saved = s.changelists_set(c).unwrap();
     assert_eq!(saved.files.len(), 1);
     assert_eq!(s.changelists_get().unwrap(), saved);
-    // 同名、没名字的不行
+    // Duplicate names and empty names are rejected
     let mut bad = saved.clone();
     bad.lists.push(Changelist { id: "x".into(), name: "界面".into() });
     assert!(s.changelists_set(bad).is_err());
     let mut bad = saved.clone();
     bad.lists.push(Changelist { id: "y".into(), name: " ".into() });
     assert!(s.changelists_set(bad).is_err());
-    // 活动列表被删掉了：回到默认
+    // The active list was deleted: back to the default
     let mut c = saved;
     c.lists.retain(|l| l.id == "default");
     let c = s.changelists_set(c).unwrap();

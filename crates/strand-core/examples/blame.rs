@@ -1,6 +1,6 @@
-//! 逐行追溯的耗时：首屏 300 行和整个文件（说明书 15 节：5000 行的文件首屏 500 ms 内）。
+//! Blame timing: first screen of 300 lines and the whole file (spec §15: first screen of a 5000-line file within 500 ms).
 //!
-//! cargo run --release -p strand-core --example blame -- /path/to/repo 文件路径
+//! cargo run --release -p strand-core --example blame -- /path/to/repo <file path>
 
 use std::time::Instant;
 

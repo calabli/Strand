@@ -1,4 +1,4 @@
-//! 贮藏和暂存架（说明书 4.9），以及取回时的冲突和撤销。
+//! Stash and shelf (spec §4.9), plus conflicts and undo when restoring.
 
 use std::path::Path;
 use std::process::Command;
@@ -58,11 +58,11 @@ fn stash_push_apply_pop_drop() {
     assert!(list[1].message.ends_with("改 a"));
     assert_eq!(s.stash_files(1).unwrap()[0].path, "a.txt");
 
-    // 取回但保留
+    // Restore but keep
     s.stash_apply(1, false).unwrap();
     assert_eq!(read(p, "a.txt"), "a2\n");
     assert_eq!(s.stash_list().unwrap().len(), 2);
-    // 取回并删除
+    // Restore and delete
     s.stash_apply(0, true).unwrap();
     assert_eq!(read(p, "b.txt"), "b2\n");
     assert_eq!(s.stash_list().unwrap().len(), 1);
@@ -82,7 +82,7 @@ fn stash_pop_conflict_then_finish_or_abort() {
     write(p, "b.txt", "我在改 b\n");
     s.reload().unwrap();
 
-    // 取回冲突：进入“取回进行中”
+    // Restore conflicts: enters "restore in progress"
     let err = s.stash_apply(0, true).unwrap_err();
     assert_eq!(err.code, ErrorCode::Conflicts);
     assert_eq!(s.state().unwrap().state, RepoMode::Unstashing);
@@ -92,14 +92,14 @@ fn stash_pop_conflict_then_finish_or_abort() {
     assert!(session.theirs.label.starts_with("WIP on main"));
     assert_eq!(session.files[0].path, "a.txt");
 
-    // 中止：回到取回之前，贮藏还在，b.txt 上的改动保留
+    // Abort: back to before the restore, the stash is still there, the changes to b.txt are kept
     s.merge_abort().unwrap();
     assert_eq!(s.state().unwrap().state, RepoMode::Normal);
     assert_eq!(read(p, "a.txt"), "提交里的 a\n");
     assert_eq!(read(p, "b.txt"), "我在改 b\n");
     assert_eq!(s.stash_list().unwrap().len(), 1);
 
-    // 再取回，这次整文件接受“对方的”（取回的改动）并完成：贮藏被删除
+    // Restore again, this time taking "theirs" (the restored changes) for the whole file and finishing: the stash is deleted
     s.stash_apply(0, true).unwrap_err();
     s.merge_take_file("a.txt", Side::Theirs).unwrap();
     assert_eq!(s.state().unwrap().state, RepoMode::Unstashing, "完成前一直是取回进行中");
@@ -115,7 +115,7 @@ fn shelf_roundtrip_is_byte_identical() {
     let d = repo();
     let p = d.path();
     let s = Session::open(p).unwrap();
-    // 修改、删除、新增（已加入版本控制）三种；还有一个不搁置的文件
+    // Modified, deleted and added (added to version control); plus one file not shelved
     write(p, "a.txt", "a2\n中文和没有结尾换行");
     std::fs::remove_file(p.join("gone.txt")).unwrap();
     write(p, "new.bin", "\u{0}\u{1}二进制");
@@ -153,7 +153,7 @@ fn shelf_restore_conflict_and_undo() {
     let (e, op) = s.run_op("搁置", OpKind::Other, |s| s.shelf_save("改 a", &["a.txt".to_string()])).unwrap();
     assert!(op.is_some());
 
-    // 撤销搁置：改动回到工作区，条目从暂存架消失；重做又搁置回去
+    // Undo the shelve: changes return to the worktree and the entry leaves the shelf; redo shelves it again
     s.oplog_undo(None, false).unwrap();
     assert_eq!(read(p, "a.txt"), "搁置的 a\n");
     assert!(s.shelf_list().unwrap().is_empty());
@@ -161,7 +161,7 @@ fn shelf_restore_conflict_and_undo() {
     assert_eq!(read(p, "a.txt"), "a1\n");
     assert_eq!(s.shelf_list().unwrap()[0].id, e.id);
 
-    // 取回时冲突
+    // Conflicts when restoring
     write(p, "a.txt", "提交里的 a\n");
     git(p, &["commit", "-qam", "改 a"]);
     s.reload().unwrap();
@@ -195,7 +195,7 @@ fn undo_stash_pop_brings_the_stash_back() {
     assert!(s.stash_list().unwrap().is_empty());
 }
 
-/// 暂存架条目可以看文件和差异，从补丁里读，不碰工作区（说明书 4.9）
+/// Shelf entries' files and diffs can be viewed, read from the patch without touching the worktree (spec §4.9)
 #[test]
 fn shelf_files_and_diff() {
     let d = repo();
@@ -220,13 +220,13 @@ fn shelf_files_and_diff() {
     assert!(s.shelf_diff(e.id, "img.bin", None).unwrap().binary);
     assert_eq!(s.shelf_diff(e.id, "b.txt", None).unwrap_err().code, ErrorCode::NotFound);
 
-    // 看差异不改工作区；删掉后读不到
+    // Viewing diffs doesn't change the worktree; unreadable after deletion
     assert_eq!(read(p, "a.txt"), "a1\n");
     s.shelf_delete(e.id).unwrap();
     assert!(s.shelf_files(e.id).is_err());
 }
 
-/// 只取回暂存架条目里的部分文件（说明书 4.9）
+/// Restore only some files of a shelf entry (spec §4.9)
 #[test]
 fn shelf_restore_some_files() {
     let d = repo();
@@ -236,9 +236,9 @@ fn shelf_restore_some_files() {
     write(p, "b.txt", "b 改\n");
     std::fs::remove_file(p.join("gone.txt")).unwrap();
     let e = s.shelf_save("三处改动", &["a.txt".into(), "b.txt".into(), "gone.txt".into()]).unwrap();
-    s.shelf_save("另一个", &["a.txt".into()]).unwrap_err(); // a.txt 已经没改动了
+    s.shelf_save("另一个", &["a.txt".into()]).unwrap_err(); // a.txt has no changes anymore
 
-    // 取回 a.txt 和 gone.txt：b.txt 留在暂存架，条目名字不变、换了编号
+    // Restore a.txt and gone.txt: b.txt stays on the shelf, entry name unchanged, new id
     let (_, op) = s.run_op("取回", OpKind::Shelf, |s| s.shelf_restore_files(e.id, &["a.txt".into(), "gone.txt".into()])).unwrap();
     assert!(op.is_some());
     assert_eq!(read(p, "a.txt"), "a 改\n");
@@ -252,13 +252,13 @@ fn shelf_restore_some_files() {
     assert_eq!(s.shelf_files(list[0].id).unwrap().len(), 1);
     assert_eq!(s.shelf_diff(list[0].id, "b.txt", None).unwrap().hunks.len(), 1);
 
-    // 撤销：工作区回去，原条目整个回来
+    // Undo: the worktree goes back and the whole original entry returns
     s.oplog_undo(None, false).unwrap();
     assert_eq!(read(p, "a.txt"), "a1\n");
     let list = s.shelf_list().unwrap();
     assert_eq!((list.len(), list[0].id, list[0].files.len()), (1, e.id, 3));
 
-    // 剩下的再全部取回：条目没了
+    // Restore the rest too: the entry is gone
     s.shelf_restore_files(e.id, &["b.txt".into()]).unwrap();
     let rest = s.shelf_list().unwrap()[0].id;
     s.shelf_restore_files(rest, &["a.txt".into(), "gone.txt".into()]).unwrap();
@@ -268,7 +268,7 @@ fn shelf_restore_some_files() {
     assert_eq!(s.shelf_restore_files(rest, &[]).unwrap_err().code, ErrorCode::NothingSelected);
 }
 
-/// 部分取回时冲突：中止后原条目还在、另存的条目去掉；完成后只剩另存的条目
+/// Conflicts during a partial restore: after aborting the original entry remains and the split-off entry is removed; after finishing only the split-off entry remains
 #[test]
 fn shelf_restore_some_files_conflict() {
     let d = repo();

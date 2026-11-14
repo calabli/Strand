@@ -1,6 +1,6 @@
-//! 二分查找（git bisect）：标出一个“坏”的提交（有问题）和一个“好”的提交（没问题），
-//! Git 每次检出中间的一个提交让你测试，标好或坏，几步之后找到第一个出问题的提交。
-//! 状态都在 Git 自己的文件里（refs/bisect/*、BISECT_START），命令行里开始的也能接着做。
+//! Bisect (git bisect): mark one "bad" commit (has the problem) and one "good" commit (doesn't),
+//! Git checks out a commit in between each time for you to test and mark good or bad, and after a few steps finds the first bad commit.
+//! All state lives in Git's own files (refs/bisect/*, BISECT_START), so a bisect started on the command line can be continued here.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,18 +19,18 @@ pub enum BisectMark {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BisectStatus {
     pub active: bool,
-    /// 开始前在哪个分支（或提交）上，结束时回到这里
+    /// The branch (or commit) before starting; we return here at the end
     pub start: String,
     pub bad: Option<String>,
     pub good: Vec<String>,
     pub skipped: Vec<String>,
-    /// 现在检出的、等着测试的提交
+    /// The commit currently checked out, waiting to be tested
     pub current: Option<String>,
-    /// 测完这个之后还剩多少个提交可能是第一个坏的
+    /// How many commits could still be the first bad one after testing this one
     pub remaining: Option<u32>,
-    /// 大约还要几步
+    /// Roughly how many steps are left
     pub steps: Option<u32>,
-    /// 找到了：第一个坏提交
+    /// Found: the first bad commit
     pub first_bad: Option<String>,
     pub first_bad_title: Option<String>,
 }
@@ -64,7 +64,7 @@ impl Session {
                 let var = |k: &str| out.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).map(|v| v.trim_matches('\'').to_string());
                 st.remaining = var("bisect_nr").and_then(|v| v.parse().ok());
                 st.steps = var("bisect_steps").and_then(|v| v.parse().ok());
-                // 只剩坏的那一个：它就是第一个坏提交
+                // Only the bad one is left: it is the first bad commit
                 if var("bisect_all").and_then(|v| v.parse::<u32>().ok()) == Some(1) {
                     st.first_bad = Some(bad.clone());
                     st.first_bad_title = repo.find_commit(git2::Oid::from_str(bad).map_err(|e| CoreError::git("读取提交失败", e))?).ok().and_then(|c| c.summary().ok().flatten().map(str::to_string));
@@ -76,7 +76,7 @@ impl Session {
         Ok(st)
     }
 
-    /// 标记一个提交（不给就是现在检出的那个）。还没开始时先开始二分查找。
+    /// Mark a commit (the currently checked-out one if not given). Starts the bisect first if it hasn't started.
     pub fn bisect_mark(&self, mark: BisectMark, rev: Option<&str>) -> Result<BisectStatus> {
         let repo = self.git2()?;
         if let Some(r) = rev {
@@ -116,7 +116,7 @@ impl Session {
         self.bisect_status()
     }
 
-    /// 结束二分查找，回到开始前的分支
+    /// End the bisect and return to the branch from before it started
     pub fn bisect_reset(&self) -> Result<()> {
         git_cli::run(self.path(), &["bisect", "reset"], None).map(|_| ())
     }

@@ -1,5 +1,5 @@
-// 暂存架和贮藏（说明书 4.9）：提交面板的第二、三个标签页，以及提交面板里的“搁置”“贮藏”按钮。
-// 取回时和工作区冲突：仓库进入“取回进行中”，主界面换成冲突列表（第 8 节）。
+// Shelf and stash (spec §4.9): the commit panel's second and third tabs, plus the "shelve" and "stash" buttons in the commit panel.
+// When restoring conflicts with the worktree, the repository enters "restore in progress" and the main view switches to the conflict list (§8).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -9,7 +9,7 @@ import { FileRow } from "./FileRow";
 import { t } from "../i18n";
 
 interface Deps {
-  /** 每次仓库变化都换一个值，列表随之刷新 */
+  /** Changes on every repository change, refreshing the lists */
   refreshKey: string | null;
   ask: (d: DialogSpec) => void;
   done: (state: RepoState, message: string, op?: OpInfo) => void;
@@ -48,7 +48,7 @@ export function useStashShelf({ refreshKey, ask, done, failed, say }: Deps) {
 
   const stash = useCallback(() => run(api.stashPush(), t("已贮藏全部改动")), [run]);
 
-  /** 搁置选中的文件；ask 为真时先问名字，否则直接用“改动 · 序号”命名 */
+  /** Shelve the selected files; with ask true ask for a name first, otherwise name it "Changes · n" */
   const shelve = useCallback(
     (paths: string[], askName: boolean) => {
       if (!askName) return run(api.shelfSave("", paths), t("已搁置到暂存架"));
@@ -64,7 +64,7 @@ export function useStashShelf({ refreshKey, ask, done, failed, say }: Deps) {
   );
 
   const restore = useCallback((e: ShelfEntry) => run(api.shelfRestore(e.id), t("已取回“{0}”", e.name)), [run]);
-  /** 只取回勾选的文件，剩下的留在暂存架（说明书 4.9） */
+  /** Restore only the checked files, the rest stay on the shelf (spec §4.9) */
   const restoreFiles = useCallback(
     (e: ShelfEntry, paths: string[]) => run(api.shelfRestore(e.id, paths), t("已从“{0}”取回 {1} 个文件", e.name, paths.length)),
     [run],
@@ -130,8 +130,8 @@ function ago(at: number) {
   return t("{0} 天前", Math.floor(s / 86400));
 }
 
-/** 暂存架标签页 */
-/** 暂存架标签页；展开后点文件看差异（从保存的补丁里读，不碰工作区） */
+/** Shelf tab */
+/** Shelf tab; expand and click a file to see its diff (read from the saved patch, worktree untouched) */
 export function ShelfPanel({
   ops,
   disabled,
@@ -145,10 +145,10 @@ export function ShelfPanel({
 }) {
   const [open, setOpen] = useState<number | null>(null);
   const [files, setFiles] = useState<FileChange[] | null>(null);
-  // 展开的条目里勾选要取回的文件，默认全选
+  // Check the files to restore in an expanded entry, all checked by default
   const [off, setOff] = useState<Set<string>>(new Set());
   const live = open != null && ops.shelves.some((e) => e.id === open);
-  // 部分取回后剩下的文件换了编号（名字和时间不变）：继续展开它
+  // After a partial restore the remaining files get a new id (same name and time): keep it expanded
   const last = useRef<ShelfEntry | null>(null);
   useEffect(() => {
     const cur = ops.shelves.find((e) => e.id === open);
@@ -175,7 +175,7 @@ export function ShelfPanel({
   return (
     <div className="ss-list">
       {ops.shelves.map((e) => {
-        // 展开并且只勾了一部分时，取回图标只取回勾选的文件
+        // When expanded with only some files checked, the restore icon restores only the checked files
         const picked = open === e.id && files ? files.filter((f) => !off.has(f.path)).map((f) => f.path) : null;
         const partial = !!picked && !!files && picked.length < files.length;
         const none = !!picked && picked.length === 0;
@@ -237,7 +237,7 @@ export function ShelfPanel({
   );
 }
 
-/** 贮藏标签页；展开后点文件看差异 */
+/** Stash tab; expand and click a file to see its diff */
 export function StashPanel({ ops, disabled, onOpenDiff, activePath }: { ops: StashShelf; disabled: boolean; onOpenDiff: (id: string, path: string) => void; activePath: string | null }) {
   const [open, setOpen] = useState<string | null>(null);
   const [files, setFiles] = useState<FileChange[] | null>(null);

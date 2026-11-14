@@ -1,4 +1,4 @@
-// 抓取、拉取、推送（说明书第 7 节）：运行状态、进度、取消、结果提示、拉取方式、窗口获得焦点时自动抓取。
+// Fetch, pull, push (spec §7): running state, progress, cancel, result notices, pull mode, auto-fetch when the window gains focus.
 
 import { useReturnFocus } from "./focus";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,10 +20,10 @@ const PULL_TEXT: Record<string, (n: number) => string> = {
 
 interface Deps {
   repo: RepoState | null;
-  /** keepLog：仓库的提交和引用都没变（如抓取了但没有新东西），不用重新读取日志 */
+  /** keepLog: the repository's commits and refs are unchanged (e.g. a fetch with nothing new), no need to re-read the log */
   done: (state: RepoState, message: string, op?: OpInfo, keepLog?: boolean) => void;
   failed: (message: string) => void;
-  /** 只显示提示，不刷新 */
+  /** Only show a notice, no refresh */
   say: (message: string) => void;
 }
 
@@ -48,7 +48,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     try {
       if (modeKey) localStorage.setItem(modeKey, m);
     } catch {
-      /* 只在本次有效 */
+      /* Only for this session */
     }
   };
 
@@ -60,7 +60,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     [],
   );
 
-  /** 运行一个网络任务；CANCELLED 不提示，其余错误交给 onError */
+  /** Run a network task; CANCELLED isn't reported, other errors go to onError */
   const runTask = useCallback(
     async <T,>(
       kind: RemoteKind,
@@ -94,9 +94,9 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
         "fetch",
         (t) => api.remoteFetch(t, quiet),
         (r) => (quiet ? "" : r.behind > 0 ? t("远程有 {0} 个新提交，可以拉取", r.behind) : t("远程没有新提交")),
-        // 自动抓取失败（比如离线）不打扰用户
+        // Auto-fetch failures (e.g. offline) don't bother the user
         () => quiet,
-        // 没抓到新东西：不重新读取日志，正在看的（过滤后的）列表不被打断
+        // Nothing new fetched: don't re-read the log, so the (filtered) list being viewed isn't interrupted
         (r) => !r.refs_changed,
       );
     },
@@ -106,14 +106,14 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
   const fetchRef = useRef(fetch);
   fetchRef.current = fetch;
 
-  /** 真正拉取；fetched 为真时不再抓取（刚抓取过、看过摘要面板） */
+  /** The real pull; with fetched true don't fetch again (just fetched and showed the summary panel) */
   const runPull = useCallback(
     (mode: PullMode, fetched: boolean) =>
       runTask(
         "pull",
         (t) => api.remotePull(t, mode, fetched),
         (r) => PULL_TEXT[r.outcome](r.incoming),
-        // 有冲突时仓库停在合并或变基状态，刷新后主界面会自动换成冲突列表
+        // On conflicts the repository stops mid merge or rebase, and after refreshing the main view switches to the conflict list automatically
         (err) => {
           if (err.code !== "CONFLICTS") return false;
           failed("");
@@ -125,8 +125,8 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
   );
 
   /**
-   * 拉取（说明书 7.2）：先抓取，再在内存里预演一遍。会有冲突时先弹出拉取摘要面板，
-   * 由用户决定中止还是开始解决（这时仓库还没改动）；没有冲突就直接拉取。预演失败不挡拉取。
+   * Pull (spec §7.2): fetch first, then dry-run in memory. When conflicts are expected, show the pull summary panel first
+   * and let the user choose to abort or start resolving (the repository is unchanged at that point); without conflicts, pull directly. A failed dry run doesn't block the pull.
    */
   const pull = useCallback(
     async (mode: PullMode = pullMode) => {
@@ -158,7 +158,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     [pullMode, done, failed, runPull],
   );
 
-  /** 摘要面板里换拉取方式：重新预演 */
+  /** Changing the pull mode in the summary panel: dry-run again */
   const previewMode = useCallback(
     async (mode: PullMode) => {
       setPullMode(mode);
@@ -173,21 +173,21 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     [failed, modeKey],
   );
 
-  /** 摘要面板：开始解决（真正拉取，停在冲突里） */
+  /** Summary panel: start resolving (pull for real, stopping in conflicts) */
   const startPull = useCallback(() => {
     const p = pullPanel;
     setPullPanel(null);
     if (p) runPull(p.mode, true);
   }, [pullPanel, runPull]);
 
-  /** 摘要面板：中止。仓库还没改动，只是抓取过 */
+  /** Summary panel: abort. The repository is unchanged, only fetched */
   const abortPull = useCallback(() => {
     setPullPanel(null);
     say(t("已中止拉取，仓库没有改动"));
   }, [say]);
 
-  /** 打开推送对话框（说明书 7.3：始终先打开对话框；没有要推送的提交时只提示） */
-  /** 打开推送对话框；to 不为空时是“推送到这里为止”（说明书 5.6） */
+  /** Open the push dialog (spec §7.3: always open the dialog first; only a notice when there's nothing to push) */
+  /** Open the push dialog; with to set, it's "push up to here" (spec §5.6) */
   const openPush = useCallback(async (to: string | null = null) => {
     try {
       const p = await api.remotePushPreview(to);
@@ -211,7 +211,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     [push, runTask],
   );
 
-  /** 新分支：换推送到的远程，重新预览 */
+  /** New branch: change the remote to push to and preview again */
   const pickPushRemote = useCallback(
     (r: string) => {
       api.remotePushPreview(push?.to ?? null, r).then(setPush, (e) => failed(errOf(e).message));
@@ -219,13 +219,13 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     [push, failed],
   );
 
-  /** 推送一个标签（说明书 6.5、7.4） */
+  /** Push one tag (spec §6.5, §7.4) */
   const pushTag = useCallback(
     (name: string) => runTask("push", (task) => api.tagPush(task, name), () => t("已推送标签 {0}", name)),
     [runTask],
   );
 
-  /** 提交并推送（说明书 7.4）：远程没有新提交且不需要强制推送时直接推送，否则只提示原因 */
+  /** Commit and push (spec §7.4): push directly when the remote has no new commits and no force is needed, otherwise just explain why */
   const pushAfterCommit = useCallback(async () => {
     try {
       const p = await api.remotePushPreview();
@@ -240,7 +240,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     if (running) api.taskCancel(running.task);
   }, [running]);
 
-  // 打开仓库后自动抓取一次，让领先落后数是最新的
+  // Fetch once automatically after opening a repository so ahead/behind counts are current
   const path = repo?.path;
   useEffect(() => {
     if (!path) return;
@@ -250,7 +250,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     return () => window.clearTimeout(t);
   }, [path]);
 
-  // 窗口获得焦点时自动抓取，最短间隔 5 分钟
+  // Auto-fetch when the window gains focus, at least 5 minutes apart
   const canAuto = !!repo && !running;
   useEffect(() => {
     if (!canAuto) return;
@@ -267,7 +267,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
 
 export type RemoteOps = ReturnType<typeof useRemoteOps>;
 
-/** 推送对话框（说明书 7.3） */
+/** Push dialog (spec §7.3) */
 export function PushDialog({ p, onPush, onClose, onRemote }: { p: PushPreview; onPush: (force: boolean, tags: boolean) => void; onClose: () => void; onRemote?: (r: string) => void }) {
   useReturnFocus();
   const [force, setForce] = useState(false);
@@ -278,7 +278,7 @@ export function PushDialog({ p, onPush, onClose, onRemote }: { p: PushPreview; o
       : t("远程有 {0} 个你本地没有的提交。不勾选强制推送会被拒绝，建议先拉取。", p.behind)
     : null;
   const blocked = p.behind > 0 && !force;
-  // 只推送还没推送的标签；没抓取过时不知道哪些推送过，推送全部（说明书 7.3）
+  // Only push tags not yet pushed; when never fetched we don't know which were pushed, so push all (spec §7.3)
   const canTags = p.tags_unknown || p.unpushed_tags.length > 0;
   const tagTip = p.tags_unknown
     ? t("还没抓取过，不知道远程有哪些标签")
@@ -362,7 +362,7 @@ const KIND_TEXT: Record<PullPreview["conflicts"][number]["kind"], string> = {
   lock: "锁文件",
 };
 
-/** 拉取摘要面板（说明书 7.2）：预演出有冲突时弹出，这时仓库还没改动（所以标题不说“拉取完成了一部分”）。Esc 等同于中止。 */
+/** Pull summary panel (spec §7.2): shown when the dry run predicts conflicts, while the repository is still unchanged (so the title doesn't say "the pull partly completed"). Esc equals abort. */
 export function PullPanel({ p, onMode, onStart, onAbort }: { p: PullPreview; onMode: (m: PullMode) => void; onStart: () => void; onAbort: () => void }) {
   useReturnFocus();
   const kind = (c: PullPreview["conflicts"][number]) => (c.kind === "text" ? t("{0} 处内容冲突", c.blocks || 1) : t(KIND_TEXT[c.kind]));

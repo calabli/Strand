@@ -1,53 +1,53 @@
-// 应用设置和最近打开的仓库。都存在本机界面的本地存储里，按用户保存，不按仓库分开。
-// 语言单独存在 i18n 里（切换时要重新加载窗口）。
+// App settings and recently opened repositories. Stored in the UI's local storage on this machine, per user, not per repository.
+// The language is stored separately in i18n (switching it reloads the window).
 
 import { useEffect, useState } from "react";
 
 export interface Settings {
-  /** 主题：跟随系统、浅色、深色（说明书 3.5） */
+  /** Theme: follow system, light, dark (spec §3.5) */
   theme: "auto" | "light" | "dark";
-  /** 窗口获得焦点时自动抓取（说明书 7.1） */
+  /** Auto-fetch when the window gains focus (spec §7.1) */
   autoFetch: boolean;
-  /** 自动抓取的最短间隔（分钟） */
+  /** Minimum interval between auto-fetches (minutes) */
   fetchMinutes: number;
-  /** 提交时在说明末尾加签名行（Signed-off-by） */
+  /** Add a sign-off line (Signed-off-by) at the end of the message when committing */
   signOff: boolean;
-  /** 日志里显示精确日期；关闭时显示相对时间（说明书 5.2） */
+  /** Show exact dates in the log; relative times when off (spec §5.2) */
   exactDates: boolean;
-  /** 本地分支和它的远程分支在同一个提交上时合成一个标签（说明书 5.1 显示选项） */
+  /** Combine a local branch and its remote branch into one label when on the same commit (display options in spec §5.1) */
   mergeRefs: boolean;
-  /** 合并提交的标题显示为灰色（说明书 5.1 显示选项） */
+  /** Show merge commit titles in grey (display options in spec §5.1) */
   dimMerges: boolean;
-  /** 启动时打开上次的仓库 */
+  /** Open the last repository on startup */
   reopenLast: boolean;
-  /** 差异视图：合并（上下）或左右对比（说明书 10.1） */
+  /** Diff view: unified (top and bottom) or side by side (spec §10.1) */
   diffView: "unified" | "split";
-  /** 差异里忽略空白：只影响显示 */
+  /** Ignore whitespace in diffs: display only */
   ignoreWs: boolean;
-  /** 差异里没改的长段折叠起来（关掉就显示整个文件） */
+  /** Fold long unchanged stretches in diffs (off shows the whole file) */
   diffFold: boolean;
-  /** 差异里显示逐行追溯（每行最后改它的日期和作者） */
+  /** Show blame in diffs (the date and author that last changed each line) */
   diffBlame: boolean;
-  /** 差异里把空格、制表符显示成小点和箭头 */
+  /** Show spaces and tabs as dots and arrows in diffs */
   diffWs: boolean;
-  /** 差异里显示行号 */
+  /** Show line numbers in diffs */
   diffLineNo: boolean;
-  /** 差异里长行自动折行（关掉时合并视图横向滚动，左右对照截断） */
+  /** Wrap long lines in diffs (when off, the unified view scrolls horizontally and side by side truncates) */
   diffWrap: boolean;
-  /** 差异和文件全文里的语法高亮 */
+  /** Syntax highlighting in diffs and full file text */
   diffSyntax: boolean;
-  /** 差异和文件全文里的缩进参考线 */
+  /** Indent guides in diffs and full file text */
   diffIndent: boolean;
-  /** 文件列表按目录树显示（说明书 4.7）：提交面板和提交详情共用 */
+  /** Show file lists as a directory tree (spec §4.7): shared by the commit panel and commit details */
   groupByDir: boolean;
-  /** 拖动分隔线调整的宽度（像素）：左边提交面板、右边提交详情、日志左边的分支树 */
+  /** Widths set by dragging splitters (px): commit panel on the left, commit details on the right, branch tree on the log's left */
   paneLeft: number;
   paneRight: number;
   paneTree: number;
-  /** 提交详情里上下拖动的高度（像素）：文件列表、提交信息（显示差异框时）；null 是自动 */
+  /** Heights set by vertical dragging in commit details (px): file list, commit info (with the diff box shown); null is automatic */
   detailFiles: number | null;
   detailInfo: number | null;
-  /** 文件视图里修改链那一栏的宽度 */
+  /** Width of the change chain column in the file view */
   paneHistory: number;
 }
 
@@ -73,7 +73,7 @@ export function setSettings(patch: Partial<Settings>) {
   try {
     localStorage.setItem(KEY, JSON.stringify(current));
   } catch {
-    /* 存不了就只在本次有效 */
+    /* Can't save: valid for this session only */
   }
   applyTheme();
   listeners.forEach((f) => f());
@@ -91,7 +91,7 @@ export function useSettings(): Settings {
   return s;
 }
 
-/** 主题写到根元素上：auto 时去掉，交给系统 */
+/** Write the theme on the root element: removed for auto, leaving it to the system */
 export function applyTheme() {
   if (typeof document === "undefined") return;
   const r = document.documentElement;
@@ -100,14 +100,14 @@ export function applyTheme() {
 }
 applyTheme();
 
-// ---------- 最近打开的仓库 ----------
+// ---------- Recently opened repositories ----------
 
 export interface RecentRepo {
   path: string;
   name: string;
-  /** 最近一次打开的时间（Unix 秒） */
+  /** Last opened time (Unix seconds) */
   opened: number;
-  /** 固定在列表上面 */
+  /** Pinned to the top of the list */
   pinned: boolean;
 }
 
@@ -127,21 +127,21 @@ function loadRepos(): RecentRepo[] {
 let repos = loadRepos();
 
 function saveRepos(next: RecentRepo[]) {
-  // 固定的在前，其余按最近打开排序；没固定的最多保留 30 个
+  // Pinned first, the rest by most recently opened; at most 30 unpinned kept
   const pinned = next.filter((r) => r.pinned);
   const rest = next.filter((r) => !r.pinned).sort((a, b) => b.opened - a.opened).slice(0, MAX_REPOS);
   repos = [...pinned.sort((a, b) => a.name.localeCompare(b.name)), ...rest];
   try {
     localStorage.setItem(REPOS, JSON.stringify(repos));
   } catch {
-    /* 只在本次有效 */
+    /* Only for this session */
   }
   repoListeners.forEach((f) => f());
 }
 
 export const recentRepos = (): RecentRepo[] => repos;
 
-/** 打开成功后记下来 */
+/** Record it after opening successfully */
 export function rememberRepo(path: string, name: string) {
   const old = repos.find((r) => r.path === path);
   saveRepos([...repos.filter((r) => r.path !== path), { path, name, opened: Math.floor(Date.now() / 1000), pinned: old?.pinned ?? false }]);

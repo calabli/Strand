@@ -1,7 +1,7 @@
-// 提交前格式化和检查（说明书 4.4、4.6）。
-// - ChecksOptions：提交说明工具行的“提交选项”图标展开的面板：两个开关、两条命令、签名行开关。
-//   命令和开关存在仓库的 Git 配置里（strand.formatCommand 等），签名行是全局设置。
-// - ChecksReport：格式化或检查没有通过时的问题列表，用户选择仍然提交或取消。
+// Format and check before committing (spec §4.4, §4.6).
+// - ChecksOptions: the panel opened by the "commit options" icon in the message tool row: two toggles, two commands, the sign-off toggle.
+//   Commands and toggles are stored in the repository's Git config (strand.formatCommand etc.); sign-off is a global setting.
+// - ChecksReport: the issue list when formatting or checks fail; the user chooses to commit anyway or cancel.
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useState } from "react";
@@ -103,7 +103,7 @@ export function ChecksOptions({ info, onSave, onRunNow, running }: { info: Check
   );
 }
 
-/** 一次运行的标题 */
+/** Title of one run */
 export function runTitle(r: CheckRun) {
   if (r.timed_out) return r.kind === "format" ? t("格式化超时（5 分钟）") : t("检查超时（5 分钟）");
   if (r.ok) return r.kind === "format" ? t("格式化完成") : t("检查通过");
@@ -118,11 +118,11 @@ export function ChecksReport({
   onOpen,
 }: {
   run: CheckRun;
-  /** 提交前运行的：显示“仍然提交” */
+  /** Run before committing: shows "commit anyway" */
   canCommit: boolean;
   onCommit: () => void;
   onCancel: () => void;
-  /** 打开文件的差异 */
+  /** Open the file's diff */
   onOpen: (path: string) => void;
 }) {
   useReturnFocus();

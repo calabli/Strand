@@ -1,4 +1,4 @@
-// 自定义日期范围（说明书 5.1 日期过滤）：从哪天到哪天，两头都含；只填一头也行。按本机时区的整天算。
+// Custom date range (date filter in spec §5.1): from one day to another, both inclusive; filling just one end works too. Whole days in the local time zone.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useReturnFocus } from "./focus";

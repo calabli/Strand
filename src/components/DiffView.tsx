@@ -1,17 +1,17 @@
-// 差异（说明书 10.1）：差异标签页、提交详情下面的差异框、文件视图共用。
+// Diff (spec §10.1): shared by the diff tab, the diff box under commit details, and the file view.
 //
-// 显示整个文件（上下文给得很大时核心层返回整个文件在一块里），没改的长段默认折叠成“⋯ 展开 N 行”，
-// 工具栏的开关可以全部展开；只拿到改动附近几行时（逐行勾选、暂存架），块和块之间显示块标题。
-// 两种视图都由同一组“段”画出来：没改的段、改动段（删除行和新增行按顺序配对）。
-// - 合并视图：一列，旧行号、新行号两列；改动段先删除行后新增行。
-// - 左右对比：左边旧、右边新，改动段左右各自排，短的一边下面补斜纹；中间一条窄栏用色带把两边对应的改动连起来。
-// 右边一条细栏标出全文里每处改动的位置（绿新增、红删除、蓝修改），点一下跳过去。
-// 上一处、下一处按改动段跳，到头后绕回另一头；“第 i / n 处”。差异标签页另外可以在同一次提交（或比较、工作区）的文件之间切换。
-// 工作区里已修改的文件可以逐行勾选：每个改动行和每个块标题前有勾选框，取消勾选的行变淡、不进这次提交（这时只拿改动附近 3 行）。
-// 忽略空白只影响显示：同一组改动里，去掉空白后内容相同的删除行和新增行配对，显示为没改的行；勾选状态仍按原来的行记录。
-// 一组改动里按顺序配对的删除行和新增行，不同的部分加深（和冲突窗口一样）；按内容搜索时搜索词标出来。
-// 逐行追溯（工具栏的开关、右键菜单）：每行左边标出最后改它的日期和作者，越新底色越深；悬停看提交，点一下在日志里定位。
-// 删除行和左边按旧版本追溯，其余按新版本追溯。右键菜单（和工具栏的“⋯”）里还有折叠、显示空白字符、显示行号、自动换行，按用户保存。
+// Shows the whole file (with a very large context the core layer returns the whole file in one block); long unchanged stretches fold into "⋯ expand N lines" by default,
+// and a toolbar toggle expands them all; when only lines around changes are available (line checks, shelf), block headers show between blocks.
+// Both views draw from the same set of "segments": unchanged segments and change segments (deleted and added lines paired in order).
+// - Unified view: one column with old and new line number columns; change segments show deletions first, then additions.
+// - Side by side: old on the left, new on the right, each side of a change segment laid out on its own with hatching under the shorter side; a narrow middle strip links matching changes with ribbons.
+// A thin strip on the right marks every change in the whole file (green added, red deleted, blue modified); click to jump.
+// Previous and next jump by change segment, wrapping around at the ends; "change i / n". The diff tab can also switch between files of the same commit (or comparison, worktree).
+// Modified worktree files support line checks: each changed line and block header has a checkbox; unchecked lines fade and stay out of this commit (only 3 lines around changes are fetched then).
+// Ignore whitespace only affects display: within a change group, deleted and added lines that are equal after removing whitespace are paired and shown as unchanged; check state is still recorded by the original lines.
+// Deleted and added lines paired in order within a change group have their differing parts emphasized (as in the conflict window); search terms are marked when searching by content.
+// Blame (toolbar toggle, context menu): each line shows on the left the date and author that last changed it, darker when newer; hover to see the commit, click to locate it in the log.
+// Deleted lines and the left side are blamed on the old version, the rest on the new. The context menu (and the toolbar's "⋯") also has folding, show whitespace, show line numbers and word wrap, saved per user.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/commands";
@@ -30,64 +30,64 @@ interface Props {
   diff: FileDiff | null;
   loading: boolean;
   error: string | null;
-  /** 显示在标题后面的来源说明，如“工作区”或短哈希 */
+  /** Source label shown after the title, e.g. "worktree" or a short hash */
   source: string;
   onClose: () => void;
-  /** 行级勾选：给出时显示勾选框。行的键是“块序号:行序号” */
+  /** Line checks: when given, show checkboxes. Line keys are "blockIndex:lineIndex" */
   pick?: {
     excluded: Set<string>;
     onToggle: (keys: string[], on: boolean, all: string[]) => void;
-    /** 显示的是整个文件、勾选按 3 行上下文的块记录时：改动行（"d:旧行号" / "a:新行号"）→ 它的“块:行” */
+    /** When showing the whole file with checks recorded per block with 3 lines of context: changed line ("d:oldLine" / "a:newLine") → its "block:line" */
     keys?: Map<string, string>;
   };
-  /** 窄的版本（提交详情里文件下面的差异框）：只显示文件名、行数、上下处和关闭，固定合并视图；onExpand 在标签页里打开 */
+  /** The narrow version (the diff box under files in commit details): only file name, line counts, prev/next and close, unified view fixed; onExpand opens it in a tab */
   compact?: boolean;
   onExpand?: () => void;
-  /** 按改动内容搜索时：匹配的改动行标出来，打开时滚到第一处 */
+  /** When searching by changes: matching changed lines are marked, scrolling to the first on open */
   find?: RegExp | null;
-  /** 在同一组文件之间切换（差异标签页）：第几个、一共几个、往前往后 */
+  /** Switch between files in a group (diff tab): which one, how many, previous/next */
   files?: { at: number; total: number; go: (d: number) => void } | null;
-  /** 历史版本（不能改）：路径前显示锁 */
+  /** A historical version (read-only): a lock before the path */
   readOnly?: boolean;
-  /** 逐行追溯两边各按哪个版本：rev 为空是工作区；不给就不能逐行追溯（如暂存架） */
+  /** Which revision each side is blamed on: rev empty is the worktree; without it blame isn't available (e.g. shelf) */
   blameSides?: { left?: { path: string; rev: string | null } | null; right?: { path: string; rev: string | null } | null } | null;
-  /** 点逐行追溯里的提交：在日志里定位 */
+  /** Clicking a commit in blame: locate it in the log */
   onLocate?: (id: string) => void;
-  /** 工作区的文件：可以在这里直接编辑（铅笔），保存后 onSaved 重新读差异 */
+  /** A worktree file: can be edited right here (pencil); onSaved re-reads the diff after saving */
   editable?: { path: string; onSaved: () => void } | null;
-  /** 图片两边各是哪个版本（rev 为空是工作区）；不给时用 blameSides */
+  /** Which revision each side of an image is (rev empty is the worktree); blameSides when not given */
   imageSides?: { left?: { path: string; rev: string | null } | null; right?: { path: string; rev: string | null } | null } | null;
 }
 
-/** 逐行追溯里一行的提交 */
+/** The commit of one line in blame */
 type BInfo = { id: string; title: string; author: string; time: number; uncommitted: boolean; inLog: boolean };
-/** 一边的追溯结果：行号 → 提交 */
+/** One side's blame result: line number → commit */
 type BSide = Map<number, BInfo>;
 
-/** 追溯一边的整个文件 */
+/** Blame one side's whole file */
 function blameSide(side: { path: string; rev: string | null } | null | undefined): Promise<BSide | null> {
   if (!side) return Promise.resolve(null);
   return api.blameFile(side.path, side.rev, 0, 1_000_000).then(
     (p) => new Map(p.lines.map((l) => { const c = p.commits[l.commit]; return [l.no, { id: c.id, title: c.title, author: c.author, time: c.time, uncommitted: c.uncommitted, inLog: c.in_log }] as const; })),
-    // 新增的文件在旧版本里不存在：这一边没有追溯
+    // An added file doesn't exist in the old version: no blame on that side
     () => null,
   );
 }
 
 const key = (h: number, l: number) => `${h}:${l}`;
 const squash = (s: string) => s.replace(/\s+/g, "");
-/** 没改的段两头各留几行 */
+/** Lines kept at each end of an unchanged segment */
 const KEEP = 3;
-/** 每行的高度（和样式里的 line-height 一致） */
+/** Height of each line (matches line-height in the styles) */
 const LH = 20;
 
-/** 一行：h、j 是在核心层给的第几块、块里第几行（勾选按它记）；same 表示忽略空白后两边相同；pair 是配对的另一行（加深不同的部分） */
+/** A line: h and j are the block index and line index within the block from the core layer (checks are recorded by them); same means both sides are equal ignoring whitespace; pair is the paired line on the other side (to emphasize differences) */
 type Item = { kind: "context" | "add" | "del"; h: number; j: number; line: DiffLine; same?: boolean; pair?: string };
 type Row = { left?: Item; right?: Item };
-/** 段：没改的、改动的（id 是第几处改动）、块标题（只拿到改动附近几行时） */
+/** Segments: unchanged, changed (id is the change number), block header (when only lines around changes are available) */
 type Seg = { kind: "ctx"; rows: Row[] } | { kind: "chg"; rows: Row[]; id: number } | { kind: "gap"; h: number; title: string };
 
-/** 一块里的行左右配对：删除行和新增行按顺序配对，数量不等时另一边空着；忽略空白时配对相同的算没改 */
+/** Pair the lines in a block left and right: deleted and added lines paired in order, the other side empty when counts differ; when ignoring whitespace, equal pairs count as unchanged */
 function pairRows(lines: DiffLine[], h: number, ignoreWs: boolean): Row[] {
   const rows: Row[] = [];
   let k = 0;
@@ -119,7 +119,7 @@ function pairRows(lines: DiffLine[], h: number, ignoreWs: boolean): Row[] {
   return rows;
 }
 
-/** 整个差异分成段 */
+/** Split the whole diff into segments */
 function segmentsOf(diff: FileDiff, ignoreWs: boolean, headers: boolean): Seg[] {
   const segs: Seg[] = [];
   let id = 0;
@@ -135,7 +135,7 @@ function segmentsOf(diff: FileDiff, ignoreWs: boolean, headers: boolean): Seg[] 
   return segs;
 }
 
-/** 改动段的种类：只有新增、只有删除、两者都有 */
+/** Kind of a change segment: only additions, only deletions, or both */
 const chgKind = (rows: Row[]) => {
   const l = rows.some((r) => r.left);
   const r = rows.some((x) => x.right);
@@ -163,7 +163,7 @@ function Ico({ d }: { d: string }) {
 
 export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly, blameSides, onLocate, editable, imageSides }: Props) {
   const [cur, setCur] = useState(0);
-  /** 正在编辑：从第几行打开 */
+  /** Editing: which line to open at */
   const [editAt, setEditAt] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const settings = useSettings();
@@ -175,10 +175,10 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const wrap = settings.diffWrap;
   const syntax = settings.diffSyntax;
   const guides = settings.diffIndent;
-  // 缩进参考线的单位（2 或 4 列），按这个文件的行判断
+  // Unit of the indent guides (2 or 4 columns), judged from this file's lines
   const unit = useMemo(() => (diff ? indentUnit(diff.hunks.flatMap((h) => h.lines.map((l) => l.text)).slice(0, 4000)) : 4), [diff]);
 
-  // 语法高亮：拼出旧版本和新版本（整个文件时就是两个完整的文件），在后台线程里着色，按行号对上
+  // Syntax highlighting: assemble the old and new versions (two complete files when showing the whole file), color them on a background thread, match by line number
   const [hl, setHl] = useState<{ diff: FileDiff; old: Map<number, Tok[]>; neu: Map<number, Tok[]> } | null>(null);
   useEffect(() => {
     if (!diff || diff.binary || !syntax) return;
@@ -202,11 +202,11 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     };
   }, [diff, syntax]);
   const hlNow = syntax && hl?.diff === diff ? hl : null;
-  /** 一行的语法着色：删除行（和左边）按旧版本，其余按新版本 */
+  /** Syntax colors for a line: deleted lines (and the left side) use the old version, the rest the new version */
   const toksOf = (side: 0 | 1, no: number | undefined | null) => (hlNow && no ? (side === 0 ? hlNow.old : hlNow.neu).get(no) : undefined);
   const blameOn = settings.diffBlame && !!blameSides && !compact;
 
-  // 左右对照不折行时两边各自横向滚动：底下各有一条滚动条，横向滑动（或按住 ⇧ 滚轮）只动指针下面那一边
+  // Side by side without wrapping, each side scrolls horizontally on its own: each has a scrollbar at the bottom, and horizontal swipes (or ⇧ + wheel) only move the side under the pointer
   const sheet = useRef<HTMLDivElement>(null);
   const bars = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)] as const;
   const [over, setOver] = useState<[number, number]>([0, 0]);
@@ -220,7 +220,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     el.style.setProperty("--sx0", "0px");
     el.style.setProperty("--sx1", "0px");
     bars.forEach((b) => b.current && (b.current.scrollLeft = 0));
-    // 量实际画出来的宽度（中文等宽字符、制表符都算对）；展开折叠的部分后高度变了也会重量
+    // Measure the actual drawn width (correct for CJK full-width characters and tabs); measured again when expanding folds changes the height
     const measure = () => {
       const o = [0, 1].map((i) => {
         const code = el.querySelector<HTMLElement>(`.s${i} .code`);
@@ -267,7 +267,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   );
   const [menu, setMenu] = useState<MenuState | null>(null);
 
-  // 逐行追溯：两边各追溯整个文件，按行号对上
+  // Blame: blame each side's whole file and match by line number
   const [blame, setBlame] = useState<{ key: string; left: BSide | null; right: BSide | null } | null>(null);
   const blameKey = blameOn ? JSON.stringify(blameSides) : "";
   useEffect(() => {
@@ -280,12 +280,12 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blameKey]);
   const bl = blame?.key === blameKey ? blame : null;
-  // 新旧着色：按这个文件里最早和最晚的提交时间分 5 档
+  // Age coloring: 5 levels between the earliest and latest commit times in this file
   const [tMin, tMax] = useMemo(() => {
     const ts = [...(bl?.left?.values() ?? []), ...(bl?.right?.values() ?? [])].filter((b) => !b.uncommitted).map((b) => b.time);
     return ts.length ? [Math.min(...ts), Math.max(...ts)] : [0, 0];
   }, [bl]);
-  /** 一行的追溯标注；side 0 是旧版本（删除行、左边），1 是新版本 */
+  /** A line's blame annotation; side 0 is the old version (deleted lines, left), 1 the new version */
   const ann = (side: 0 | 1, no: number | undefined | null) => {
     if (!blameOn) return null;
     const b = no ? (side === 0 ? bl?.left : bl?.right)?.get(no) : undefined;
@@ -303,7 +303,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     );
   };
 
-  /** 右键菜单和工具栏“⋯”：逐行追溯、折叠、显示选项 */
+  /** Context menu and toolbar "⋯": blame, folding, display options */
   const viewMenu = (x: number, y: number) =>
     setMenu({
       x,
@@ -320,22 +320,22 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         { label: t("自动换行"), checked: wrap, run: () => setSettings({ diffWrap: !wrap }) },
       ],
     });
-  /** 点开了的没改的段（按段的位置） */
+  /** Unchanged segments that were expanded (by segment position) */
   const [opened, setOpened] = useState<Set<number>>(() => new Set());
 
-  // 整个文件在一块里（从第 1 行开始）时不显示块标题；逐行勾选时总是显示（块标题上有整块的勾选框）
+  // No block headers when the whole file is one block (starting at line 1); always shown with line checks (the header has the whole-block checkbox)
   const whole = !!diff && diff.hunks.length === 1 && diff.hunks[0].old_start <= 1 && diff.hunks[0].new_start <= 1;
-  // 块标题：只拿到改动附近几行时显示；逐行勾选又没有对照表时也显示（整块的勾选框在上面）
+  // Block headers: shown when only lines around changes are available; also shown with line checks but no mapping table (the whole-block checkbox is on it)
   const pickKeys = pick?.keys;
   const segs = useMemo(() => (diff ? segmentsOf(diff, ignoreWs, (!!pick && !pickKeys) || !whole) : []), [diff, ignoreWs, pick, pickKeys, whole]);
-  // 面包屑：按新版本的行（整个文件时就是整个新文件）推断最上面那一行在哪个函数、类里
+  // Breadcrumbs: infer which function or class the top line is in from the new version's lines (the whole new file when showing the whole file)
   const newText = useMemo(() => {
     const m = new Map<number, string>();
     for (const h of diff?.hunks ?? []) for (const l of h.lines) if (l.kind !== "del" && l.new_no) m.set(l.new_no, l.text);
     return (k: number) => m.get(k);
   }, [diff]);
   const top = useTopLine(box, [segs, diffView, opened, fold, wrap]);
-  /** 编辑时从哪一行打开：当前这处改动在新版本里的第一行（只有删除时取后面最近的一行） */
+  /** Which line editing opens at: the first new-version line of the current change (the nearest following line when it's only deletions) */
   const editLine = () => {
     const i = segs.findIndex((s) => s.kind === "chg" && s.id === cur);
     for (let k = Math.max(0, i); k < segs.length; k++) {
@@ -350,7 +350,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     setCur(0);
     setOpened(new Set());
   }, [diff?.path, source]);
-  // 有搜索时滚到第一处匹配的改动行
+  // When searching, scroll to the first matching changed line
   useEffect(() => {
     if (!find || !diff) return;
     const el = box.current?.querySelector(".found");
@@ -361,7 +361,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const scrollTo = (i: number, smooth = true) => box.current?.querySelector(`[data-block="${i}"]`)?.scrollIntoView({ block: "center", behavior: smooth ? "smooth" : "auto" });
   const go = (d: number) => {
     if (n === 0) return;
-    // 到头后循环到另一头（说明书 10.1）
+    // Wrap around to the other end (spec §10.1)
     const next = (cur + d + n) % n;
     setCur(next);
     scrollTo(next);
@@ -369,14 +369,14 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
 
   const added = diff?.hunks.reduce((a, h) => a + h.lines.filter((l) => l.kind === "add").length, 0) ?? 0;
   const deleted = diff?.hunks.reduce((a, h) => a + h.lines.filter((l) => l.kind === "del").length, 0) ?? 0;
-  // 所有改动行的键（勾选状态按它记录）
+  // Keys of all changed lines (check state is recorded by them)
   const allKeys = pickKeys ? [...pickKeys.values()] : diff ? diff.hunks.flatMap((h, i) => h.lines.flatMap((l, j) => (l.kind === "context" ? [] : [key(i, j)]))) : [];
-  /** 一个改动行在勾选记录里的键；对不上（理论上不会）时返回 null，这一行不能勾选 */
+  /** A changed line's key in the check record; null when it doesn't match (shouldn't happen), and the line can't be checked */
   const keyOf = (it: Item): string | null =>
     !pickKeys ? key(it.h, it.j) : pickKeys.get(it.kind === "del" ? `d:${it.line.old_no}` : `a:${it.line.new_no}`) ?? null;
   const picked = pick ? allKeys.filter((k) => !pick.excluded.has(k)).length : 0;
 
-  /** 一个改动行前的勾选框（没改的行留空位） */
+  /** The checkbox before a changed line (unchanged lines leave a blank space) */
   const check = (it: Item | undefined) =>
     !pick ? null : !it || it.kind === "context" ? (
       <span className="ck-pad" />
@@ -395,7 +395,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     );
   const off = (it: Item | undefined) => (pick && it && it.kind !== "context" && pick.excluded.has(keyOf(it) ?? "") ? " off" : "");
 
-  /** 整个文件显示、逐行勾选时：每处改动上面一条，带勾选这一处全部改动行的勾选框 */
+  /** Whole-file display with line checks: a strip above each change with a checkbox for all of its changed lines */
   const chgPick = (s: Seg & { kind: "chg" }) => {
     if (!pick || !pickKeys) return null;
     const keys = s.rows.flatMap((r) => [r.left, r.right]).flatMap((it) => (it && it.kind !== "context" ? [keyOf(it)] : [])).filter((k): k is string => !!k);
@@ -418,7 +418,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     );
   };
 
-  /** 没改的段：太长时中间折起来。返回要显示的行（null 是折叠的那一行） */
+  /** An unchanged segment: fold the middle when too long. Returns the lines to show (null is the folded line) */
   const visibleRows = (s: Seg & { kind: "ctx" }, i: number): (Row | { hidden: number })[] => {
     const L = s.rows.length;
     const first = i === 0 || segs[i - 1].kind === "gap";
@@ -434,7 +434,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     </button>
   );
 
-  /** 合并视图的一行 */
+  /** A line in the unified view */
   const uLine = (it: Item, k: string | number) => (
     <div key={k} data-n={it.kind !== "del" ? it.line.new_no ?? undefined : undefined} className={`dl dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
       {check(it)}
@@ -448,7 +448,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     </div>
   );
 
-  /** 块标题（只拿到改动附近几行时）：逐行勾选时带整块的勾选框 */
+  /** A block header (when only lines around changes are available): with a whole-block checkbox when line checks are on */
   const gapRow = (s: Seg & { kind: "gap" }, i: number) => {
     const keys = pick && diff ? diff.hunks[s.h].lines.flatMap((l, j) => (l.kind === "context" ? [] : [key(s.h, j)])) : [];
     const on = pick ? keys.filter((k) => !pick.excluded.has(k)).length : 0;
@@ -492,7 +492,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
       );
     });
 
-  /** 左右对比里一边的一行 */
+  /** A line on one side of the side-by-side view */
   const sLine = (it: Item, side: 0 | 1, k: string | number) => (
     <div key={k} data-n={side === 1 ? it.line.new_no ?? undefined : undefined} className={`sl-line s${side} dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
       {check(it.kind !== "context" ? it : undefined)}
@@ -538,7 +538,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     <div
       className={"diff" + (compact ? " compact" : "")}
       onKeyDown={(e) => {
-        // ⌥↑ ⌥↓ 上一处、下一处；⌥← ⌥→ 上一个、下一个文件
+        // ⌥↑ ⌥↓ previous and next change; ⌥← ⌥→ previous and next file
         if (!e.altKey) return;
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           e.preventDefault();
@@ -705,8 +705,8 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
 }
 
 /**
- * 左右对比里的一个改动段：两边各自往下排，短的一边下面补斜纹；中间用色带连起来。
- * 色带两头的高度按两边实际排出来的高度画（长行折行时也对得上）。
+ * A change segment in the side-by-side view: each side laid out downward on its own, hatching under the shorter one, linked by a ribbon in the middle.
+ * The ribbon's height at each end follows the actual laid-out height of each side (so it lines up even when long lines wrap).
  */
 function ChgSeg({ id, cur, kind, left, right }: { id: number; cur: boolean; kind: string; left: React.ReactNode[]; right: React.ReactNode[] }) {
   const lref = useRef<HTMLDivElement>(null);
@@ -722,7 +722,7 @@ function ChgSeg({ id, cur, kind, left, right }: { id: number; cur: boolean; kind
   }, [left.length, right.length]);
   const H = Math.max(h.l, h.r, 2);
   const W = 36;
-  // 色带：左边 [0, l]，右边 [0, r]，两边用三次曲线连；只有一边有行时另一边收成一条线
+  // Ribbon: left [0, l], right [0, r], joined by cubic curves; when only one side has lines the other narrows to a line
   const lb = Math.max(h.l, 1);
   const rb = Math.max(h.r, 1);
   const d = `M0 0 C ${W / 2} 0, ${W / 2} 0, ${W} 0 L ${W} ${rb} C ${W / 2} ${rb}, ${W / 2} ${lb}, 0 ${lb} Z`;
@@ -743,7 +743,7 @@ function ChgSeg({ id, cur, kind, left, right }: { id: number; cur: boolean; kind
   );
 }
 
-/** 右边的改动位置标记：每处改动按它在全文里的位置画一小段，点一下跳过去 */
+/** Change position markers on the right: each change drawn as a short segment at its position in the whole file; click to jump */
 function Ruler({ body, deps, onPick }: { body: React.RefObject<HTMLDivElement | null>; deps: unknown[]; onPick: (i: number) => void }) {
   const [marks, setMarks] = useState<{ id: number; top: number; h: number; kind: string }[]>([]);
   useLayoutEffect(() => {

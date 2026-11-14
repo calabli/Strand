@@ -1,4 +1,4 @@
-//! 项目文件、文件内容、文件修改链（跟着重命名）、两个版本之间的差异。
+//! Project files, file content, file change chain (following renames), diff between two versions.
 
 use std::path::Path;
 use std::process::Command;
@@ -28,7 +28,7 @@ fn write(dir: &Path, f: &str, s: &str) {
     std::fs::write(p, s).unwrap();
 }
 
-/// 加 a → 改 a → 改名成 b（顺手改了一行）→ 改别的文件 → 改 b；工作区里 b 还有没提交的改动
+/// Add a → change a → rename to b (changing a line too) → change another file → change b; b also has uncommitted changes in the worktree
 fn repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -72,7 +72,7 @@ fn history_follows_renames() {
     assert_eq!(h.versions[1].old_path.as_deref(), Some("src/a.txt"));
     assert_eq!((h.versions[0].added, h.versions[0].deleted), (1, 1));
     assert_eq!(h.versions[3].added, 6);
-    // 在日志里的提交带完整信息（引用）
+    // Commits in the log carry full info (refs)
     assert!(h.versions[0].commit.refs.iter().any(|r| r.name == "main"));
 }
 
@@ -94,22 +94,22 @@ fn diff_between_versions_across_rename_and_with_worktree() {
     let d = repo();
     let s = Session::open(d.path()).unwrap();
     let first = git(d.path(), &["rev-list", "--max-parents=0", "HEAD"]);
-    // 最早的版本（旧路径）对比最新提交（新路径）
+    // The earliest version (old path) against the latest commit (new path)
     let fd = s.file_diff_versions(Some(&first), "src/a.txt", Some("HEAD"), "src/b.txt").unwrap();
     let adds: Vec<&str> = fd.hunks.iter().flat_map(|h| h.lines.iter()).filter(|l| matches!(l.kind, strand_core::model::LineKind::Add)).map(|l| l.text.as_str()).collect();
     assert_eq!(adds, ["二（改）", "四（再改）", "七"]);
-    // 最新提交对比工作区
+    // The latest commit against the worktree
     let fd = s.file_diff_versions(Some("HEAD"), "src/b.txt", None, "src/b.txt").unwrap();
     let adds: Vec<&str> = fd.hunks.iter().flat_map(|h| h.lines.iter()).filter(|l| matches!(l.kind, strand_core::model::LineKind::Add)).map(|l| l.text.as_str()).collect();
     assert_eq!(adds, ["八（没提交）"]);
-    // 新增：旧的一边没有
+    // Added: the old side doesn't have it
     let fd = s.file_diff_versions(None, "src/a.txt", Some(&first), "src/a.txt").unwrap();
     assert_eq!(fd.hunks[0].lines.len(), 6);
-    // 相同：没有修改块
+    // Identical: no change blocks
     assert!(s.file_diff_versions(Some("HEAD"), "other.txt", None, "other.txt").unwrap().hunks.is_empty());
 }
 
-/// 差异窗口的全文显示：上下文给得很大时整个文件在一块里；默认 3 行时只有改动附近
+/// Full view in the diff window: with a very large context the whole file is one block; with the default 3 lines only around the changes
 #[test]
 fn full_context_diff_contains_whole_file() {
     let d = tempfile::tempdir().unwrap();
@@ -142,15 +142,15 @@ fn save_worktree_file_checks_path_and_concurrent_change() {
     let before = s.file_text("src/b.txt", None).unwrap().text.unwrap();
     s.save_worktree_file("src/b.txt", "改好了\n", &before).unwrap();
     assert_eq!(std::fs::read_to_string(p.join("src/b.txt")).unwrap(), "改好了\n");
-    // 磁盘上已经变了（和开始编辑时读到的不一样）就不覆盖
+    // Don't overwrite when the file on disk changed (differs from what was read when editing started)
     let err = s.save_worktree_file("src/b.txt", "又改\n", &before).unwrap_err();
     assert!(matches!(err.code, strand_core::error::ErrorCode::StateDiverged));
     assert_eq!(std::fs::read_to_string(p.join("src/b.txt")).unwrap(), "改好了\n");
-    // 跳出仓库、写进 .git、不存在的文件都不行
+    // Escaping the repository, writing into .git, and nonexistent files are all rejected
     for bad in ["../x.txt", ".git/config", "/etc/hosts", "src", "nope.txt"] {
         assert!(s.save_worktree_file(bad, "x", "").is_err(), "{bad}");
     }
-    // CRLF 的文件保存后还是 CRLF
+    // A CRLF file is still CRLF after saving
     write(p, "w.txt", "a\r\nb\r\n");
     s.save_worktree_file("w.txt", "a\nc\n", "a\r\nb\r\n").unwrap();
     assert_eq!(std::fs::read_to_string(p.join("w.txt")).unwrap(), "a\r\nc\r\n");

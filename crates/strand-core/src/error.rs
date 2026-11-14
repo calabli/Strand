@@ -1,12 +1,12 @@
-//! 统一错误结构，对应说明书第 14 节。
+//! Unified error structure, matching spec §14.
 //!
-//! 所有命令失败时返回 `{ code, message, detail }`。`code` 是固定枚举，前端按它决定提示方式；
-//! `message` 是可以直接显示给用户的中文说明；`detail` 是可选的补充数据。
+//! Every failing command returns `{ code, message, detail }`. `code` is a fixed enum the frontend uses to decide how to show it;
+//! `message` is a Chinese explanation that can be shown to the user directly; `detail` is optional extra data.
 
 use serde::Serialize;
 use serde_json::Value;
 
-/// 错误码。序列化成全大写下划线形式，如 `REPO_BUSY`。
+/// Error codes. Serialized as upper snake case, e.g. `REPO_BUSY`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
@@ -28,15 +28,15 @@ pub enum ErrorCode {
     NotFound,
     Cancelled,
     GitFailed,
-    /// 骨架阶段新增：选中的文件夹不是 Git 仓库
+    /// Added in the skeleton stage: the chosen folder isn't a Git repository
     NotARepo,
-    /// 骨架阶段新增：还没有打开仓库就调用了需要仓库的命令
+    /// Added in the skeleton stage: a command that needs a repository was called before one was opened
     NoRepo,
-    /// 骨架阶段新增：系统没有安装 Git 或版本过低
+    /// Added in the skeleton stage: Git isn't installed or is too old
     GitMissing,
-    /// 日志过滤：正则表达式写错了
+    /// Log filter: the regular expression is invalid
     InvalidRegex,
-    /// 部分克隆的仓库：要做的事需要下载全部历史的文件内容（如在历史改动里搜索）
+    /// Partial clone: the task needs to download file contents for the whole history (e.g. searching historical changes)
     PartialClone,
 }
 
@@ -59,7 +59,7 @@ impl CoreError {
         self
     }
 
-    /// 把底层库的错误包成 `GIT_FAILED`，原始信息放进 `detail.source`。
+    /// Wrap an underlying library error as `GIT_FAILED`, with the original message in `detail.source`.
     pub fn git(message: impl Into<String>, source: impl std::fmt::Display) -> Self {
         Self::new(ErrorCode::GitFailed, message)
             .with_detail(serde_json::json!({ "source": source.to_string() }))

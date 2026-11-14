@@ -1,8 +1,8 @@
-// 对话框关闭后焦点回到打开它的地方（说明书 12.4）。
+// Return focus to where a dialog was opened from after it closes (spec §12.4).
 //
-// 打开时记下当时有焦点的元素；它不能用时（已经不在页面上，比如是右键菜单里的一项，菜单随即关掉了；
-// 或者在对话框里），往前找最近一个有过焦点、还在页面上、不在对话框里的元素（比如被右键的那一行）。
-// 关闭时把焦点还给它；它那时已经没了，就再找一次。
+// On open, remember the focused element; when it can't be used (no longer on the page, e.g. an item in a context menu that closed right away;
+// or inside a dialog), look back for the most recent focused element that is still on the page and not in a dialog (e.g. the row that was right-clicked).
+// On close, give focus back to it; if it's gone by then, look again.
 
 import { useLayoutEffect, useRef } from "react";
 
@@ -20,7 +20,7 @@ if (typeof document !== "undefined") {
   );
 }
 
-/** 能把焦点还回去的元素：还在页面上，不在某个对话框里（对话框里的元素随对话框关掉就没了） */
+/** Elements focus can return to: still on the page and not inside a dialog (elements inside a dialog vanish with it) */
 const usable = (el: HTMLElement | null | undefined): el is HTMLElement =>
   !!el && el !== document.body && el.isConnected && !el.closest("[role=dialog]");
 
@@ -31,16 +31,16 @@ function returnTarget(): HTMLElement | null {
   return null;
 }
 
-/** 打开期间（open 为真）记下触发它的元素，关闭或卸载时把焦点还回去 */
+/** While open (open true), remember the element that triggered it, and return focus to it on close or unmount */
 export function useReturnFocus(open = true) {
-  // 记在 ref 里：开发模式下 React 会把组件挂上、卸下、再挂上一次，第二次挂上时焦点已经进了对话框，
-  // 这时再记就记错了；ref 在这两次之间是同一个，第一次记下的保留着
+  // Kept in a ref: in development React mounts, unmounts and mounts the component again, and by the second mount focus is already in the dialog,
+  // so recording then would be wrong; the ref is the same across both, so the first record survives
   const back = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     if (!open) return;
     if (!back.current) back.current = returnTarget();
-    // 打开时焦点要进到对话框里（说明书 12.4）：对话框自己没把焦点放进去（比如默认按钮是禁用的，autoFocus 不起作用），
-    // 就放到最上面那个对话框里第一个能用的控件上
+    // Focus must move into the dialog on open (spec §12.4): when the dialog didn't do it (e.g. the default button is disabled so autoFocus does nothing),
+    // move it to the first usable control in the topmost dialog
     const into = window.setTimeout(() => {
       const dialogs = document.querySelectorAll<HTMLElement>("[role=dialog]");
       const top = dialogs[dialogs.length - 1];
@@ -56,17 +56,17 @@ export function useReturnFocus(open = true) {
     }, 0);
     return () => {
       window.clearTimeout(into);
-      // 等关闭引起的重新渲染做完再还（元素可能刚被替换）。不用 requestAnimationFrame：窗口在后台时它不触发
+      // Return focus after the re-render caused by closing (the element may just have been replaced). Not requestAnimationFrame: it doesn't fire while the window is in the background
       window.setTimeout(() => {
-        // 对话框还在（开发模式的模拟卸载），或另有对话框开着（比如从面板里打开了一个确认框）：不抢焦点
+        // The dialog is still there (development's simulated unmount), or another dialog is open (e.g. a confirm opened from a panel): don't steal focus
         if (document.querySelector("[role=dialog]")) return;
         const b = back.current;
         back.current = null;
-        // 关闭后紧接着的操作可能让它暂时不能获得焦点（比如提交期间说明框是禁用的）：没还上就过一会儿再试
+        // The action right after closing may make it temporarily unfocusable (e.g. the message box is disabled while committing): retry a bit later if it didn't take
         let tries = 0;
         const give = () => {
           if (document.querySelector("[role=dialog]")) return;
-          // 重试时用户已经把焦点放到别处了：不抢
+          // The user already moved focus elsewhere by retry time: don't steal it
           if (tries > 0 && document.activeElement && document.activeElement !== document.body) return;
           const to = usable(b) ? b : returnTarget();
           to?.focus({ preventScroll: true });

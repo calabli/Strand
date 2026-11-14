@@ -39,14 +39,14 @@ import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./comp
 import { Toolbar } from "./components/Toolbar";
 import { setLang, t, tr } from "./i18n";
 
-/** 差异标签页显示的是什么：工作区里的文件，还是某个提交里的文件 */
+/** What the diff tab shows: a file in the worktree or a file in a commit */
 type DiffTarget =
   | { kind: "worktree"; path: string }
   | { kind: "commit"; id: string; path: string }
   | { kind: "compare"; from: string; to: string; path: string }
-  /** 暂存架条目里的文件（说明书 4.9） */
+  /** A file in a shelf entry (spec §4.9) */
   | { kind: "shelf"; id: number; name: string; path: string }
-  /** 任意两段内容对比（两个文件、文件和剪贴板）；text 为空是二进制文件（只有图片能看）；file 是工作区里的路径 */
+  /** Any two contents compared (two files, a file and the clipboard); text null means a binary file (only images can be shown); file is the worktree path */
   | { kind: "texts"; path: string; left: TextSide; right: TextSide };
 type TextSide = { label: string; text: string | null; file?: string };
 
@@ -68,7 +68,7 @@ function writeLast(p: string | null) {
     if (p) localStorage.setItem(LAST_REPO, p);
     else localStorage.removeItem(LAST_REPO);
   } catch {
-    /* 存不了就算了，下次手动打开 */
+    /* Never mind if it can't be saved; open it manually next time */
   }
 }
 
@@ -78,9 +78,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Commit | null>(null);
-  // 每次打开或刷新都换一个 key，日志缓存随之清空
+  // Each open or refresh gets a new key, which clears the log cache
   const [logKey, setLogKey] = useState<string | null>(null);
-  // 日志过滤条件（说明书 5.1），只在前端保存；换仓库时清空
+  // Log filter conditions (spec §5.1), kept in the frontend only; cleared when switching repositories
   const [ui, setUi] = useState<LogUi>(EMPTY_UI);
   const query = useMemo(() => ({ filter: toFilter(ui), sort: ui.sort }), [ui]);
   const queryKey = JSON.stringify(query);
@@ -92,7 +92,7 @@ export default function App() {
       return true;
     }
   });
-  // 提交面板开关（说明书 3.2），记在本机
+  // Commit panel toggle (spec §3.2), remembered on this machine
   const [panelOpen, setPanelOpen] = useState(() => {
     try {
       return localStorage.getItem(PANEL_OPEN) !== "0";
@@ -105,23 +105,23 @@ export default function App() {
       try {
         localStorage.setItem(PANEL_OPEN, o ? "0" : "1");
       } catch {
-        /* 只在本次有效 */
+        /* Only for this session */
       }
       return !o;
     });
   const [focusSearch, setFocusSearch] = useState(0);
-  // 清空条件后要跳到别的提交时，不再把旧的选中提交滚回可见区域
+  // When jumping to another commit after clearing conditions, don't scroll the old selection back into view
   const skipKeep = useRef(false);
-  /** 三栏的容器和日志里分支树那一栏：分隔线往上面写宽度 */
+  /** The three-column container and the branch tree column in the log: splitters write widths here */
   const panesRef = useRef<HTMLDivElement>(null);
   const logSplitRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<WorktreeStatus | null>(null);
   const [tab, setTab] = useState<"log" | "console" | "diff" | "file">("log");
-  /** 中间“文件”标签里看的文件（项目文件和修改链） */
+  /** The file viewed in the middle "Files" tab (project files and change chain) */
   const [fileOpen, setFileOpen] = useState<string | null>(null);
-  /** 从内容搜索结果打开时：跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
+  /** When opened from content search results: which line to jump to and which revision (empty is the worktree); n differs every time */
   const [fileAt, setFileAt] = useState<{ line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null>(null);
-  /** 打开文件视图时是否就显示修改链（从“文件历史”图标打开时） */
+  /** Whether the change chain shows right away when the file view opens (when opened from the "file history" icon) */
   const [fileChain, setFileChain] = useState(false);
   const openFile = useCallback((p: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }, history = false) => {
     setFileOpen(p);
@@ -129,7 +129,7 @@ export default function App() {
     setFileAt(at ? { ...at, n: Date.now() } : null);
     setTab("file");
   }, []);
-  /** 控制台、文件视图、差异标签页用中间加右边的宽度，不显示提交详情（差异要左右对照，窄了会折行） */
+  /** Console, file view and diff tab use the middle plus right width without commit details (diffs compare side by side and would wrap if narrow) */
   const wide = tab === "console" || tab === "file" || tab === "diff";
   const [target, setTarget] = useState<DiffTarget | null>(null);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null; pickKeys?: Map<string, string> }>({
@@ -137,20 +137,20 @@ export default function App() {
     loading: false,
     error: null,
   });
-  // 提示条；带 op 时显示撤销图标（说明书 3.5、11.1）
+  // Toast; with op it shows an undo icon (spec §3.5, §11.1)
   const [toast, setToast] = useState<{ text: string; op?: OpInfo } | null>(null);
   const toastTimer = useRef<number>(0);
-  // 日志刷新或跳转后，等那一行读出来再选中它（id 为空表示不核对编号）
+  // After a log refresh or jump, wait for that row to load before selecting it (empty id means don't check the id)
   const [selectAfterLoad, setSelectAfterLoad] = useState<{ row: number; id?: string } | null>(null);
   const [jump, setJump] = useState<{ row: number; n: number } | null>(null);
   const [refs, setRefs] = useState<RefsList | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [popup, setPopup] = useState(false);
   const [dialog, ask] = useDialog();
-  // 冲突会话：仓库在合并、变基等进行中时读取；“稍后继续”时先隐藏
+  // Conflict session: read while the repository is mid merge, rebase, etc.; hidden first on "continue later"
   const [session, setSession] = useState<MergeSession | null>(null);
   const [conflictHidden, setConflictHidden] = useState(false);
-  // 冲突还有几处待处理：冲突界面报上来，工具栏的“进行中”提示里显示（说明书 3.3）
+  // How many conflicts remain: reported by the conflict view and shown in the toolbar's "in progress" notice (spec §3.3)
   const [conflictLeft, setConflictLeft] = useState<number | null>(null);
   const [conflictCmd, setConflictCmd] = useState<{ kind: "list" | "auto"; n: number } | null>(null);
 
@@ -169,7 +169,7 @@ export default function App() {
   }, []);
   const { favs, toggle: toggleFav } = useFavorites(repo?.path ?? null, refs, refreshRefs);
 
-  /** 清空过滤条件，在日志里跳到某个提交、分支或标签并选中它；找不到返回 false */
+  /** Clear the filter conditions, jump to a commit, branch or tag in the log and select it; false when not found */
   const locate = useCallback(async (rev: string) => {
     const row = await api.logLocate(rev).catch(() => null);
     if (row == null) return false;
@@ -181,7 +181,7 @@ export default function App() {
     return true;
   }, []);
 
-  // 过滤条件变了：选中的提交还在结果里就滚到它
+  // Filter conditions changed: scroll to the selected commit if it's still in the results
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   useEffect(() => {
@@ -207,7 +207,7 @@ export default function App() {
       try {
         localStorage.setItem(TREE_OPEN, o ? "0" : "1");
       } catch {
-        /* 只在本次有效 */
+        /* Only for this session */
       }
       return !o;
     });
@@ -226,8 +226,8 @@ export default function App() {
   const loadDiff = useCallback((t: DiffTarget, quiet = false) => {
     setDiff((d) => ({ data: quiet ? d.data : null, loading: !quiet, error: null, pickKeys: quiet ? d.pickKeys : undefined }));
     if (t.kind === "worktree") {
-      // 工作区：显示整个文件；逐行勾选按 3 行上下文的块记录（核心层提交时也按这个找行），
-      // 所以另外取一份 3 行上下文的差异，按行号把每个改动行对到它在那里的“块:行”
+      // Worktree: show the whole file; line checks are recorded per block with 3 lines of context (the core layer finds lines the same way when committing),
+      // so also fetch a diff with 3 lines of context and map each changed line by line number to its "block:line" there
       Promise.all([api.diffWorktree(t.path), wholeFile((c) => api.diffWorktree(t.path, false, c))]).then(
         ([short, full]) => {
           const pickKeys = new Map<string, string>();
@@ -265,7 +265,7 @@ export default function App() {
     loadDiff(t);
   };
 
-  // 差异标签页在同一组文件之间切换（说明书 10.1 的扩展）：同一个提交、同一次比较、同一条暂存架、工作区的改动
+  // The diff tab switches between files in one group (extension of spec §10.1): the same commit, the same comparison, the same shelf entry, worktree changes
   const [siblings, setSiblings] = useState<{ key: string; paths: string[] } | null>(null);
   const groupKey = !target ? "" : target.kind === "commit" ? `c:${target.id}` : target.kind === "compare" ? `p:${target.from}:${target.to}` : target.kind === "shelf" ? `s:${target.id}` : target.kind === "texts" ? "x" : "w";
   useEffect(() => {
@@ -327,7 +327,7 @@ export default function App() {
   useEffect(() => {
     Promise.all([api.gitCheck(), api.launchPath()]).then(([g, launch]) => {
       setGit(g);
-      // 启动参数指定的仓库优先，其次是上次打开的仓库
+      // The repository from the launch arguments first, then the last opened one
       const target = launch ?? (settings().reopenLast ? readLast() : null) ?? (inTauri ? null : "/示例/strand-app");
       if (g.ok && target) open(target);
     });
@@ -353,7 +353,7 @@ export default function App() {
     }
   }, [refreshStatus, refreshRefs]);
 
-  // 文件监听说引用变了：Strand 自己的写操作刚读过时，核心层发现没变就不再读，日志也不用重新取
+  // File watching says refs changed: right after Strand's own write the core layer sees no change and doesn't re-read, so the log isn't fetched again
   const refreshFromWatch = useCallback(async () => {
     try {
       const { state: st, changed } = await api.repoRefresh();
@@ -367,7 +367,7 @@ export default function App() {
     }
   }, [refreshStatus, refreshRefs]);
 
-  // 分支和标签操作：成功后刷新日志、分支和工作区；失败时仓库也可能变了（如合并停在冲突），重新读取
+  // Branch and tag operations: refresh the log, branches and worktree on success; on failure the repository may have changed too (e.g. a merge stopped on conflicts), so re-read
   const ops = useBranchOps({
     repo,
     refs,
@@ -397,7 +397,7 @@ export default function App() {
   const doneCb = useCallback(
     (st: RepoState, message: string, op?: OpInfo, keepLog?: boolean) => {
       setRepo(st);
-      // 提交和引用都没变（如抓取了但没有新东西）时不重新读取日志，正在看的列表和过滤不被打断
+      // When commits and refs are unchanged (e.g. a fetch with nothing new), don't re-read the log, so the list and filters being viewed aren't interrupted
       if (!keepLog) setLogKey(`${st.path}#${Date.now()}`);
       refreshRefs();
       refreshStatus();
@@ -425,7 +425,7 @@ export default function App() {
   });
   const oplogRefresh = useRef(oplog.refresh);
   oplogRefresh.current = oplog.refresh;
-  // 二分查找进行中也不能撤销（撤销会改 HEAD，和 Git 记的二分查找状态对不上）
+  // Undo is also blocked during a bisect (undo would move HEAD, out of sync with Git's bisect state)
   const undoBlocked = repo?.state !== "normal" || !!repo?.bisecting;
   const cur = refs?.branches.find((b) => b.is_current);
 
@@ -440,7 +440,7 @@ export default function App() {
     } else refreshSession();
   }, [repoMode, logKey, refreshSession]);
 
-  // 行级勾选（说明书 4.3、10.1）：路径 → 没勾的行、全部改动行，以及记录时的改动行数；文件内容变了就重置为全选
+  // Line checks (spec §4.3, §10.1): path → unchecked lines, all changed lines, and the changed line count when recorded; reset to all checked when the file content changes
   const [lineSel, setLineSel] = useState<Record<string, { excluded: string[]; all: string[]; sig: string }>>({});
   const sigOf = (path: string) => {
     const c = status?.changes.find((x) => x.path === path);
@@ -466,7 +466,7 @@ export default function App() {
       return n;
     });
 
-  // 丢弃改动、未跟踪的文件（说明书 4.7、4.8）
+  // Discarding changes, untracked files (spec §4.7, §4.8)
   const runWrite = async (p: Promise<{ state: RepoState; op?: OpInfo }>, message: string) => {
     try {
       const w = await p;
@@ -495,25 +495,25 @@ export default function App() {
     });
   };
 
-  // 暂存架和贮藏（说明书 4.9）
+  // Shelf and stash (spec §4.9)
   const [panel, setPanel] = useState<"commit" | "shelf" | "stash" | "files">("commit");
   const ss = useStashShelf({ refreshKey: logKey, ask, done: doneCb, failed: failedCb, say });
   const ssRefresh = useRef(ss.refresh);
   ssRefresh.current = ss.refresh;
 
-  // 提交操作（说明书 5.6）：详情栏图标行、右键菜单、F2 共用
+  // Commit operations (spec §5.6): shared by the detail icon row, context menu and F2
   const commitOps = useCommitOps({ ask, done: doneCb, failed: failedCb, say, head: repo?.head.commit });
-  // 比较、补丁、查看某个版本的仓库（说明书 10.3–10.5）
+  // Compare, patches, browsing a revision (spec §10.3–10.5)
   const [compareBase, setCompareBase] = useState<string | null>(null);
   const [patch, setPatch] = useState<{ title: string; text: string | null; name: string } | null>(null);
-  /** 应用补丁对话框：带着拖进来的补丁，或空着打开 */
+  /** Apply patch dialog: with a dragged-in patch, or opened empty */
   const [applying, setApplying] = useState<{ text: string; name?: string } | null>(null);
   const [pickFiles, setPickFiles] = useState<{ commit: Commit; files: FileChange[]; initial: string[]; revert: boolean } | null>(null);
-  /** 任意两个文件对比：先选好的左边 */
+  /** Compare any two files: the left side chosen first */
   const [cmpLeft, setCmpLeft] = useState<string | null>(null);
   const [reflogOpen, setReflogOpen] = useState(false);
   const [remotesOpen, setRemotesOpen] = useState(false);
-  // 把 .patch / .diff 文件拖进窗口：打开应用补丁对话框（桌面应用里由系统送来文件路径，浏览器预览里读拖进来的文件）
+  // Drag a .patch / .diff file into the window: opens the apply patch dialog (the desktop app gets the file path from the system; the browser preview reads the dropped file)
   const canApplyPatch = !!repo && repo.state === "normal";
   useEffect(() => {
     if (!canApplyPatch) return;
@@ -553,7 +553,7 @@ export default function App() {
     };
   }, [canApplyPatch]);
   const [treeOf, setTreeOf] = useState<{ id: string; title: string } | null>(null);
-  // 逐行追溯（说明书 10.2）
+  // Blame (spec §10.2)
   const [blame, setBlame] = useState<{ path: string; rev: string | null } | null>(null);
   const openPatch = (title: string, p: Promise<string>, name: string) => {
     setPatch({ title, text: null, name });
@@ -565,9 +565,9 @@ export default function App() {
       },
     );
   };
-  // 换仓库时退出比较
+  // Leave compare mode when switching repositories
   useEffect(() => setCompareBase(null), [repo?.path]);
-  // 分支上的“和当前分支比较”：起点是当前分支的最新提交，终点是那个分支的最新提交
+  // "Compare with current branch" on a branch: from the current branch's latest commit to that branch's latest commit
   const branchOps = {
     ...ops,
     compareWith: (name: string) => {
@@ -576,7 +576,7 @@ export default function App() {
       setCompareBase(head);
       locate(name);
     },
-    // 工作目录（说明书 6.6）
+    // Worktrees (spec §6.6)
     worktree: {
       add: (branch?: string) => setWtDialog({ branch }),
       open: (path: string) => open(path),
@@ -590,7 +590,7 @@ export default function App() {
           } catch (e) {
             const err = errOf(e);
             if (err.code !== "WORKTREE_CONFLICT" || force) return err.message;
-            // 有改动：关掉这个对话框后再问一次
+            // There are changes: ask again after this dialog closes
             window.setTimeout(() =>
               ask({
                 title: t("移除工作目录 {0}", name),
@@ -614,7 +614,7 @@ export default function App() {
     },
   };
 
-  // 整理提交（说明书第 9 节）
+  // Rebasing commits (spec §9)
   const rebase = useRebase({ ask, done: doneCb, failed: failedCb, say });
   const bisect = useBisect({ refreshKey: `${logKey}|${repo?.bisecting ? 1 : 0}|${repo?.head.commit ?? ""}`, done: doneCb, failed: failedCb, say });
   const [panelSel, setPanelSel] = useState<Selection>({ files: [] });
@@ -649,7 +649,7 @@ export default function App() {
       fixup: () => rebase.fixup(c, panelSel),
       squashInto: () => rebase.squashInto(c, panelSel),
       picked: panelSel.files.length,
-      // 分支子菜单：指向这个提交的本地分支，没有则为当前分支（说明书 5.6）
+      // Branch submenu: local branches pointing at this commit, or the current branch if none (spec §5.6)
       branches: (() => {
         const all = refs?.branches ?? [];
         const here = all.filter((b) => b.head === c.id);
@@ -662,7 +662,7 @@ export default function App() {
       pickFiles: repo?.state === "normal" && !repo?.bisecting ? (revert) => openPickFiles(c, [], revert) : undefined,
     });
 
-  // 选中提交的可用条件；多选时算“能不能全部拣选”
+  // Availability for the selected commit; with multi-select, whether they can all be cherry-picked
   const [caps, setCaps] = useState<CommitCaps | null>(null);
   const [multi, setMulti] = useState<string[]>([]);
   const [multiPick, setMultiPick] = useState<Cap | null>(null);
@@ -695,9 +695,9 @@ export default function App() {
       live = false;
     };
   }, [multiKey, logKey]);
-  // 日志刷新后清掉多选（提交可能已经变了）
+  // Clear multi-select after a log refresh (the commits may have changed)
   useEffect(() => setMulti([]), [logKey]);
-  // 日志刷新后重新读取选中的提交：推送后“未推送”、引用标签等会变；提交已经不在了（被改写）就取消选中
+  // Re-read the selected commit after a log refresh: "unpushed", ref labels etc. change after pushing; deselect when the commit is gone (rewritten)
   useEffect(() => {
     const id = selected?.id;
     if (!id) return;
@@ -712,7 +712,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logKey]);
 
-  // 选中提交所在的行（↑ ↓ 用）
+  // The row of the selected commit (for ↑ ↓)
   const selRow = useRef<number | null>(null);
   const pick = (c: Commit, row: number, mods: { toggle: boolean; range: boolean }) => {
     selRow.current = row;
@@ -739,7 +739,7 @@ export default function App() {
     setSelected(c);
   };
 
-  /** 选中并滚动到某个提交：在当前过滤结果里就留在结果里，否则清空过滤条件 */
+  /** Select and scroll to a commit: stay in the results if it's in the current filter, otherwise clear the filter conditions */
   const jumpToCommit = useCallback(
     async (id: string) => {
       const row = await api.logLocate(id, query.filter, query.sort).catch(() => null);
@@ -751,7 +751,7 @@ export default function App() {
     [query, locate],
   );
 
-  // 文件监听推来的变化：引用变了刷新日志，工作区变了刷新提交面板和正在看的工作区差异
+  // Changes pushed by file watching: refs changed → refresh the log; worktree changed → refresh the commit panel and the worktree diff being viewed
   const targetRef = useRef(target);
   targetRef.current = target;
   useEffect(() => {
@@ -760,12 +760,12 @@ export default function App() {
       if (scopes.includes("refs")) refreshFromWatch();
       else if (scopes.includes("status")) {
         refreshStatus();
-        // 在别处改了最近一步改过的文件：时间线上这一步要显示为不能撤销（说明书 16）
+        // Files changed by the latest step were changed elsewhere: that step must show as not undoable on the timeline (spec §16)
         oplogRefresh.current();
         const t = targetRef.current;
         if (t?.kind === "worktree") loadDiff(t, true);
       }
-      // 贮藏、暂存架在别处变了（如在命令行里 git stash）：只刷新这两个列表（重新读取仓库时也会刷新）
+      // Stash or shelf changed elsewhere (e.g. git stash on the command line): refresh only these two lists (re-reading the repository refreshes them too)
       if (!scopes.includes("refs") && (scopes.includes("stash") || scopes.includes("shelf"))) ssRefresh.current();
     });
   }, [repo?.path, refreshFromWatch, refreshStatus, loadDiff]);
@@ -794,9 +794,9 @@ export default function App() {
     }
   });
 
-  // ⌘F / Ctrl+F：聚焦日志搜索框
+  // ⌘F / Ctrl+F: focus the log search box
   const logVisible = !!repo && tab === "log" && !(session && !conflictHidden);
-  /** 滚到第 row 行并选中它（还没加载时等加载完再选） */
+  /** Scroll to row and select it (if not loaded yet, select after it loads) */
   const goRow = (row: number) => {
     if (log.total === 0) return;
     const next = Math.max(0, Math.min(log.total - 1, row));
@@ -807,9 +807,9 @@ export default function App() {
     if (r) setSelected(r.commit);
     else setSelectAfterLoad({ row: next });
   };
-  /** 选中上一个或下一个提交 */
+  /** Select the previous or next commit */
   const step = (d: 1 | -1) => goRow((selRow.current ?? -1) + d);
-  /** ⌘D：在差异标签页里打开选中提交的第一个文件（按列表上看到的顺序），再用 ⌥← ⌥→ 换文件 */
+  /** ⌘D: open the selected commit's first file (in list order) in the diff tab, then switch files with ⌥← ⌥→ */
   const diffSelected = (c: Commit) =>
     api.commitDetail(c.id).then(
       (d) => {
@@ -838,7 +838,7 @@ export default function App() {
         }
         return;
       }
-      // →/← 跳到父提交、子提交，↑/↓ 上一个、下一个提交，F2 修改说明（说明书 5.4、12.3）
+      // →/← jump to parent and child commits, ↑/↓ previous and next commit, F2 reword (spec §5.4, §12.3)
       if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, [contenteditable=true], [role=dialog], .menu, .picker")) return;
       const k = keyCtx.current;
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -864,7 +864,7 @@ export default function App() {
 
   const setUiCb = useCallback((u: LogUi) => setUi(u), []);
 
-  // 命令面板（说明书 12.1）：⌘K 打开或关闭，全局有效；⌘, 打开设置
+  // Command palette (spec §12.1): ⌘K opens or closes it globally; ⌘, opens settings
   const [palette, setPalette] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [repoPop, setRepoPop] = useState<{ x: number; y: number } | null>(null);
@@ -898,7 +898,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", key);
   }, [repo]);
 
-  // ⌘Z 撤销、⇧⌘Z 重做（输入框里留给输入框自己；冲突界面有自己的撤销）
+  // ⌘Z undo, ⇧⌘Z redo (left to input boxes inside inputs; the conflict view has its own undo)
   const undoKeys = !!repo && !(session && !conflictHidden) && !undoBlocked;
   const oplogRef = useRef(oplog);
   oplogRef.current = oplog;
@@ -961,7 +961,7 @@ export default function App() {
     );
   }
 
-  // 命令面板里的命令（说明书 12.1），和图标按钮、右键菜单调用同一组操作
+  // Command palette commands (spec §12.1), calling the same operations as icon buttons and context menus
   const normal = repo.state === "normal";
   const busyWhy = t("合并或变基还没完成");
   const paletteCommands = (): PaletteCommand[] => {
@@ -1044,7 +1044,7 @@ export default function App() {
     return list;
   };
 
-  // 只拣选或还原部分文件、取回某个版本的文件（对照 JetBrains 提交详情里文件的右键菜单）
+  // Cherry-pick or revert only some files, get a file from a revision (like the file context menu in JetBrains commit details)
   const openPickFiles = (c: Commit, initial: string[], revert: boolean, files?: FileChange[]) => {
     if (files) return setPickFiles({ commit: c, files, initial, revert });
     api.commitDetail(c.id).then(
@@ -1084,7 +1084,7 @@ export default function App() {
     });
   };
 
-  // 任意两个文件对比、和剪贴板对比（对照 JetBrains 的 Compare Files / Compare with Clipboard）：读工作区里的内容
+  // Compare any two files, compare with clipboard (like JetBrains' Compare Files / Compare with Clipboard): reads worktree content
   const readSide = async (path: string): Promise<TextSide> => {
     const f = await api.fileText(path, null);
     if (f.missing) throw new Error(t("工作区里没有 {0}", path));
@@ -1105,7 +1105,7 @@ export default function App() {
   const compareClipboard = async (path: string) => {
     let clip = "";
     try {
-      // 桌面应用里网页的剪贴板接口要再点一次“粘贴”或者直接被拒绝，由外壳读
+      // In the desktop app the web clipboard API needs another "Paste" click or is refused outright, so the shell reads it
       clip = await api.clipboardText();
     } catch {
       return failedCb(t("读不到剪贴板"));
@@ -1144,7 +1144,7 @@ export default function App() {
       ],
     });
 
-  // 提交面板里文件的右键菜单（说明书 12.2）
+  // Context menu for files in the commit panel (spec §12.2)
   const fileMenu = (path: string, x: number, y: number) =>
     setMenu({
       x,
@@ -1230,7 +1230,7 @@ export default function App() {
         />
       ) : (
       <div ref={panesRef} style={paneVars(settings())} className={"panes" + (wide ? " no-detail" : "") + (panelOpen ? "" : " no-panel")}>
-        {/* 分隔线（拖动调整宽度）：中间至少留 420 像素 */}
+        {/* Splitters (drag to resize): keep at least 420 px in the middle */}
         {panelOpen && (
           <Splitter
             name="paneLeft"
@@ -1397,7 +1397,7 @@ export default function App() {
               }
               compareBase={compareBase}
               onExitCompare={() => setCompareBase(null)}
-              // 作者规则的正则写错时核心层的提示不同，不标红搜索框
+              // A bad author-rule regex gets a different message from the core layer; don't mark the search box red
               badRegex={log.error?.code === "INVALID_REGEX" && log.error.message === "正则表达式写得不对"}
               focus={focusSearch}
             />
@@ -1519,7 +1519,7 @@ export default function App() {
             />
           )}
         </main>
-        {/* 控制台用整个宽度，不显示提交详情 */}
+        {/* The console uses the full width, without commit details */}
         {wide ? null : compareBase && selected && selected.id !== compareBase && multi.length < 2 ? (
           <CompareView
             from={compareBase}

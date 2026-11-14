@@ -1,4 +1,4 @@
-/* Strand 原型 · 工具函数、图标和图标按钮 */
+/* Strand prototype · utilities, icons and icon buttons */
 var $ = function (id) { return document.getElementById(id); };
 var esc = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
 var F = function (path, st, add, del) { return { path: path, st: st, add: add, del: del }; };

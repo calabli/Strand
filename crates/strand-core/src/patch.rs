@@ -1,7 +1,7 @@
-//! 应用补丁（说明书 17 原来不做，后来补上）：
-//! - `patch_preview`：补丁里改了哪些文件、是不是 `git format-patch` 生成的邮件格式（带提交说明），能不能直接应用；
-//! - `patch_apply`：应用到工作区（`git apply --3way`，有冲突时进入“取回进行中”的冲突解决），
-//!   或者按邮件格式直接生成提交（`git am --3way`，失败时整个退回，仓库不变）。
+//! Applying patches (listed as out of scope in spec §17 originally, added later):
+//! - `patch_preview`: which files the patch changes, whether it's mailbox format from `git format-patch` (with commit messages), and whether it applies cleanly;
+//! - `patch_apply`: apply to the worktree (`git apply --3way`, entering "restore in progress" conflict resolution on conflicts),
+//!   or create commits from mailbox format (`git am --3way`, rolled back entirely on failure, leaving the repository unchanged).
 
 use serde::Serialize;
 
@@ -22,32 +22,32 @@ pub struct PatchFile {
     pub binary: bool,
 }
 
-/// 邮件格式补丁里的一个提交
+/// One commit in a mailbox-format patch
 #[derive(Debug, Clone, Serialize)]
 pub struct PatchCommit {
     pub title: String,
     pub author: String,
 }
 
-/// 能不能应用
+/// Whether it applies
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PatchFit {
-    /// 直接能应用
+    /// Applies cleanly
     Clean,
-    /// 要按三方合并应用（对应的文件变过），可能有冲突
+    /// Needs a three-way apply (the files have changed), may conflict
     ThreeWay,
-    /// 应用不了
+    /// Doesn't apply
     Fails,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PatchPreview {
     pub files: Vec<PatchFile>,
-    /// 邮件格式（git format-patch）时的提交，按补丁里的顺序；普通 diff 为空
+    /// Commits for mailbox format (git format-patch), in patch order; empty for a plain diff
     pub commits: Vec<PatchCommit>,
     pub fit: PatchFit,
-    /// 应用不了时 git 给的原因（第一行 error）
+    /// The reason git gives when it doesn't apply (the first error line)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -61,7 +61,7 @@ impl Session {
         Ok(f.to_string_lossy().to_string())
     }
 
-    /// 看看补丁：改了哪些文件、带不带提交、能不能应用（不改仓库）
+    /// Look at a patch: which files it changes, whether it carries commits, whether it applies (repository unchanged)
     pub fn patch_preview(&self, text: &str) -> Result<PatchPreview> {
         if !text.contains("diff --git ") && !text.contains("\n--- ") && !text.starts_with("--- ") {
             return Err(CoreError::new(ErrorCode::InvalidRange, "这不是一个补丁：里面没有找到文件改动（diff）"));
@@ -86,7 +86,7 @@ impl Session {
         Ok(PatchPreview { files, commits: mail_commits(text), fit, reason })
     }
 
-    /// 应用补丁。`commit` 为真时按邮件格式生成提交（git am），返回生成的提交数；否则应用到工作区，返回 0。
+    /// Apply a patch. With `commit` true, create commits from mailbox format (git am) and return how many; otherwise apply to the worktree and return 0.
     pub fn patch_apply(&self, text: &str, commit: bool) -> Result<usize> {
         self.require_clean_state()?;
         let f = self.patch_tmp(text)?;
@@ -121,9 +121,9 @@ impl Session {
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 impl Session {
-    /// 只拣选或只还原一个提交里的几个文件（对照 JetBrains 的 Apply / Revert Selected Changes）：
-    /// 把这几个文件在这个提交里的改动应用到工作区（还原时反着应用），不生成提交，用户检查后自己提交。
-    /// 和现在的代码对不上时按三方合并，有冲突进入冲突解决（和应用补丁一样）。
+    /// Cherry-pick or revert only some files of a commit (like JetBrains' Apply / Revert Selected Changes):
+    /// apply these files' changes from the commit to the worktree (in reverse for revert), without creating a commit; the user reviews and commits.
+    /// When they don't match the current code, apply three-way, entering conflict resolution on conflicts (same as applying a patch).
     pub fn commit_files_apply(&self, id: &str, paths: &[String], revert: bool) -> Result<()> {
         self.require_clean_state()?;
         if paths.is_empty() {
@@ -165,8 +165,8 @@ impl Session {
         }
     }
 
-    /// 把工作区里的一个文件换成某个版本的内容（对照 JetBrains 的 Get from Revision）。
-    /// 这个版本里没有这个文件时（后来才加的），删掉工作区的文件。结果是普通的改动，可以丢弃或撤销。
+    /// Replace a worktree file with its content at a revision (like JetBrains' Get from Revision).
+    /// When the file doesn't exist at that revision (added later), delete it from the worktree. The result is an ordinary change that can be discarded or undone.
     pub fn file_restore(&self, id: &str, path: &str) -> Result<()> {
         let dir = self.path();
         crate::file_history::check_rel_path(path)?;
@@ -184,7 +184,7 @@ impl Session {
     }
 }
 
-/// `git apply --numstat -z` 加 `--summary` 的新建、删除，拼成文件列表
+/// Combine `git apply --numstat -z` with `--summary` creates and deletes into a file list
 fn parse_numstat(numstat: &str, summary: &str) -> Vec<PatchFile> {
     let mut created = Vec::new();
     let mut deleted = Vec::new();
@@ -207,7 +207,7 @@ fn parse_numstat(numstat: &str, summary: &str) -> Vec<PatchFile> {
         let binary = a == "-";
         let (added, del) = (a.parse().unwrap_or(0), d.parse().unwrap_or(0));
         if path.is_empty() {
-            // 改名：后面两段是旧路径和新路径
+            // Rename: the next two parts are the old and new paths
             let old = parts.get(i).copied().unwrap_or("").to_string();
             let new = parts.get(i + 1).copied().unwrap_or("").to_string();
             i += 2;
@@ -226,7 +226,7 @@ fn parse_numstat(numstat: &str, summary: &str) -> Vec<PatchFile> {
     out
 }
 
-/// 邮件格式补丁里的提交：每封以 `From <40 位哈希> ` 开头，标题取 Subject（去掉 [PATCH n/m]，接上折行），作者取 From
+/// Commits in a mailbox-format patch: each mail starts with `From <40-char hash> `; the title comes from Subject ([PATCH n/m] removed, folded lines joined), the author from From
 pub fn mail_commits(text: &str) -> Vec<PatchCommit> {
     let mut out: Vec<PatchCommit> = Vec::new();
     let mut in_head = false;
@@ -276,7 +276,7 @@ pub fn mail_commits(text: &str) -> Vec<PatchCommit> {
     for c in &mut out {
         c.title = decode_words(&c.title);
         c.author = decode_words(&c.author).trim_matches('"').to_string();
-        // 解码后才认得出 [PATCH n/m] 前缀
+        // The [PATCH n/m] prefix is only recognizable after decoding
         if c.title.starts_with("[PATCH") {
             if let Some((_, t)) = c.title.split_once("] ") {
                 c.title = t.to_string();
@@ -286,7 +286,7 @@ pub fn mail_commits(text: &str) -> Vec<PatchCommit> {
     out
 }
 
-/// 解码邮件头里的 RFC 2047 编码词（=?UTF-8?q?...?= / =?UTF-8?b?...?=），相邻编码词之间的空白去掉
+/// Decode RFC 2047 encoded words in mail headers (=?UTF-8?q?...?= / =?UTF-8?b?...?=), dropping whitespace between adjacent encoded words
 fn decode_words(s: &str) -> String {
     let mut out = String::new();
     let mut rest = s;

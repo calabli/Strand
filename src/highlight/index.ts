@@ -1,5 +1,5 @@
-// 语法高亮（差异、文件全文）：按扩展名认语言，在后台线程里着色（不卡界面），结果是每一行的着色段。
-// 太大的文件（超过 1 MB 或 2 万行）不着色，免得拖慢打开速度（说明书 17 “语法高亮：需要评估对差异打开速度的影响”）。
+// Syntax highlighting (diffs, full file text): language detected by extension, colored on a background thread (doesn't block the UI), producing per-line colored runs.
+// Files that are too large (over 1 MB or 20k lines) aren't colored so opening stays fast (spec §17 "syntax highlighting: evaluate the impact on diff opening speed").
 
 import type { Tok } from "./hl.worker";
 export type { Tok };
@@ -17,7 +17,7 @@ const EXT: Record<string, string> = {
 };
 const NAMES: Record<string, string> = { dockerfile: "dockerfile", makefile: "makefile", gnumakefile: "makefile", ".bashrc": "bash", ".zshrc": "bash" };
 
-/** 文件的语言；认不出时返回 null */
+/** The file's language; null when unknown */
 export function langOf(path: string): string | null {
   const base = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
   if (NAMES[base]) return NAMES[base];
@@ -32,7 +32,7 @@ let worker: Worker | null = null;
 let seq = 0;
 const waiting = new Map<number, (out: (Tok[][] | null)[]) => void>();
 
-/** 给几段文字着色；每段返回每一行的着色段（不认识的语言、太大的文字返回 null） */
+/** Color some texts; returns per-line colored runs for each (null for unknown languages or texts too large) */
 export function highlight(lang: string | null, texts: string[]): Promise<(Tok[][] | null)[]> {
   const big = texts.reduce((n, t) => n + t.length, 0) > MAX_CHARS || texts.some((t) => t.split("\n", MAX_LINES + 1).length > MAX_LINES);
   if (!lang || big || typeof Worker === "undefined") return Promise.resolve(texts.map(() => null));

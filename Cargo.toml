@@ -12,15 +12,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
-# 依赖在开发时也开优化，否则 gix 遍历大仓库会很慢
+# Optimize dependencies in dev builds too; otherwise gix is very slow walking large repositories
 [profile.dev.package."*"]
 opt-level = 2
 
-# 核心层在开发时也开优化：图谱、排序这些循环不优化时慢 10 倍，开发时测不出真实速度
+# Optimize the core crate in dev builds too: unoptimized graph and sort loops run 10x slower, so dev timings would be meaningless
 [profile.dev.package.strand-core]
 opt-level = 2
 
-# 发布包体积优化，见 https://tauri.app/concept/size/
+# Release bundle size optimizations, see https://tauri.app/concept/size/
 [profile.release]
 codegen-units = 1
 lto = true

@@ -1,4 +1,4 @@
-// 分支和标签操作（说明书 6.3）。分支树、分支弹窗、右键菜单都调用这里，规则只写一份。
+// Branch and tag operations (spec §6.3). The branch tree, branch popup and context menu all call this, so the rules are written once.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -12,11 +12,11 @@ interface Deps {
   repo: RepoState | null;
   refs: RefsList | null;
   ask: (d: DialogSpec) => void;
-  /** 写操作完成：更新仓库状态、刷新日志和分支、显示提示 */
+  /** A write finished: update repository state, refresh the log and branches, show a notice */
   done: (state: RepoState, message: string, op?: OpInfo) => void;
-  /** 操作失败但仓库可能变了（如合并停在冲突）：重新读取 */
+  /** The operation failed but the repository may have changed (e.g. a merge stopped on conflicts): re-read */
   failed: (message: string) => void;
-  /** 只显示一句提示 */
+  /** Only show a notice */
   say: (message: string) => void;
 }
 
@@ -27,7 +27,7 @@ const MERGE_TEXT = {
   squashed: (s: string) => t("已把 {0} 的改动压缩成一个提交", s),
 };
 
-/** 合并方式的选项（说明书 6.7）；选过的方式记在本机，下次默认选它 */
+/** Merge mode options (spec §6.7); the chosen mode is remembered on this machine as the next default */
 const MODE_KEY = "strand.mergeMode";
 const lastMode = (): MergeMode => {
   try {
@@ -41,7 +41,7 @@ const rememberMode = (m: string) => {
   try {
     localStorage.setItem(MODE_KEY, m);
   } catch {
-    /* 只在本次有效 */
+    /* Only for this session */
   }
 };
 const modeChoices = () => [
@@ -59,7 +59,7 @@ const REBASE_TEXT = {
 export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
   const current = repo?.head.kind === "branch" ? repo.head.branch ?? null : null;
 
-  /** 运行写操作；INVALID_NAME 等输入错误返回给对话框显示，其余错误交给 failed */
+  /** Run a write; input errors like INVALID_NAME go back to the dialog for display, other errors go to failed */
   const run = useCallback(
     async <T,>(p: Promise<Written<T>>, message: (r: T) => string, inDialog = false): Promise<string | void> => {
       try {
@@ -68,7 +68,7 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
       } catch (e) {
         const err = errOf(e);
         if (inDialog && err.code === "INVALID_NAME") return err.message;
-        // 有冲突不是出错：仓库停在合并或变基中，刷新后主界面换成冲突列表（和拉取一样）
+        // Conflicts aren't an error: the repository stops mid merge or rebase, and after refreshing the main view switches to the conflict list (same as pull)
         if (err.code === "CONFLICTS") {
           failed("");
           say(t("{0}，请逐个处理", err.message));
@@ -139,16 +139,16 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
     [ask, run],
   );
 
-  /** 压缩合并（说明书 6.7）：先弹框改说明（预填“压缩合并 X”和要合并进来的提交标题），确认后再合并 */
+  /** Squash merge (spec §6.7): first edit the message in a dialog (prefilled with "Squash merge X" and the titles of the commits being merged), then merge on confirm */
   const squashWithMessage = useCallback(
     async (source: string, target: string | null) => {
       let initial = "";
       try {
         initial = await api.branchSquashMessage(source, target);
       } catch {
-        /* 取不到就留空，核心层会用默认说明 */
+        /* Leave it empty if it can't be fetched; the core layer uses the default message */
       }
-      // 等合并方式的对话框关掉再打开
+      // Wait for the merge mode dialog to close before opening
       window.setTimeout(() =>
         ask({
           title: t("压缩合并的说明"),
@@ -184,7 +184,7 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
     [ask, current, run, squashWithMessage],
   );
 
-  /** 拖拽合并（说明书 6.1）：把 source 合并到 target；target 不是当前分支时先切换过去，整个是一步 */
+  /** Drag merge (spec §6.1): merge source into target; switch first when target isn't current, all as one step */
   const mergeInto = useCallback(
     (source: string, target: string) => {
       if (target === current) return merge(source);
@@ -204,7 +204,7 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
     [ask, current, merge, run, squashWithMessage],
   );
 
-  /** 把当前分支变基到 onto 之上（说明书 6.3）：先检查，再确认 */
+  /** Rebase the current branch onto onto (spec §6.3): check first, then confirm */
   const rebaseOnto = useCallback(
     async (onto: string) => {
       let plan;
@@ -250,7 +250,7 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
         confirm: t("中止"),
         danger: true,
         onSubmit: () => {
-          // 标记交给核心层存进这一步，本地的清掉：同一次合并以后重新开始时不再带着旧标记
+          // Hand the marks to the core layer to store with this step and clear the local ones, so restarting the same merge later doesn't carry old marks
           const path = repo?.path ?? "";
           return run(api.mergeAbort(marksOf(path)), () => {
             dropMarks(path);
@@ -287,7 +287,7 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
     [ask, done, failed],
   );
 
-  // 写了说明就是带说明的标签（git tag -a）；配置了签名密钥时可以选签名（git tag -s），默认跟 tag.gpgSign 走
+  // With a message it's an annotated tag (git tag -a); with a signing key configured it can be signed (git tag -s), defaulting to tag.gpgSign
   const createTag = useCallback(
     async (at: string) => {
       const cfg = await api.signingConfig().catch(() => null);
@@ -312,7 +312,7 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
     [ask, run],
   );
 
-  /** pushed：已经推送过（或不知道），确认框里说明远程仍然保留（说明书 6.5） */
+  /** pushed: already pushed (or unknown); the confirmation explains that the remote keeps it (spec §6.5) */
   const deleteTag = useCallback(
     (name: string, pushed = true) =>
       ask({
@@ -331,27 +331,27 @@ export function useBranchOps({ repo, refs, ask, done, failed, say }: Deps) {
 }
 
 export type BranchOps = ReturnType<typeof useBranchOps> & {
-  /** 和当前分支比较（说明书 10.3），由 App 提供 */
+  /** Compare with current branch (spec §10.3), provided by App */
   compareWith?: (name: string) => void;
-  /** 工作目录（说明书 6.6），由 App 提供 */
+  /** Worktrees (spec §6.6), provided by App */
   worktree?: {
-    /** 新建；branch 是预选的分支 */
+    /** Create; branch is the preselected branch */
     add: (branch?: string) => void;
-    /** 在 Strand 里打开（切换仓库） */
+    /** Open in Strand (switch repository) */
     open: (path: string) => void;
     reveal: (path: string) => void;
     remove: (w: Worktree) => void;
   };
 };
 
-/** 收藏的分支（说明书 6.3：只影响显示顺序，按仓库保存在本地） */
+/** Favorite branches (spec §6.3: only affects display order, saved locally per repository) */
 /**
- * 收藏（说明书 6.1、6.3）：存在仓库的 .git/strand/favorites 里（核心层），refs_list 的 favorite 带回来。
- * 点了以后先在界面上改过来，存好后刷新分支列表；存不进去就恢复原样。
- * 以前存在本机本地存储里的收藏（按工作目录路径），第一次打开时搬进仓库，然后删掉本地的。
+ * Favorites (spec §6.1, §6.3): stored in the repository's .git/strand/favorites (core layer) and returned as favorite in refs_list.
+ * Clicking updates the UI first, then refreshes the branch list once saved; reverts if saving fails.
+ * Favorites previously kept in this machine's local storage (by worktree path) are moved into the repository on first open, then the local copies are deleted.
  */
 export function useFavorites(repoPath: string | null, refs: RefsList | null, refresh: () => void) {
-  // 还没反映到分支列表里的改动
+  // Changes not yet reflected in the branch list
   const [pending, setPending] = useState<Map<string, boolean>>(new Map());
   useEffect(() => {
     setPending((m) => {
@@ -368,7 +368,7 @@ export function useFavorites(repoPath: string | null, refs: RefsList | null, ref
     return s;
   }, [refs, pending]);
 
-  // 搬家：本机本地存储里的旧收藏
+  // Migration: old favorites in this machine's local storage
   useEffect(() => {
     if (!repoPath) return;
     const key = `strand.fav:${repoPath}`;
@@ -383,7 +383,7 @@ export function useFavorites(repoPath: string | null, refs: RefsList | null, ref
       try {
         localStorage.removeItem(key);
       } catch {
-        /* 下次再搬一遍也没关系 */
+        /* Migrating again next time is fine */
       }
       refresh();
     });

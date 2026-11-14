@@ -1,4 +1,4 @@
-//! 逐行追溯（说明书 10.2）。
+//! Blame (spec §10.2).
 
 use std::path::Path;
 use std::process::Command;
@@ -34,16 +34,16 @@ fn blame_lines_pages_and_worktree() {
     assert_eq!((first.title.as_str(), first.body.as_str(), first.author.as_str()), ("第一版", "正文说明", "林夏"));
     assert!(first.in_log && !first.uncommitted);
 
-    // 分页
+    // Paging
     let page = s.blame_file("a.txt", Some("HEAD"), 2, 1).unwrap();
     assert_eq!((page.offset, page.lines.len(), page.lines[0].no, page.lines[0].text.as_str()), (2, 1, 3, "三"));
     assert!(s.blame_file("a.txt", Some("HEAD"), 10, 5).unwrap().lines.is_empty());
 
-    // 某个旧版本
+    // An old revision
     let old = s.blame_file("a.txt", Some(&c1), 0, 100).unwrap();
     assert!(old.lines.iter().all(|l| old.commits[l.commit as usize].id == c1));
 
-    // 工作区：没提交的行
+    // Worktree: uncommitted lines
     std::fs::write(p.join("a.txt"), "一\n二改\n三\n四\n五（没提交）").unwrap();
     let wt = s.blame_file("a.txt", None, 0, 100).unwrap();
     assert_eq!(wt.total, 5);

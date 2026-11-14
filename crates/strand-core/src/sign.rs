@@ -1,5 +1,5 @@
-//! 签名：提交的签名状态（GPG 或 SSH，交给 git 验证），以及这个仓库提交时要不要签名。
-//! Strand 的提交、合并、变基都走系统 git，所以 commit.gpgSign 打开后这些操作自动签名；口令由 gpg-agent 的弹窗输入。
+//! Signing: a commit's signature status (GPG or SSH, verified by git), and whether this repository signs commits.
+//! Strand's commits, merges and rebases all go through system git, so with commit.gpgSign on they're signed automatically; the passphrase is entered in gpg-agent's prompt.
 
 use serde::Serialize;
 
@@ -10,34 +10,34 @@ use crate::repo::Session;
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SigStatus {
-    /// 签名有效
+    /// Valid signature
     Good,
-    /// 签名有效，但密钥的可信度未知
+    /// Valid signature, but the key's trust is unknown
     Untrusted,
-    /// 签名无效（内容被改过或签名坏了）
+    /// Bad signature (content altered or signature broken)
     Bad,
-    /// 签名过期
+    /// Signature expired
     Expired,
-    /// 密钥过期
+    /// Key expired
     ExpiredKey,
-    /// 密钥已吊销
+    /// Key revoked
     Revoked,
-    /// 有签名，但本机验证不了（没有公钥、没装 gpg）
+    /// Signed, but can't be verified here (no public key, gpg not installed)
     Unknown,
-    /// 没有签名
+    /// Not signed
     None,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Signature {
     pub status: SigStatus,
-    /// 签名人（gpg 的用户名或 ssh 的主体）
+    /// Signer (gpg user id or ssh principal)
     pub signer: String,
-    /// 密钥
+    /// Key
     pub key: String,
 }
 
-/// 这个仓库的签名设置（按 git config 的生效值）
+/// This repository's signing settings (effective git config values)
 #[derive(Debug, Clone, Serialize)]
 pub struct SigningConfig {
     /// commit.gpgSign
@@ -47,12 +47,12 @@ pub struct SigningConfig {
     /// user.signingKey
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
-    /// gpg.format：openpgp、ssh 或 x509
+    /// gpg.format: openpgp, ssh or x509
     pub format: String,
 }
 
 impl Session {
-    /// 一个提交的签名状态
+    /// A commit's signature status
     pub fn commit_signature(&self, id: &str) -> Result<Signature> {
         if id.len() < 4 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(CoreError::new(ErrorCode::NotFound, "提交不存在"));
@@ -78,7 +78,7 @@ impl Session {
         Ok(SigningConfig { commit: on("commit.gpgsign"), tag: on("tag.gpgsign"), key: get("user.signingkey"), format: get("gpg.format").unwrap_or_else(|| "openpgp".into()) })
     }
 
-    /// 打开或关闭这个仓库的提交签名（写在仓库自己的配置里，不动全局配置）
+    /// Turn commit signing on or off for this repository (written to the repository's own config, global config untouched)
     pub fn signing_set(&self, commit: bool) -> Result<SigningConfig> {
         git_cli::run(self.path(), &["config", "--local", "commit.gpgsign", if commit { "true" } else { "false" }], None)?;
         self.signing_config()

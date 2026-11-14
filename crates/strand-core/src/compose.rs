@@ -1,7 +1,7 @@
-//! 写提交说明用到的东西：说明历史（自己在这个仓库里写过的说明）、Git 的提交说明模板（commit.template）、
-//! 当前的提交身份；以及变更列表（把改动分成几组分别提交，对照 JetBrains 的 changelist）。
+//! What's needed to write a commit message: message history (messages you've written in this repository), Git's commit message template (commit.template),
+//! the current identity; and changelists (grouping changes to commit separately, like JetBrains changelists).
 //!
-//! 变更列表只是 Strand 自己的分组，存在 `.git/strand/changelists.json`（每个工作目录一份），Git 不知道它。
+//! Changelists are Strand's own grouping, stored in `.git/strand/changelists.json` (one per worktree); Git doesn't know about them.
 
 use std::collections::BTreeMap;
 
@@ -13,13 +13,13 @@ use crate::repo::Session;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct ComposeInfo {
-    /// 提交说明模板（去掉 # 开头的注释行）；没配置或读不到时为空
+    /// The commit message template (with lines starting with # removed); empty when not configured or unreadable
     pub template: Option<String>,
-    /// 模板文件的路径（提示用）
+    /// Path of the template file (for hints)
     pub template_path: Option<String>,
-    /// 自己最近在这个仓库里写过的说明，新的在前，去重，最多 30 条
+    /// Messages you recently wrote in this repository, newest first, deduplicated, at most 30
     pub history: Vec<String>,
-    /// 当前提交身份 "名字 <邮箱>"；没配置时为空
+    /// The current commit identity "Name <email>"; empty when not configured
     pub me: Option<String>,
 }
 
@@ -31,11 +31,11 @@ pub struct Changelist {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Changelists {
-    /// 第一个是默认列表（id 为 "default"，不能删）
+    /// The first one is the default list (id "default", can't be deleted)
     pub lists: Vec<Changelist>,
-    /// 新出现的改动放进哪个列表
+    /// Which list new changes go into
     pub active: String,
-    /// 路径 → 列表 id；不在这里的路径属于活动列表
+    /// path → list id; paths not listed belong to the active list
     #[serde(default)]
     pub files: BTreeMap<String, String>,
 }
@@ -46,7 +46,7 @@ impl Default for Changelists {
     }
 }
 
-/// 检查 "名字 <邮箱>" 的格式
+/// Check the "Name <email>" format
 pub fn check_ident(s: &str) -> Result<()> {
     let s = s.trim();
     let ok = match (s.find('<'), s.rfind('>')) {
@@ -81,7 +81,7 @@ impl Session {
             info.template_path = Some(p);
         }
 
-        // 自己写过的说明：按邮箱找；没配置邮箱时用全部提交
+        // Messages you wrote: found by email; all commits when no email is configured
         let mut args = vec!["log", "-n", "300", "--no-merges", "--format=%B%x1e"];
         let filter;
         if let Some(e) = &email {
@@ -138,7 +138,7 @@ impl Session {
     }
 }
 
-/// 默认列表一定在第一个；活动列表和文件指向的列表一定存在
+/// The default list is always first; the active list and the lists files point to always exist
 fn normalize(mut c: Changelists) -> Changelists {
     match c.lists.iter().position(|l| l.id == "default") {
         Some(0) => {}

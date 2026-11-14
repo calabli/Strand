@@ -1,13 +1,13 @@
-// 需要输入凭据时的输入框（说明书 7.5）：git 或 ssh 要用户名、密码、密钥口令时，核心层发出 auth_required，
-// 这里弹出输入框，回答只交给发起请求的那一次 Git 操作，Strand 不保存。点取消或 Esc 等于不输入，操作按取消处理。
-// 同时可能有多个请求（先问用户名再问密码），按顺序一个个问。
+// The input box for credentials (spec §7.5): when git or ssh needs a username, password or key passphrase, the core layer emits auth_required,
+// and this shows an input box; the answer only goes to the Git operation that asked, and Strand doesn't store it. Cancel or Esc means no input, and the operation is cancelled.
+// Several requests may come at once (username, then password); they're asked one at a time in order.
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useRef, useState } from "react";
 import { api, onAuthEvents, type AuthRequest } from "../api/commands";
 import { t } from "../i18n";
 
-/** 按提示原文判断要什么：用户名、密码、SSH 密钥口令，或其他（如确认主机指纹） */
+/** Work out what's wanted from the prompt text: username, password, SSH key passphrase, or other (e.g. confirming a host fingerprint) */
 function describe(prompt: string): { title: string; where: string } {
   const quoted = prompt.match(/'([^']+)'/)?.[1] ?? "";
   // https://linxia@github.com → github.com
@@ -26,7 +26,7 @@ export function AuthDialog() {
     () =>
       onAuthEvents(
         (r) => setQueue((q) => [...q, r]),
-        // 用户点了停止：收回还没回答的那一个
+        // The user pressed stop: withdraw the one not yet answered
         (id) => setQueue((q) => q.filter((x) => x.request_id !== id)),
       ),
     [],

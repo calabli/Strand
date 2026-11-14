@@ -1,8 +1,8 @@
-// Git 日志：虚拟滚动的提交列表 + 图谱。只渲染可见范围内的行，10 万条提交也只有几十个 DOM 节点。
+// Git log: a virtually scrolled commit list + graph. Only visible rows are rendered, so even 100k commits use only a few dozen DOM nodes.
 //
-// 图谱目前每行一个小 SVG，从本行节点画到下一行（超出本行的部分靠 overflow: visible 显示）。
-// 跨过很多行的长连线由核心层折叠：cut_out 往下画一小段，末端是向下的箭头；cut_in 在本行顶部画一个向下的箭头再接着往下画。
-// 说明书 2 节写的是 Canvas，等需要更高性能时再换成整块 Canvas。
+// The graph is currently one small SVG per row, drawn from this row's node to the next (overflow: visible shows what sticks out).
+// Long edges spanning many rows are collapsed by the core layer: cut_out draws a short segment down ending in a down arrow; cut_in draws a down arrow at the top of the row, then continues down.
+// Spec §2 says Canvas; switch to one big Canvas when more performance is needed.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LogData } from "../api/useLog";
@@ -14,15 +14,15 @@ import { t, tr } from "../i18n";
 const ROW = 28;
 const LANE_W = 14;
 const OVERSCAN = 10;
-/** 图谱列最多显示的泳道数。长连线折叠后，8.6 万提交、几百个分支的仓库最宽也只有十几条；这里只是保险 */
+/** Maximum lanes shown in the graph column. After collapsing long edges, even a repository with 86k commits and hundreds of branches is only a dozen or so wide; this is just a safeguard */
 const MAX_LANES = 24;
-/** 一行最多显示几个引用标签，其余收成“+N” */
+/** Maximum ref labels shown per row; the rest collapse into "+N" */
 const MAX_REFS = 3;
 
 const laneColor = (l: number) => `var(--l${l % 4})`;
 const laneX = (l: number) => 10 + l * LANE_W;
 
-/** isHead：当前分支的最新提交（HEAD 所在的提交），画空心圆（说明书 5.3）；其余实心 */
+/** isHead: the current branch's latest commit (the commit HEAD is on), drawn as a hollow circle (spec §5.3); others are filled */
 function GraphCell({ g, width, isHead, onJump }: { g: GraphRow; width: number; isHead: boolean; onJump?: (row: number) => void }) {
   const y = ROW / 2;
   return (
@@ -32,7 +32,7 @@ function GraphCell({ g, width, isHead, onJump }: { g: GraphRow; width: number; i
         const x2 = laneX(e.to_lane);
         const color = laneColor(e.kind === "merge" ? e.to_lane : e.from_lane);
         if (e.kind === "cut_out") {
-          // 往下一小段，末端向下的箭头：这条线在下面很远的地方接回来
+          // A short segment down ending in a down arrow: this edge rejoins far below
           const end = y + ROW * 0.55;
           return (
             <g key={i}>
@@ -42,7 +42,7 @@ function GraphCell({ g, width, isHead, onJump }: { g: GraphRow; width: number; i
           );
         }
         if (e.kind === "cut_in") {
-          // 本行顶部向下的箭头（从上面很远的地方接回来），再一直画到下一行
+          // A down arrow at the top of the row (rejoining from far above), then drawn on to the next row
           const top = 3;
           return (
             <g key={i}>
@@ -69,7 +69,7 @@ function GraphCell({ g, width, isHead, onJump }: { g: GraphRow; width: number; i
   );
 }
 
-/** 箭头上可以点的一块：跳到折叠的线的另一头。比箭头大一圈，好点中；不冒泡到整行的点击 */
+/** A clickable area on the arrow: jumps to the other end of the collapsed edge. Bigger than the arrow so it's easy to hit; doesn't bubble to the row click */
 function JumpHit({ x, y, title, onClick }: { x: number; y: number; title: string; onClick: () => void }) {
   return (
     <circle
@@ -88,8 +88,8 @@ function JumpHit({ x, y, title, onClick }: { x: number; y: number; title: string
 }
 
 /**
- * 提交上的标签。`merge` 打开时（说明书 5.1 显示选项），本地分支和同名的远程分支在同一个提交上，
- * 合成一个“origin & main”标签，样式跟本地分支。
+ * Labels on a commit. With `merge` on (display options in spec §5.1), a local branch and its same-named remote branch on the same commit
+ * are combined into one "origin & main" label styled like the local branch.
  */
 function RefChips({ c, merge, current }: { c: Commit; merge: boolean; current: string | null }) {
   const refs = c.refs;
@@ -104,12 +104,12 @@ function RefChips({ c, merge, current }: { c: Commit; merge: boolean; current: s
       label.set(r.kind + r.name, `${remotes.map((x) => x.name.slice(0, -r.name.length - 1)).join(" & ")} & ${r.name}`);
     }
   }
-  // 当前分支排在最前，用深色底（说明书 5.2）
+  // The current branch first, with a dark background (spec §5.2)
   const shown = refs
     .filter((r) => !(r.kind === "remote" && folded.has(r.name)))
     .map((r) => ({ r, text: label.get(r.kind + r.name) ?? r.name, cur: r.kind === "branch" && r.name === current }))
     .sort((a, b) => Number(b.cur) - Number(a.cur));
-  // 放不下时：前几个照常显示，其余收成“+N”，悬停看完整列表
+  // When they don't fit: the first few show normally, the rest collapse into "+N"; hover for the full list
   const head = shown.slice(0, MAX_REFS);
   const rest = shown.slice(MAX_REFS);
   return (
@@ -132,7 +132,7 @@ function RefChips({ c, merge, current }: { c: Commit; merge: boolean; current: s
   );
 }
 
-/** 标题里和搜索文字匹配的部分加底色 */
+/** Highlight the parts of the title matching the search text */
 function useMarker(h: Props["highlight"]) {
   return useMemo(() => {
     if (!h?.text) return null;
@@ -145,7 +145,7 @@ function useMarker(h: Props["highlight"]) {
   }, [h?.text, h?.regex, h?.caseSensitive]);
 }
 
-/** 标题里有没有匹配 */
+/** Whether the title has a match */
 function hits(title: string, re: RegExp): boolean {
   re.lastIndex = 0;
   const m = re.test(title);
@@ -153,7 +153,7 @@ function hits(title: string, re: RegExp): boolean {
   return m;
 }
 
-/** 搜索文字是不是这个提交的版本号前缀（4 位以上的十六进制，和核心层一样） */
+/** Whether the search text is a prefix of this commit's id (4+ hex characters, same as the core layer) */
 const hashHit = (id: string, text: string) => {
   const t = text.trim().toLowerCase();
   return t.length >= 4 && /^[0-9a-f]+$/.test(t) && id.startsWith(t);
@@ -179,27 +179,27 @@ function marked(title: string, re: RegExp | null): ReactNode {
 
 interface Props {
   log: LogData;
-  /** 有过滤条件（空结果时显示“清空过滤条件”） */
+  /** Filters are set (an empty result shows "clear filters") */
   filtered: boolean;
-  /** 变化时滚回顶部（过滤条件变了） */
+  /** Scroll back to the top when this changes (filters changed) */
   scrollKey: string;
   onClearFilter: () => void;
   highlight?: { text: string; regex: boolean; caseSensitive: boolean };
   selected: string | null;
-  /** 多选的提交（说明书 5.4） */
+  /** Multi-selected commits (spec §5.4) */
   multi: Set<string>;
-  /** 单击；带 ⌘/Ctrl 是加选，带 Shift 是选一段 */
+  /** Click; with ⌘/Ctrl adds to the selection, with Shift selects a range */
   onSelect: (c: Commit, row: number, mods: { toggle: boolean; range: boolean }) => void;
-  /** 跳到某一行（滚动到可见区域中间）；n 每次不同，用来重复跳到同一行 */
+  /** Jump to a row (scrolled to the middle of the visible area); n differs every time so the same row can be jumped to again */
   jump: { row: number; n: number } | null;
-  /** HEAD 所在的提交，图谱里画空心圆 */
+  /** The commit HEAD is on, drawn as a hollow circle in the graph */
   headId?: string | null;
-  /** 当前分支名，它的标签用深色底 */
+  /** The current branch name; its label has a dark background */
   currentBranch?: string | null;
-  /** 点折叠的长连线上的箭头：跳到线的另一头并选中那一行 */
+  /** Clicking the arrow on a collapsed long edge: jump to the other end and select that row */
   onJumpRow?: (row: number) => void;
   onMenu: (c: Commit, x: number, y: number) => void;
-  /** 折叠线性分支时，点“已折叠”标记展开 */
+  /** When collapsing linear branches, clicking the "folded" marker expands */
   onExpand?: () => void;
 }
 
@@ -229,7 +229,7 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
     setScroll(0);
   }, [scrollKey]);
 
-  // 过滤条件刚变时总行数可能还是旧的，等新结果回来、行数够了再滚
+  // Right after filters change the row count may still be the old one; scroll once new results arrive and there are enough rows
   const jumped = useRef(0);
   useEffect(() => {
     const el = box.current;
@@ -249,11 +249,11 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
     if (log.total > 0) log.ensure(first, last);
   }, [first, last, log]);
 
-  // 有过滤或按时间排序时没有图谱，只留一点左边距
-  // 日志列很窄时（分支树和详情都开着、窗口不宽）：不显示作者列，日期只显示月/日
+  // No graph when filtering or sorting by time, just a little left margin
+  // When the log column is narrow (branch tree and details both open, narrow window): hide the author column and show dates as month/day only
   const compact = width < 560;
-  // 图谱列宽按看得见的这些行（含上下预读的行）里最宽的那一行算，不按整个日志：长连线折叠后大部分地方只用几条泳道。
-  // 最多占日志宽度的 35%，窄窗口里也给标题留出位置；超出的泳道裁掉
+  // The graph column width follows the widest of the visible rows (including rows prefetched above and below), not the whole log: after collapsing long edges most places only use a few lanes.
+  // At most 35% of the log width so titles have room in narrow windows; extra lanes are clipped
   let shown = 0;
   if (log.lanes > 0)
     for (let i = first; i < last; i++) {
@@ -282,7 +282,7 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
           e.preventDefault();
           onMenu(c, e.clientX, e.clientY);
         }}
-        // 键盘打开右键菜单（说明书 12.4）：Shift+F10 或菜单键
+        // Open the context menu from the keyboard (spec §12.4): Shift+F10 or the menu key
         onKeyDown={(e) => {
           if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
             e.preventDefault();
@@ -295,7 +295,7 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
         <span className={"msg" + (c.is_merge && dimMerges ? " merge" : "")}>
           <RefChips c={c} merge={mergeRefs} current={currentBranch ?? null} />
           <span className="title">{marked(c.title, marker)}</span>
-            {/* 折叠线性分支：这一行下面收起来的提交（图谱上这一段直接连到下面留下的提交） */}
+            {/* Collapsed linear branches: commits folded under this row (the graph connects this stretch directly to the next remaining commit) */}
             {!!r.folded && (
               <span
                 className="folded-tag"
@@ -308,7 +308,7 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
                 ⋯ {t("{0} 个已折叠", r.folded)}
               </span>
             )}
-            {/* 搜到了但标题里没有：匹配在正文里，或匹配的是版本号 */}
+            {/* Matched but not in the title: the match is in the body, or it matched the commit id */}
             {marker && highlight && !hits(c.title, marker) && (
               <span className="in-body" title={hashHit(c.id, highlight.text) ? t("版本号以“{0}”开头", highlight.text.trim()) : t("搜索的文字在提交说明的正文里，选中后在右边的详情里标出")}>
                 {hashHit(c.id, highlight.text) ? t("版本号") : t("正文")}
@@ -332,7 +332,7 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
     <div className="log" ref={box} onScroll={(e) => setScroll(e.currentTarget.scrollTop)}>
       {log.error && log.error.code !== "INVALID_REGEX" && <div className="log-error">{tr(log.error.message)}</div>}
       {(log.loading || log.partial) && log.total === 0 && <div className="log-note dim">{t("正在过滤…")}</div>}
-      {/* 结果还在追加（说明书 15）：右上角一个小提示，跟着滚动停在顶部 */}
+      {/* Results still being appended (spec §15): a small hint at the top right that stays at the top while scrolling */}
       {log.partial && log.total > 0 && (
         <div className="log-partial-wrap">
           <span className="log-partial dim small" role="status">

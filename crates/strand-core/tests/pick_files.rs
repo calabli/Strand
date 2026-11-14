@@ -1,4 +1,4 @@
-//! 只拣选或还原一个提交里的部分文件、把文件取回到某个版本。
+//! Cherry-pick or revert only some files of a commit; get a file from a revision.
 
 use std::path::Path;
 use std::process::Command;
@@ -22,7 +22,7 @@ fn read(d: &Path, f: &str) -> String {
     std::fs::read_to_string(d.join(f)).unwrap_or_else(|_| "<无>".into())
 }
 
-/// main：a=1 b=1；side 上一个提交同时改 a、b，加 c
+/// main: a=1 b=1; one commit on side changes both a and b and adds c
 fn repo() -> (tempfile::TempDir, String) {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -52,7 +52,7 @@ fn pick_only_some_files_into_worktree() {
     assert_eq!(read(d.path(), "a.txt"), "a2\n");
     assert_eq!(read(d.path(), "b.txt"), "b1\n");
     assert_eq!(read(d.path(), "c.txt"), "c\n");
-    // 没有生成提交
+    // No commit was created
     assert_eq!(git(d.path(), &["log", "-1", "--format=%s"]), "第一个");
 }
 
@@ -84,9 +84,9 @@ fn restore_file_from_revision() {
     let s = Session::open(d.path()).unwrap();
     s.file_restore(&id, "a.txt").unwrap();
     assert_eq!(read(d.path(), "a.txt"), "a2\n");
-    // 只改工作区，不暂存
+    // Only the worktree changes, nothing staged
     assert_eq!(git(d.path(), &["diff", "--cached", "--name-only"]), "");
-    // 这个版本里没有的文件：删掉
+    // A file not in this revision: deleted
     std::fs::write(d.path().join("new.txt"), "x\n").unwrap();
     git(d.path(), &["add", "new.txt"]);
     git(d.path(), &["commit", "-qm", "加 new"]);
@@ -113,7 +113,7 @@ fn revert_of_later_changed_file_explains() {
     std::fs::write(d.path().join("a.txt"), "改过\n").unwrap();
     git(d.path(), &["commit", "-qam", "改 a"]);
     let s = Session::open(d.path()).unwrap();
-    // 第一个提交新建了 a.txt，还原就是删掉它；后来改过，删不了
+    // The first commit created a.txt, so reverting means deleting it; it changed later, so it can't be deleted
     let e = s.commit_files_apply(&first, &["a.txt".into()], true).unwrap_err();
     assert_eq!(e.code, ErrorCode::GitFailed, "{e:?}");
     assert!(e.message.contains("后来又改过"), "{}", e.message);

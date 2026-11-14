@@ -1,11 +1,11 @@
-// 文件视图（中间的“文件 · 名字”标签）：左边是这个文件的修改链，右边是内容或差异。
+// File view (the "File · name" tab in the middle): the file's change chain on the left, content or diff on the right.
 //
-// 修改链从新到旧：最上面是“当前（工作区）”，下面是改过这个文件的提交（跟着重命名往前找，改名的那一步标出旧名字）。
-// - 选“当前”：显示现在的内容；有没提交的改动时可以切到“未提交的改动”。
-// - 选一个提交：默认显示这次提交对这个文件的修改，可以切到“这个版本的内容”。
-// - ⌘ 或 Shift 单击再选一个：比较这两个版本（旧的在左、新的在右，中间改过名也能比较）。
-// 差异用差异标签页同一套显示（合并视图或左右对比、忽略空白、上下块跳转）。
-// 从内容搜索结果打开时（at）：显示那个版本（或工作区）的全文，滚到那一行并标出来；在修改链里选别的就回到平常的样子。
+// The change chain runs newest to oldest: "current (worktree)" at the top, then commits that changed the file (following renames back; the rename step shows the old name).
+// - Choose "current": shows the current content; with uncommitted changes, switch to "uncommitted changes".
+// - Choose a commit: shows this commit's change to the file by default; switch to "content at this revision".
+// - ⌘ or Shift click a second one: compare the two versions (old on the left, new on the right; works across renames).
+// Diffs use the same display as the diff tab (unified or side by side, ignore whitespace, block navigation).
+// When opened from content search results (at): shows that revision's (or the worktree's) full text, scrolled to and marking that line; choosing something else in the chain returns to normal.
 
 import { Crumbs, useTopLine } from "./Crumbs";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -25,16 +25,16 @@ const MAX_LINES = 20000;
 
 interface Props {
   path: string;
-  /** 打开时就显示修改链（从“文件历史”图标打开时）；平时收起，点工具栏的“修改链”再显示 */
+  /** Show the change chain on open (when opened from the "file history" icon); normally collapsed, shown via the toolbar's "change chain" */
   showHistory?: boolean;
-  /** 打开后跳到哪一行、看哪个版本（空是工作区）；n 每次不同 */
+  /** Which line to jump to and which revision to show after opening (empty is the worktree); n differs every time */
   at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null;
-  /** 工作区里这个文件有没提交的改动（或是未跟踪的） */
+  /** This file has uncommitted changes in the worktree (or is untracked) */
   changed: boolean;
   onClose: () => void;
-  /** 在日志里定位这个提交 */
+  /** Locate this commit in the log */
   onLocate: (id: string) => void;
-  /** 逐行追溯；rev 为空是工作区 */
+  /** Blame; rev empty is the worktree */
   onBlame: (path: string, rev: string | null) => void;
 }
 
@@ -42,20 +42,20 @@ type Load<T> = { data: T | null; loading: boolean; error: string | null };
 const idle = { data: null, loading: false, error: null };
 
 export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHistory }: Props) {
-  /** 修改链那一栏开着没有：默认收起，内容占满宽度 */
+  /** Whether the change chain column is open: collapsed by default, content takes the full width */
   const [chain, setChain] = useState(!!showHistory);
   useEffect(() => setChain(!!showHistory), [path, showHistory]);
   const [hist, setHist] = useState<Load<FileHistory>>({ ...idle, loading: true });
-  /** 选中的：WORK 或提交哈希；最多两个，按点的先后 */
+  /** Selected: WORK or commit hashes; at most two, in click order */
   const [sel, setSel] = useState<string[]>([WORK]);
-  /** 只选一个时看什么：差异（提交的修改、未提交的改动）还是全文 */
+  /** What to show when only one is selected: the diff (the commit's change, uncommitted changes) or the full text */
   const [mode, setMode] = useState<"diff" | "text">("text");
   const [text, setText] = useState<Load<FileText>>(idle);
   const [diff, setDiff] = useState<Load<FileDiff>>(idle);
   const host = useRef<HTMLDivElement>(null);
-  // 从搜索结果打开时：全文和差异里都标出搜索词（换文件后清掉）
+  // When opened from search results: mark the search term in full text and diffs (cleared when switching files)
   const findRe = at?.find ? findRegExp(at.find.text, at.find.regex, at.find.caseSensitive) : null;
-  /** 内容搜索结果指向的版本（分支名、标签都可以）和行；在修改链里点别的就清掉 */
+  /** The revision (branch or tag names work) and line a content search result points to; cleared when clicking something else in the chain */
   const [jump, setJump] = useState<{ line: number; rev: string | null } | null>(null);
   useEffect(() => {
     if (!at) return;
@@ -81,17 +81,17 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
   }, [path]);
 
   const versions = useMemo(() => hist.data?.versions ?? [], [hist.data]);
-  /** 在列表里的位置：工作区是 -1（最新），提交从 0 开始 */
+  /** Position in the list: the worktree is -1 (newest), commits start at 0 */
   const order = (k: string) => (k === WORK ? -1 : versions.findIndex((v) => v.commit.id === k));
   const byId = (k: string) => versions.find((v) => v.commit.id === k) ?? null;
   const head = versions[0] ?? null;
 
-  // 右边要显示的东西
+  // What to show on the right
   type Req = { kind: "text"; rev: string | null; path: string } | { kind: "diff"; from: string | null; fromPath: string; to: string | null; toPath: string; label: string };
   const req: Req | null = useMemo(() => {
     if (jump?.rev) return { kind: "text", rev: jump.rev, path };
     if (sel.length === 2) {
-      const [a, b] = [...sel].sort((x, y) => order(y) - order(x)); // 旧的在前
+      const [a, b] = [...sel].sort((x, y) => order(y) - order(x)); // Older first
       const va = byId(a);
       const vb = b === WORK ? null : byId(b);
       if (!va) return null;
@@ -128,7 +128,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
       );
     } else {
       setDiff((x) => ({ ...x, loading: true, error: null }));
-      // 删除文件的那个提交：新的一边没有这个文件，差异显示整个删除
+      // The commit that deleted the file: the new side doesn't have it, so the diff shows a full deletion
       wholeFile((c) => api.fileDiffVersions(req.from, req.fromPath, req.to, req.toPath, c)).then(
         (data) => live && setDiff({ data, loading: false, error: null }),
         (e) => live && setDiff({ data: null, loading: false, error: errOf(e).message }),
@@ -140,7 +140,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqKey]);
 
-  /** 单击选一个；⌘ / Shift 单击再选一个（比较），再点已选的取消 */
+  /** Click to select one; ⌘ / Shift click to add a second (compare); clicking a selected one deselects it */
   const pick = (k: string, add: boolean) => {
     setJump(null);
     if (!add) {
@@ -151,7 +151,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
     setSel((s) => (s.includes(k) ? (s.length > 1 ? s.filter((x) => x !== k) : s) : [...s, k].slice(-2)));
   };
 
-  // ↑ ↓ 在修改链里换版本
+  // ↑ ↓ change versions in the change chain
   const keys = [WORK, ...versions.map((v) => v.commit.id)];
   const move = (d: number) => {
     const i = keys.indexOf(sel[sel.length - 1]);
@@ -177,7 +177,7 @@ export function FileView({ path, at, changed, onClose, onLocate, onBlame, showHi
           title={chain ? t("收起修改链") : t("显示修改链：改过这个文件的提交，可以看每次的修改、某个版本的内容，或比较两个版本")}
           onClick={() => {
             if (chain) {
-              // 收起时回到现在的内容
+              // Back to the current content when collapsed
               setSel([WORK]);
               setMode("text");
             }
@@ -328,11 +328,11 @@ function VersionRow({ k, sel, onPick, first, last, children }: { k: string; sel:
   );
 }
 
-/** 文件全文，带行号 */
+/** The file's full text with line numbers */
 function TextView({ load, focus, find }: { load: Load<FileText>; focus: number | null; find: RegExp | null }) {
   const f = load.data;
   const box = useRef<HTMLDivElement>(null);
-  // 跳到指定的行
+  // Jump to the given line
   useEffect(() => {
     if (!focus || load.loading) return;
     box.current?.querySelector(".tv-line.focus")?.scrollIntoView({ block: "center" });
@@ -342,7 +342,7 @@ function TextView({ load, focus, find }: { load: Load<FileText>; focus: number |
     if (all.length && all[all.length - 1] === "") all.pop();
     return all;
   }, [f]);
-  // 语法高亮（在后台线程里着色，先显示没着色的）
+  // Syntax highlighting (colored on a background thread; uncolored text shows first)
   const syntax = useSettings().diffSyntax;
   const [toks, setToks] = useState<{ f: FileText; lines: Tok[][] } | null>(null);
   useEffect(() => {

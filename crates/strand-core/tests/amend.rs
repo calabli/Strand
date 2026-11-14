@@ -1,4 +1,4 @@
-//! 修订上一次提交（说明书 4.5）。
+//! Amend the last commit (spec §4.5).
 
 use std::path::Path;
 use std::process::Command;
@@ -36,7 +36,7 @@ fn amend_files_and_message() {
     let p = d.path();
     let parent = git(p, &["rev-parse", "HEAD~1"]);
     let s = Session::open(p).unwrap();
-    // 说明为空：保留原说明，改动并进去
+    // Empty message: keep the original message and fold the changes in
     std::fs::write(p.join("a.txt"), "a 改\n").unwrap();
     s.commit_amend(None, &Selection { files: vec![whole("a.txt")] }, false, None).unwrap();
     assert_eq!(git(p, &["log", "-1", "--format=%B"]), "第二个\n\n正文");
@@ -45,7 +45,7 @@ fn amend_files_and_message() {
     assert_eq!(git(p, &["rev-list", "--count", "HEAD"]), "2");
     assert_eq!(git(p, &["status", "--porcelain"]), "");
 
-    // 只改说明
+    // Change only the message
     let mut s = Session::open(p).unwrap();
     s.commit_amend(Some("第二个（改过）"), &Selection { files: vec![] }, false, None).unwrap();
     s.reload().unwrap();

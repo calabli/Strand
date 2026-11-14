@@ -1,4 +1,4 @@
-// 比较、补丁、查看某个版本的仓库（说明书 10.3–10.5）。都是只读的查看功能。
+// Compare, patches, browsing a revision (spec §10.3–10.5). All read-only views.
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useMemo, useState } from "react";
@@ -8,7 +8,7 @@ import { t, tr } from "../i18n";
 import { FileRow } from "./FileRow";
 import { formatTime, shortId } from "./format";
 
-/** 详情栏位置显示的比较结果。点提交会选中它（终点随之变化），点文件看两个版本之间的差异 */
+/** Comparison results shown in the details column. Clicking a commit selects it (the end point follows); clicking a file shows the diff between the two versions */
 export function CompareView({
   from,
   to,
@@ -89,7 +89,7 @@ export function CompareView({
   );
 }
 
-/** 把文字存成文件：桌面应用里用系统的保存对话框，浏览器预览里直接下载 */
+/** Save text as a file: the system save dialog in the desktop app, a direct download in the browser preview */
 export async function saveText(name: string, text: string): Promise<boolean> {
   if (!inTauri) {
     const a = document.createElement("a");
@@ -106,7 +106,7 @@ export async function saveText(name: string, text: string): Promise<boolean> {
   return true;
 }
 
-/** 补丁窗口（说明书 10.4）：只读文本框，复制到剪贴板、保存为文件 */
+/** Patch window (spec §10.4): a read-only text box with copy to clipboard and save as file */
 export function PatchWindow({ title, text, name, onClose, say }: { title: string; text: string | null; name: string; onClose: () => void; say: (m: string) => void }) {
   useReturnFocus();
   const [copied, setCopied] = useState(false);
@@ -159,7 +159,7 @@ export function PatchWindow({ title, text, name, onClose, say }: { title: string
   );
 }
 
-/** 查看某个版本时的仓库（说明书 10.5）：只读的文件列表，可以搜索 */
+/** Browse the repository at a revision (spec §10.5): a read-only, searchable file list */
 export function TreeWindow({ id, title, onClose }: { id: string; title: string; onClose: () => void }) {
   useReturnFocus();
   const [paths, setPaths] = useState<string[] | null>(null);

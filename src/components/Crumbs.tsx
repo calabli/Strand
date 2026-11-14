@@ -1,6 +1,6 @@
-// 面包屑：看到哪儿，上面就标出这一行在哪个函数、类、模块里（文件 › class Foo › fn bar）。
-// 不做语法分析，按缩进和常见的声明写法推断：从最上面看得到的那一行往上找，缩进比它小、看起来像声明的行就是外层；
-// Markdown 按标题级别。点一级滚到那一行。
+// Breadcrumbs: show which function, class or module the line in view is in (file › class Foo › fn bar).
+// No parsing; inferred from indentation and common declaration forms: from the top visible line upward, lines with less indentation that look like declarations are the outer levels;
+// Markdown goes by heading level. Clicking a level scrolls to that line.
 
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { t } from "../i18n";
@@ -22,7 +22,7 @@ const indentOf = (s: string) => {
 };
 const cut = (s: string) => (s.length > 48 ? s.slice(0, 47) + "…" : s);
 
-/** 一行如果是声明（函数、类、模块……），给出简短的名字；不是就返回 null */
+/** If a line is a declaration (function, class, module…), give a short name; otherwise null */
 function declLabel(raw: string): string | null {
   let s = raw.trim();
   if (!s || s.startsWith("//") || s.startsWith("#") || s.startsWith("*") || s.startsWith("/*") || s.startsWith("}") || s.startsWith("@")) return null;
@@ -32,12 +32,12 @@ function declLabel(raw: string): string | null {
   if (CONTROL.test(s)) return null;
   const body = s.replace(/\s*[{:]\s*$/, "").replace(/\s+/g, " ");
   if (DECL.test(s)) {
-    // fn foo(…) → fn foo；class Foo extends Bar → class Foo extends Bar
+    // fn foo(…) → fn foo; class Foo extends Bar → class Foo extends Bar
     const p = body.indexOf("(");
     return cut(p > 0 && !/^(?:impl|class|struct|enum|trait|interface)\b/.test(body) ? body.slice(0, p) : body);
   }
-  // 别的以 { 结尾的块（方法、describe("…", () => {、C/Java 的方法）
-  // （赋值、let … else { 这类不算）
+  // Other blocks ending with { (methods, describe("…", () => {, C/Java methods)
+  // (assignments and let … else { don't count)
   if (/\{\s*$/.test(s) && !/^[{(\[]/.test(s) && !/[=,]\s*\{\s*$/.test(s) && !/^(?:let|const|var|val|auto)\b/.test(s) && !/[^=!<>]=[^=>]/.test(s) && !/\belse\s*\{\s*$/.test(s)) {
     const p = body.indexOf("(");
     return cut(p > 0 ? body.slice(0, p).replace(/^.*\s(?=[\w$.]+$)/, "") || body : body);
@@ -46,7 +46,7 @@ function declLabel(raw: string): string | null {
 }
 
 /**
- * 第 n 行外面的各层（从外到里）。get(k) 给出第 k 行的文字，没有（如差异里没拿到的部分）就跳过。
+ * The levels enclosing line n (outermost first). get(k) gives the text of line k; skipped when absent (e.g. parts not fetched in a diff).
  */
 export function scopesAt(get: (k: number) => string | undefined, n: number, markdown = false): Scope[] {
   const out: Scope[] = [];
@@ -61,12 +61,12 @@ export function scopesAt(get: (k: number) => string | undefined, n: number, mark
     }
     return out;
   }
-  // 起点：第 n 行，空行往下找第一行有字的
+  // Start: line n; for a blank line, look down for the first line with text
   let min = Infinity;
   for (let k = n; k < n + 50; k++) {
     const s = get(k);
     if (s !== undefined && s.trim()) {
-      min = indentOf(s) + 1; // 这一行本身是声明的话也算
+      min = indentOf(s) + 1; // The line itself counts when it's a declaration
       break;
     }
   }
@@ -77,7 +77,7 @@ export function scopesAt(get: (k: number) => string | undefined, n: number, mark
     if (ind >= min) continue;
     let at = k;
     let text = s;
-    // 多行的函数签名：“) -> X {” 往上找到同样缩进的开头
+    // Multi-line function signatures: from ") -> X {" look up to the start with the same indentation
     if (/^\s*[)\]]/.test(s)) {
       for (let j = k - 1; j >= Math.max(1, k - 30); j--) {
         const p = get(j);
@@ -97,7 +97,7 @@ export function scopesAt(get: (k: number) => string | undefined, n: number, mark
   return out;
 }
 
-/** 跟着滚动，给出最上面看得到的那一行的行号（行上带 data-n） */
+/** Follow scrolling and give the line number of the top visible line (lines carry data-n) */
 export function useTopLine(box: RefObject<HTMLElement | null>, deps: unknown[]): number {
   const [top, setTop] = useState(1);
   useEffect(() => {
@@ -109,7 +109,7 @@ export function useTopLine(box: RefObject<HTMLElement | null>, deps: unknown[]):
       const rows = el.querySelectorAll<HTMLElement>("[data-n]");
       if (!rows.length) return setTop(1);
       const y = el.getBoundingClientRect().top + 2;
-      // 按文档顺序就是从上到下：二分找第一行底边在可见区域里的
+      // Document order is top to bottom: binary search for the first line whose bottom edge is visible
       let lo = 0, hi = rows.length - 1;
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
@@ -132,7 +132,7 @@ export function useTopLine(box: RefObject<HTMLElement | null>, deps: unknown[]):
   return top;
 }
 
-/** 面包屑条：文件名 › 外层 › 里层；点一级滚到那一行（文件名回到顶上） */
+/** The breadcrumb bar: file name › outer › inner; clicking a level scrolls to that line (the file name goes to the top) */
 export function Crumbs({ path, get, top, box }: { path: string; get: (k: number) => string | undefined; top: number; box: RefObject<HTMLElement | null> }) {
   const md = /\.(md|markdown|mdx)$/i.test(path);
   const scopes = useMemo(() => scopesAt(get, top, md), [get, top, md]);

@@ -1,4 +1,4 @@
-//! 把当前分支变基到另一个分支之上（说明书 6.3）。
+//! Rebase the current branch onto another branch (spec §6.3).
 
 use std::path::Path;
 use std::process::Command;
@@ -19,7 +19,7 @@ fn commit(dir: &Path, file: &str, text: &str, msg: &str) {
     git(dir, &["commit", "-q", "-m", msg]);
 }
 
-/// main：初始 → m1；feature 从初始分出来：f1、f2（改不同的文件）
+/// main: initial → m1; feature branches from initial: f1, f2 (changing different files)
 fn repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -46,7 +46,7 @@ fn rebase_onto_main_and_undo() {
     assert_eq!((plan.own, plan.incoming, plan.pushed, plan.has_merge), (2, 1, 0, false));
     assert_eq!(plan.branch, "feature");
 
-    // 工作区里没提交的改动：自动收起、完成后放回
+    // Uncommitted worktree changes: stashed automatically and restored after
     std::fs::write(p.join("a.txt"), "a 改\n").unwrap();
     let (r, _op) = s.run_op("把 feature 变基到 main 之上", OpKind::Merge, |s| s.branch_rebase("main")).unwrap();
     assert_eq!(r, RebaseOutcome::Rebased);
@@ -55,10 +55,10 @@ fn rebase_onto_main_and_undo() {
     assert_eq!(std::fs::read_to_string(p.join("a.txt")).unwrap(), "a 改\n");
     assert_eq!(git(p, &["branch", "--show-current"]), "feature");
 
-    // 再来一次：已经在之上
+    // Again: already on top
     assert_eq!(s.branch_rebase("main").unwrap(), RebaseOutcome::UpToDate);
 
-    // 撤销回到变基之前
+    // Undo goes back to before the rebase
     s.oplog_undo(None, false).unwrap();
     assert_eq!(git(p, &["rev-parse", "feature"]), before);
 }
@@ -92,7 +92,7 @@ fn merge_commits_are_refused() {
 fn conflict_stops_in_rebase_and_abort_restores() {
     let d = repo();
     let p = d.path();
-    // main 也改了 f.txt：和 feature 冲突
+    // main also changed f.txt: conflicts with feature
     git(p, &["switch", "-q", "main"]);
     commit(p, "f.txt", "main 的 f\n", "main 改 f");
     git(p, &["switch", "-q", "feature"]);
@@ -135,47 +135,47 @@ fn rebased_pushed_branch_needs_force() {
     let feature = |s: &Session| s.refs_list().unwrap().branches.into_iter().find(|b| b.name == "feature").unwrap();
     assert!(!feature(&s).needs_force);
 
-    // 变基改写了已推送的 f1、f2：远程独有的提交在本地都有改写后的版本
+    // The rebase rewrote pushed f1 and f2: every remote-only commit has a rewritten version locally
     s.run_op("变基", OpKind::Merge, |s| s.branch_rebase("main")).unwrap();
     let b = feature(&s);
     assert_eq!((b.ahead, b.behind, b.needs_force), (3, 2, true));
 
-    // 强制推送之后标记消失
+    // The marker disappears after a force push
     git(p, &["push", "-q", "--force-with-lease", "origin", "feature"]);
     assert!(!feature(&s).needs_force);
 
-    // 只是远程有别人的新提交：落后，但不需要强制推送
+    // Only others' new commits on the remote: behind, but no force push needed
     git(p, &["switch", "-q", "main"]);
     git(p, &["reset", "-q", "--hard", "main~1"]);
     let m = s.refs_list().unwrap().branches.into_iter().find(|b| b.name == "main").unwrap();
     assert_eq!((m.behind, m.needs_force), (1, false));
 }
 
-/// 分支列表里先算好能不能变基，菜单直接置灰（说明书 6.3）
+/// The branch list computes rebase availability up front so the menu greys it out (spec §6.3)
 #[test]
 fn rebase_block_in_refs_list() {
     let d = repo();
     let p = d.path();
     let s = Session::open(p).unwrap();
     let block = |s: &Session, n: &str| s.refs_list().unwrap().branches.into_iter().find(|b| b.name == n).unwrap().rebase_block;
-    // 在 feature 上：main 有新提交，可以变基；自己不算
+    // On feature: main has new commits, so rebase is possible; itself doesn't count
     assert_eq!(block(&s, "main"), None);
     assert_eq!(block(&s, "feature"), None);
 
-    // 在 main 上：feature 不是祖先，可以；落后的 old（main 的祖先）已经在之上
+    // On main: feature isn't an ancestor, so yes; old, which is behind (an ancestor of main), is already on top
     git(p, &["switch", "-q", "main"]);
     git(p, &["branch", "old", "main~1"]);
     assert_eq!(block(&s, "feature"), None);
     assert!(block(&s, "old").unwrap().contains("已经在 old 之上"));
 
-    // 独有提交里有合并提交
+    // Own commits include a merge commit
     git(p, &["merge", "-q", "--no-edit", "feature"]);
     git(p, &["switch", "-q", "-c", "base", "main~1"]);
     commit(p, "x.txt", "x\n", "x");
     git(p, &["switch", "-q", "main"]);
     assert!(block(&s, "base").unwrap().contains("合并提交"));
 
-    // 远程分支也算；不在分支上时都为空
+    // Remote branches count too; all empty when not on a branch
     let remote = tempfile::tempdir().unwrap();
     git(remote.path(), &["init", "-q", "--bare", "-b", "main"]);
     git(p, &["remote", "add", "origin", remote.path().to_str().unwrap()]);

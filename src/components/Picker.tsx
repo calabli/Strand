@@ -1,5 +1,5 @@
-// 带搜索框的下拉选择（过滤栏的分支、作者、路径用）。方向键选择、回车确定、Esc 或点外面关闭。
-// `free` 打开时，回车直接用输入的文字（路径过滤）。
+// A dropdown with a search box (for the filter bar's branch, author and path). Arrow keys select, Enter confirms, Esc or clicking outside closes.
+// With `free`, Enter uses the typed text directly (path filter).
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +8,7 @@ import { t } from "../i18n";
 export interface PickItem {
   key: string;
   label: string;
-  /** 右侧的灰色补充，如提交数 */
+  /** Grey extra text on the right, e.g. commit count */
   sub?: string;
 }
 
@@ -18,12 +18,12 @@ interface Props {
   items: PickItem[];
   placeholder: string;
   selected?: string | null;
-  /** 列表最上面的“不过滤”项文字；不给就没有这一项 */
+  /** Text of the "no filter" item at the top of the list; no such item when not given */
   clearLabel?: string;
-  /** 回车时可以直接用输入的文字 */
+  /** Enter may use the typed text directly */
   free?: boolean;
   initial?: string;
-  /** 列表还在读取 */
+  /** The list is still loading */
   loading?: boolean;
   onPick: (key: string | null) => void;
   onClose: () => void;

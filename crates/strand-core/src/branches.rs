@@ -1,13 +1,13 @@
-//! 分支和标签（说明书第 6 节）。
+//! Branches and tags (spec §6).
 //!
-//! 读取用 git2；所有写操作调用系统 git，这样钩子、配置和命令行的行为完全一致。
+//! Reads use git2; all writes call system git, so hooks, config and behavior match the command line exactly.
 
 use crate::error::{CoreError, ErrorCode, Result};
 use crate::model::{Branch, MergeMode, MergeResult, RebaseOutcome, RebasePlan, RefsList, RemoteBranch, RepoMode, Tag};
 use crate::{git_cli, Session};
 
 impl Session {
-    /// 本地分支、远程分支、标签和 HEAD。
+    /// Local branches, remote branches, tags and HEAD.
     pub fn refs_list(&self) -> Result<RefsList> {
         let repo = self.git2()?;
         let head_oid = repo.head().ok().and_then(|h| h.target());
@@ -18,8 +18,8 @@ impl Session {
             .and_then(|h| h.shorthand().ok().map(str::to_string));
 
         let favs = self.favorites();
-        // 合并与否、能不能变基都用内存里的提交图来算（说明书 15）：libgit2 的祖先判断在 10 万个提交上
-        // 每个分支要走很远，21 个分支就要 1.7 秒；内存里从 HEAD 能到达哪些提交一次就算好了
+        // Merged-or-not and can-rebase are computed on the in-memory commit graph (spec §15): libgit2's ancestry check on 100k commits
+        // walks far for every branch, taking 1.7 s for 21 branches; in memory, the set reachable from HEAD is computed once
         let head_row = self.head_row();
         let head_reach = head_row.map(|r| self.reach(vec![r]));
         let row_of = |o: git2::Oid| gix::ObjectId::from_hex(o.to_string().as_bytes()).ok().and_then(|g| self.index.get(&g).copied());
@@ -34,7 +34,7 @@ impl Session {
                 Some(u) => repo.graph_ahead_behind(oid, u).unwrap_or((0, 0)),
                 None => (0, 0),
             };
-            // 远程独有的提交在本地都有改写后的版本：本地改写了已推送的历史（说明书 6.3、10.3）
+            // Every remote-only commit has a rewritten version locally: local history rewrote already-pushed commits (spec §6.3, §10.3)
             let needs_force = behind > 0
                 && upstream.as_deref().is_some_and(|u| {
                     crate::remote::rewritten(self.path(), &format!("refs/heads/{name}"), &format!("refs/remotes/{u}"))
@@ -91,7 +91,7 @@ impl Session {
             }
         }
 
-        // 变基的可用性先算好，菜单里直接置灰（说明书 6.3）；和 branch_rebase 的检查一致
+        // Rebase availability is computed up front so the menu can grey it out (spec §6.3); matches the checks in branch_rebase
         if let (Some(cur), Some(h)) = (current.as_deref(), head_oid) {
             let block = |head: &str, name: &str| -> Option<String> {
                 let o = git2::Oid::from_str(head).ok()?;
@@ -108,7 +108,7 @@ impl Session {
             }
         }
 
-        // 读不到工作目录列表（如 git 太旧）不影响其他内容
+        // Failing to read the worktree list (e.g. git too old) doesn't affect anything else
         let worktrees = self.worktree_list().unwrap_or_default();
         for b in &mut branches {
             b.worktree = worktrees.iter().find(|w| !w.is_current && w.branch.as_deref() == Some(&b.name)).map(|w| w.path.clone());
@@ -116,7 +116,7 @@ impl Session {
         Ok(RefsList { branches, remotes, tags, head: self.state()?.head, worktrees })
     }
 
-    /// 新建分支，`at` 为空时从当前位置；`checkout` 为真时创建后切换过去。
+    /// Create a branch, from the current position when `at` is empty; switch to it after creating when `checkout` is true.
     pub fn branch_create(&self, name: &str, at: Option<&str>, checkout: bool) -> Result<()> {
         self.check_branch_name(name)?;
         if checkout {
@@ -133,11 +133,11 @@ impl Session {
         self.git(&args)
     }
 
-    /// 切换分支。工作区改动会被覆盖时返回 `WORKTREE_CONFLICT`，`detail.files` 是冲突的文件；
-    /// `stash_first` 为真时先把改动（含未跟踪文件）贮藏起来再切换，贮藏不会自动恢复。
+    /// Switch branches. Returns `WORKTREE_CONFLICT` when worktree changes would be overwritten, with the conflicting files in `detail.files`;
+    /// when `stash_first` is true, stash the changes (including untracked files) first and then switch; the stash is not restored automatically.
     pub fn branch_switch(&self, name: &str, stash_first: bool) -> Result<()> {
         self.require_normal()?;
-        // 在别的工作目录检出的分支切换不过去，先说清楚，免得白白贮藏一次
+        // A branch checked out in another worktree can't be switched to; say so first instead of stashing for nothing
         if let Some(w) = self.worktree_list().unwrap_or_default().iter().find(|w| !w.is_current && w.branch.as_deref() == Some(name)) {
             return Err(CoreError::new(ErrorCode::InvalidRange, format!("分支 {name} 已经在工作目录 {} 里检出，同一个分支不能同时检出两次", w.path))
                 .with_detail(serde_json::json!({ "worktree": w.path })));
@@ -154,22 +154,22 @@ impl Session {
             self.check_branch_name(new_name)?;
         }
         self.git(&["branch", "--move", name, new_name])?;
-        // 收藏跟着新名字走；旧名字留着，撤销重命名后仍是收藏
+        // The favorite follows the new name; the old name stays so it is still a favorite after undoing the rename
         if self.favorites().iter().any(|f| f == name) {
             self.set_favorite(new_name, true)?;
         }
         Ok(())
     }
 
-    // ---------- 收藏（说明书 6.1、6.3） ----------
+    // ---------- Favorites (spec §6.1, §6.3) ----------
 
-    /// 收藏存在 `<共用的 .git>/strand/favorites`，一行一个分支名，工作目录之间共用。
-    /// 删除分支时不删这一行（撤销删除后仍是收藏）；已经不存在的分支名在列表里不起作用。
+    /// Favorites live in `<common .git>/strand/favorites`, one branch name per line, shared between worktrees.
+    /// Deleting a branch keeps its line (so it is still a favorite after undoing the delete); names of branches that no longer exist have no effect.
     fn favorites_file(&self) -> Result<std::path::PathBuf> {
         Ok(self.git2()?.commondir().join("strand").join("favorites"))
     }
 
-    /// 收藏的分支名
+    /// Favorite branch names
     pub fn favorites(&self) -> Vec<String> {
         self.favorites_file()
             .ok()
@@ -178,7 +178,7 @@ impl Session {
             .unwrap_or_default()
     }
 
-    /// 收藏或取消收藏一个本地分支。不记入操作日志（只影响显示顺序）。
+    /// Add or remove a local branch from favorites. Not recorded in the op log (it only affects display order).
     pub fn set_favorite(&self, name: &str, favorite: bool) -> Result<()> {
         let mut list = self.favorites();
         let had = list.iter().any(|f| f == name);
@@ -199,7 +199,7 @@ impl Session {
         std::fs::write(file, text).map_err(|e| CoreError::git("保存收藏失败", e))
     }
 
-    /// 删除本地分支。不能删除当前分支；分支有未合并的提交时需要 `force`。
+    /// Delete a local branch. The current branch can't be deleted; a branch with unmerged commits needs `force`.
     pub fn branch_delete(&self, name: &str, force: bool) -> Result<()> {
         let refs = self.refs_list()?;
         let Some(b) = refs.branches.iter().find(|b| b.name == name) else {
@@ -215,30 +215,30 @@ impl Session {
         self.git(&["branch", "--delete", "--force", name])
     }
 
-    /// 把 `source`（本地分支、远程分支、标签或提交）合并到当前分支。
-    /// 已包含时什么也不做；能快进就快进；否则生成合并提交。有冲突时返回 `CONFLICTS`，仓库停在合并状态。
+    /// Merge `source` (a local branch, remote branch, tag or commit) into the current branch.
+    /// Does nothing when already contained; fast-forwards when possible; otherwise creates a merge commit. On conflicts returns `CONFLICTS` and the repository stays in the merge state.
     pub fn branch_merge(&self, source: &str) -> Result<MergeResult> {
         self.branch_merge_mode(source, MergeMode::Auto)
     }
 
-    /// 按指定方式合并到当前分支（说明书 6.3、6.7）。
-    /// - `NoFf`：能快进时也生成合并提交。
-    /// - `Squash`：先像普通合并一样合并（`--no-ff --no-commit`），冲突时照常进入冲突解决；
-    ///   合并好的结果提交成一个只有一个父提交的普通提交，说明是“压缩合并 X”加上合并进来的提交标题。
-    ///   有冲突时把说明记在 `.git/strand/squash`，冲突解决完成时（`merge_finish`）再这样提交。
+    /// Merge into the current branch with the given mode (spec §6.3, §6.7).
+    /// - `NoFf`: create a merge commit even when a fast-forward is possible.
+    /// - `Squash`: first merge like a normal merge (`--no-ff --no-commit`), entering conflict resolution on conflicts as usual;
+    ///   the merged result is committed as a normal commit with one parent, with the message "Squash merge X" plus the titles of the merged commits.
+    ///   On conflicts the message is saved in `.git/strand/squash` and committed this way when conflict resolution finishes (`merge_finish`).
     pub fn branch_merge_mode(&self, source: &str, mode: MergeMode) -> Result<MergeResult> {
         self.branch_merge_with(source, mode, None)
     }
 
-    /// 压缩合并的默认说明：“压缩合并 X”，正文列出要合并进来的提交标题（最多 50 个）。
-    /// `into` 为空时按当前分支算；拖拽合并到别的分支时按那个分支算。
+    /// Default squash-merge message: "Squash merge X", with the titles of the commits being merged in the body (at most 50).
+    /// With `into` empty it is computed against the current branch; when drag-merging into another branch, against that branch.
     pub fn squash_message(&self, source: &str, into: Option<&str>) -> Result<String> {
         let base = into.unwrap_or("HEAD");
         let titles = git_cli::run(self.path(), &["log", "--no-merges", "--format=* %s", "-n", "50", &format!("{base}..{source}")], None).unwrap_or_default();
         Ok(format!("压缩合并 {source}\n\n{}", titles.trim_end()).trim_end().to_string())
     }
 
-    /// 同 [`Session::branch_merge_mode`]；压缩合并时用 `message` 作为说明（为空时用 [`Session::squash_message`]）
+    /// Same as [`Session::branch_merge_mode`]; for a squash merge, use `message` as the message (when empty, [`Session::squash_message`])
     pub fn branch_merge_with(&self, source: &str, mode: MergeMode, message: Option<&str>) -> Result<MergeResult> {
         self.require_normal()?;
         let repo = self.git2()?;
@@ -258,7 +258,7 @@ impl Session {
             }
         }
         let squash = mode == MergeMode::Squash;
-        // 以前留下的压缩合并记录（如在命令行里中止过）作废
+        // Discard a squash-merge record left from before (e.g. aborted on the command line)
         let _ = std::fs::remove_file(self.squash_file()?);
         if squash {
             let message = match message.map(str::trim).filter(|m| !m.is_empty()) {
@@ -297,7 +297,7 @@ impl Session {
         Ok(self.strand_dir()?.join("squash"))
     }
 
-    /// 正在进行的压缩合并的说明：只有记下的提交还是这次合并的 MERGE_HEAD 时才算（别处中止过就作废）
+    /// The message of the squash merge in progress: only valid while the recorded commit is still this merge's MERGE_HEAD (invalid if aborted elsewhere)
     pub(crate) fn squash_pending(&self) -> Option<String> {
         let text = std::fs::read_to_string(self.squash_file().ok()?).ok()?;
         let v: serde_json::Value = serde_json::from_str(&text).ok()?;
@@ -306,8 +306,8 @@ impl Session {
         same.then(|| v["message"].as_str().unwrap_or_default().to_string())
     }
 
-    /// 把合并好的结果提交成一个普通提交（压缩合并的最后一步）。去掉 MERGE_HEAD，提交就只有一个父提交。
-    /// 合并结果和当前分支完全一样（改动早已在里面）时不提交，返回 false。
+    /// Commit the merged result as a normal commit (last step of a squash merge). Removes MERGE_HEAD so the commit has one parent.
+    /// Doesn't commit and returns false when the result is identical to the current branch (the changes were already in it).
     pub(crate) fn squash_commit(&self) -> Result<bool> {
         let message = self.squash_pending().ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "现在没有进行中的压缩合并"))?;
         let git_dir = self.git2()?.path().to_path_buf();
@@ -322,18 +322,18 @@ impl Session {
         Ok(true)
     }
 
-    /// 把 `source` 合并到 `target`（说明书 6.1 的拖拽合并）：`target` 不是当前分支时先切换过去。
-    /// 切换不过去（工作区改动会被覆盖、在别的工作目录检出）时什么都不改；合并有冲突时停在 `target` 上的合并状态。
+    /// Merge `source` into `target` (drag-merge in spec §6.1): switch to `target` first when it isn't the current branch.
+    /// Changes nothing when the switch fails (worktree changes would be overwritten, checked out in another worktree); on merge conflicts it stops in the merge state on `target`.
     pub fn branch_merge_into(&self, source: &str, target: &str) -> Result<MergeResult> {
         self.branch_merge_into_mode(source, target, MergeMode::Auto)
     }
 
-    /// 同 [`Self::branch_merge_into`]，按指定方式合并
+    /// Same as [`Self::branch_merge_into`], merging with the given mode
     pub fn branch_merge_into_mode(&self, source: &str, target: &str, mode: MergeMode) -> Result<MergeResult> {
         self.branch_merge_into_with(source, target, mode, None)
     }
 
-    /// 同 [`Session::branch_merge_into_mode`]，压缩合并时可以指定说明
+    /// Same as [`Session::branch_merge_into_mode`], with an optional message for squash merges
     pub fn branch_merge_into_with(&self, source: &str, target: &str, mode: MergeMode, message: Option<&str>) -> Result<MergeResult> {
         self.require_normal()?;
         if source == target {
@@ -348,7 +348,7 @@ impl Session {
         self.branch_merge_with(source, mode, message)
     }
 
-    /// 把当前分支变基到 `onto` 之上之前的检查（说明书 6.3）。
+    /// Checks before rebasing the current branch onto `onto` (spec §6.3).
     pub fn branch_rebase_plan(&self, onto: &str) -> Result<RebasePlan> {
         let st = self.state()?;
         let branch = st.head.branch.clone().ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "现在不在任何分支上，先切换到一个分支再变基"))?;
@@ -367,8 +367,8 @@ impl Session {
         Ok(RebasePlan { branch, onto: onto.to_string(), own, pushed: own.saturating_sub(unpushed), incoming, has_merge })
     }
 
-    /// 把当前分支的独有提交改写到 `onto` 最新提交之后。工作区有改动时用 git 的 `--autostash` 先收起、完成后放回。
-    /// 有冲突时返回 `CONFLICTS`，仓库停在变基状态，走冲突解决流程（第 8 节）。
+    /// Rewrite the current branch's own commits on top of the latest commit of `onto`. With worktree changes, git's `--autostash` puts them aside and back afterwards.
+    /// On conflicts returns `CONFLICTS`, the repository stays in the rebase state, and the conflict resolution flow takes over (§8).
     pub fn branch_rebase(&self, onto: &str) -> Result<RebaseOutcome> {
         self.require_normal()?;
         let plan = self.branch_rebase_plan(onto)?;
@@ -399,7 +399,7 @@ impl Session {
         }
     }
 
-    /// 放弃进行中的合并、变基、拣选或还原，回到操作之前。拉取时自动贮藏的改动会一起放回。
+    /// Abandon the merge, rebase, cherry-pick or revert in progress and go back to before it. Changes auto-stashed by a pull are restored too.
     pub fn merge_abort(&self) -> Result<()> {
         self.clear_conflict_record();
         match self.state()?.state {
@@ -415,7 +415,7 @@ impl Session {
         }
     }
 
-    /// 检出远程分支：同名本地分支已存在就切换过去，否则新建并跟踪。返回本地分支名。
+    /// Check out a remote branch: switch to the same-named local branch if it exists, otherwise create it with tracking. Returns the local branch name.
     pub fn branch_checkout_remote(&self, remote_branch: &str) -> Result<String> {
         self.require_normal()?;
         let local = remote_branch.split_once('/').map(|(_, b)| b).unwrap_or(remote_branch).to_string();
@@ -429,7 +429,7 @@ impl Session {
         Ok(local)
     }
 
-    /// 检出标签或某个版本（哈希前缀），进入分离 HEAD。
+    /// Check out a tag or a revision (hash prefix), entering detached HEAD.
     pub fn checkout_detached(&self, rev: &str) -> Result<()> {
         self.require_normal()?;
         let repo = self.git2()?;
@@ -439,7 +439,7 @@ impl Session {
         self.git(&["switch", "--detach", rev]).map_err(|e| worktree_conflict(e, rev))
     }
 
-    /// 新建标签。`message` 不为空时是带说明的标签（git tag -a）；`sign` 为真时签名（git tag -s，没写说明时用标签名做说明）。
+    /// Create a tag. A non-empty `message` makes an annotated tag (git tag -a); `sign` true signs it (git tag -s, using the tag name as the message when none was given).
     pub fn tag_create(&self, name: &str, at: &str, message: Option<&str>, sign: bool) -> Result<()> {
         let n = name.trim();
         if n.is_empty() || n.contains(char::is_whitespace) {
@@ -463,7 +463,7 @@ impl Session {
         self.git(&["tag", "--delete", name])
     }
 
-    // ---------- 内部 ----------
+    // ---------- Internal ----------
 
     fn git(&self, args: &[&str]) -> Result<()> {
         git_cli::run(self.path(), args, None).map(|_| ())
@@ -476,7 +476,7 @@ impl Session {
         Ok(())
     }
 
-    /// 新建、重命名分支时的名字校验（说明书 6.3）。
+    /// Name validation when creating or renaming branches (spec §6.3).
     fn check_branch_name(&self, name: &str) -> Result<()> {
         let n = name.trim();
         if n.is_empty() {
@@ -492,7 +492,7 @@ impl Session {
             if b.name == n {
                 return Err(CoreError::new(ErrorCode::InvalidName, format!("已经有叫 {n} 的分支了")));
             }
-            // Git 的分支是 refs/heads 下的文件路径：有 feature 就不能再有 feature/x，反之亦然
+            // Git branches are file paths under refs/heads: if feature exists, feature/x can't, and vice versa
             if n.starts_with(&format!("{}/", b.name)) || b.name.starts_with(&format!("{n}/")) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidName,
@@ -509,13 +509,13 @@ impl Session {
     }
 }
 
-/// 把 git 报的“本地改动会被覆盖”转换成 `WORKTREE_CONFLICT`，其他错误原样返回。
+/// Convert git's "local changes would be overwritten" into `WORKTREE_CONFLICT`; other errors are returned as is.
 fn worktree_conflict(e: CoreError, target: &str) -> CoreError {
     let stderr = e.detail.as_ref().and_then(|d| d.get("stderr")).and_then(|s| s.as_str()).unwrap_or("");
     if !stderr.contains("would be overwritten") && !stderr.contains("会被覆盖") {
         return e;
     }
-    // git 的输出：说明行之后是一组以制表符开头的文件路径
+    // git's output: after the message line comes a list of file paths starting with a tab
     let files: Vec<String> = stderr
         .lines()
         .filter(|l| l.starts_with('\t'))
@@ -525,16 +525,16 @@ fn worktree_conflict(e: CoreError, target: &str) -> CoreError {
         .with_detail(serde_json::json!({ "files": files }))
 }
 
-/// 当前分支（`cur`，指向 `head`）能不能变基到 `onto` 之上；不能时返回原因。
-/// 已经在它之上、独有的提交里有合并提交时不能。独有提交太多（超过 2000 个）时不去数，交给点了之后的检查。
+/// Whether the current branch (`cur`, pointing at `head`) can be rebased onto `onto`; the reason when it can't.
+/// It can't when it is already on top, or its own commits include a merge commit. With too many own commits (over 2000) we don't count and leave it to the check after the click.
 impl Session {
-    /// 同 [`rebase_block`]，用内存里的提交图：`head_reach` 是从 HEAD 能到达的行，`onto` 是目标所在的行
+    /// Same as [`rebase_block`], using the in-memory commit graph: `head_reach` is the rows reachable from HEAD, `onto` is the target's row
     fn rebase_block_rows(&self, head_reach: &[bool], onto: u32, cur: &str, name: &str) -> Option<String> {
         if head_reach[onto as usize] {
             return Some(format!("{cur} 已经在 {name} 之上"));
         }
         let onto_reach = self.reach(vec![onto]);
-        // 当前分支独有的提交（从 HEAD 能到达、从目标到达不了），按从新到旧查前 2000 个
+        // The current branch's own commits (reachable from HEAD, not from the target), the newest 2000
         let own = (0..self.ids.len()).filter(|&r| head_reach[r] && !onto_reach[r]);
         for (i, r) in own.enumerate() {
             if i >= 2000 {
@@ -567,7 +567,7 @@ fn rebase_block(repo: &git2::Repository, head: git2::Oid, onto: git2::Oid, cur: 
     None
 }
 
-/// 签名失败（没配置密钥、gpg 不在、取消输入口令）时给一句看得懂的说明，原文放在 detail 里
+/// When signing fails (no key configured, gpg missing, passphrase cancelled), give a readable explanation and keep the original text in detail
 pub(crate) fn sign_error(e: CoreError) -> CoreError {
     let text = e.detail.as_ref().map(|d| d.to_string()).unwrap_or_default();
     if text.contains("gpg") || text.contains("sign") || text.contains("secret key") || text.contains("ssh-keygen") {

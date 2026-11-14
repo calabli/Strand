@@ -1,8 +1,8 @@
-//! 桌面外壳：把核心层注册成 Tauri 命令。
+//! Desktop shell: registers the core layer as Tauri commands.
 //!
-//! 命令名和说明书一致。所有读操作放到后台线程执行，不阻塞界面线程（说明书 15 节）。
-//! 新增命令时：在核心层实现并测试 → 在这里加一个薄包装 → 在 `generate_handler!` 注册
-//! → 在前端 `src/api/commands.ts` 加对应函数和类型。
+//! Command names match the spec. All reads run on background threads so the UI thread isn't blocked (spec §15).
+//! To add a command: implement and test it in the core layer → add a thin wrapper here → register it in `generate_handler!`
+//! → add the matching function and types in the frontend's `src/api/commands.ts`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,15 +26,15 @@ use tauri::{AppHandle, Emitter, State};
 #[derive(Default)]
 struct AppState {
     repo: Arc<Mutex<Option<Session>>>,
-    /// 当前仓库的文件监听；换仓库时替换，旧的随之停止
+    /// File watching for the current repository; replaced when switching repositories, which stops the old one
     watcher: Mutex<Option<strand_core::watch::Watcher>>,
-    /// 进行中的长任务，按前端给的 task_id 记录取消令牌
+    /// Long tasks in progress: cancellation tokens by the frontend's task_id
     tasks: Mutex<HashMap<String, Cancel>>,
-    /// 同一时间只跑一个网络操作
+    /// Only one network operation at a time
     net_busy: AtomicBool,
 }
 
-/// 核心层推给前端的 `repo_changed` 事件（说明书 2.2）
+/// The `repo_changed` event the core layer pushes to the frontend (spec §2.2)
 #[derive(Clone, Serialize)]
 struct RepoChanged {
     scopes: Vec<ChangeScope>,
@@ -49,7 +49,7 @@ struct CommitCreated {
 
 type CmdResult<T> = Result<T, CoreError>;
 
-/// 在后台线程里对当前仓库执行 `f`。
+/// Run `f` on the current repository on a background thread.
 async fn with_repo<T, F>(state: &AppState, f: F) -> CmdResult<T>
 where
     T: Send + 'static,
@@ -65,7 +65,7 @@ where
     .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
-/// 检测系统 Git。安装包不附带 Git，找不到时前端提示用户安装。
+/// Detect system Git. The installer doesn't bundle Git; the frontend asks the user to install it when missing.
 #[tauri::command]
 async fn git_check() -> GitInfo {
     tauri::async_runtime::spawn_blocking(strand_core::git_cli::check)
@@ -73,13 +73,13 @@ async fn git_check() -> GitInfo {
         .unwrap_or_else(|_| strand_core::git_cli::check())
 }
 
-/// 启动参数里的仓库路径：`strand /path/to/repo` 直接打开这个仓库。没有就返回空。
+/// The repository path in the launch arguments: `strand /path/to/repo` opens it directly. Empty when absent.
 #[tauri::command]
 fn launch_path() -> Option<String> {
     std::env::args().skip(1).find(|a| !a.starts_with('-') && std::path::Path::new(a).is_dir())
 }
 
-/// 打开仓库：读取日志并算好图谱，返回仓库状态。
+/// Open a repository: read the log, compute the graph, return the repository state.
 #[tauri::command]
 async fn repo_open(app: AppHandle, state: State<'_, AppState>, path: String) -> CmdResult<RepoState> {
     let session = tauri::async_runtime::spawn_blocking(move || {
@@ -90,7 +90,7 @@ async fn repo_open(app: AppHandle, state: State<'_, AppState>, path: String) -> 
         .await
         .map_err(|e| CoreError::git("后台任务异常结束", e))??;
     let st = session.state()?;
-    // 监听失败不影响使用，只是不会自动刷新
+    // A watch failure doesn't stop anything, there's just no automatic refresh
     let watcher = strand_core::watch::watch(session.path(), move |scopes| {
         let _ = app.emit("repo_changed", RepoChanged { scopes });
     })
@@ -107,7 +107,7 @@ async fn repo_state(state: State<'_, AppState>) -> CmdResult<RepoState> {
     with_repo(&state, |s| s.state()).await
 }
 
-/// 重新读取日志（外部修改仓库后调用；之后由文件监听自动触发）。
+/// Re-read the log (call after the repository is changed externally; afterwards file watching triggers it).
 #[tauri::command]
 async fn repo_reload(state: State<'_, AppState>) -> CmdResult<RepoState> {
     with_repo(&state, |s| {
@@ -120,11 +120,11 @@ async fn repo_reload(state: State<'_, AppState>) -> CmdResult<RepoState> {
 #[derive(Serialize)]
 struct Refreshed {
     state: RepoState,
-    /// 引用或 HEAD 变了、重新读取了日志；为假时界面不用重新取日志
+    /// Refs or HEAD changed and the log was re-read; when false the UI doesn't need to fetch the log again
     changed: bool,
 }
 
-/// 文件监听触发的刷新：引用和 HEAD 没变就不重新读取日志（Strand 自己的写操作已经读过）
+/// Refresh triggered by file watching: don't re-read the log when refs and HEAD are unchanged (Strand's own writes have already read it)
 #[tauri::command]
 async fn repo_refresh(state: State<'_, AppState>) -> CmdResult<Refreshed> {
     with_repo(&state, |s| {
@@ -134,10 +134,10 @@ async fn repo_refresh(state: State<'_, AppState>) -> CmdResult<Refreshed> {
     .await
 }
 
-/// 日志分页，可带过滤和排序（说明书 5.1）。
+/// Log paging, optionally with filtering and sorting (spec §5.1).
 ///
-/// 路径过滤要在全部历史上跑一次 `git rev-list`，大仓库要几秒；这一步在仓库锁外面做，
-/// 不挡住其他命令，算好后放进核心层的缓存。
+/// Path filtering runs `git rev-list` over the whole history once, which takes seconds on large repositories; it's done outside the repository lock
+/// so other commands aren't blocked, and the result goes into the core layer's cache.
 #[tauri::command]
 async fn log_query(
     state: State<'_, AppState>,
@@ -148,17 +148,17 @@ async fn log_query(
 ) -> CmdResult<LogPage> {
     let f = filter.unwrap_or_default();
     let sort = sort.unwrap_or_default();
-    // 路径过滤在核心层的后台线程里跑，没算完时返回目前的结果并标记 partial（说明书 15）
+    // Path filtering runs on a core background thread; while unfinished, return the results so far marked partial (spec §15)
     with_repo(&state, move |s| s.log_query(&f, sort, offset, limit)).await
 }
 
-/// 作者过滤的选项（说明书 5.1）
+/// Options for the author filter (spec §5.1)
 #[tauri::command]
 async fn log_authors(state: State<'_, AppState>) -> CmdResult<Vec<LogAuthor>> {
     with_repo(&state, |s| s.log_authors()).await
 }
 
-/// 工作区改动和未跟踪的文件（说明书 4.10）
+/// Worktree changes and untracked files (spec §4.10)
 #[tauri::command]
 async fn status_get(state: State<'_, AppState>) -> CmdResult<WorktreeStatus> {
     with_repo(&state, |s| s.status()).await
@@ -169,7 +169,7 @@ async fn diff_worktree(state: State<'_, AppState>, path: String, ignore_ws: Opti
     with_repo(&state, move |s| s.diff_worktree(&path, ignore_ws.unwrap_or(false), context.unwrap_or(3))).await
 }
 
-/// 按勾选的文件提交，提交后刷新日志。返回新提交的版本号和仓库状态。
+/// Commit the checked files and refresh the log. Returns the new commit's id and the repository state.
 #[tauri::command]
 async fn commit_create(state: State<'_, AppState>, message: String, selection: Selection, sign_off: Option<bool>, author: Option<String>) -> CmdResult<CommitCreated> {
     with_repo(&state, move |s| {
@@ -181,7 +181,7 @@ async fn commit_create(state: State<'_, AppState>, message: String, selection: S
     .await
 }
 
-/// 修订上一次提交（说明书 4.5）：message 为空时保留原说明
+/// Amend the last commit (spec §4.5): an empty message keeps the original
 #[tauri::command]
 async fn commit_amend(state: State<'_, AppState>, message: Option<String>, selection: Selection, sign_off: Option<bool>, author: Option<String>) -> CmdResult<CommitCreated> {
     with_repo(&state, move |s| {
@@ -194,13 +194,13 @@ async fn commit_amend(state: State<'_, AppState>, message: Option<String>, selec
     .await
 }
 
-/// 写说明用的：说明历史、提交说明模板、当前身份
+/// For writing messages: message history, commit template, current identity
 #[tauri::command]
 async fn compose_info(state: State<'_, AppState>) -> CmdResult<strand_core::compose::ComposeInfo> {
     with_repo(&state, |s| s.compose_info()).await
 }
 
-/// 变更列表（Strand 自己的分组，存在 .git/strand/changelists.json）
+/// Changelists (Strand's own grouping, stored in .git/strand/changelists.json)
 #[tauri::command]
 async fn changelists_get(state: State<'_, AppState>) -> CmdResult<strand_core::compose::Changelists> {
     with_repo(&state, |s| s.changelists_get()).await
@@ -221,10 +221,10 @@ async fn diff_commit(state: State<'_, AppState>, id: String, path: String, conte
     with_repo(&state, move |s| s.diff_commit_ctx(&id, &path, context.unwrap_or(3))).await
 }
 
-// ---------- 分支和标签（说明书第 6 节） ----------
-// 写操作完成后重新读取日志，返回最新的仓库状态。
+// ---------- Branches and tags (spec §6) ----------
+// Re-read the log after write operations and return the latest repository state.
 
-/// 执行一个写操作，然后刷新日志，返回操作结果和仓库状态。
+/// Run a write operation, then refresh the log, returning the operation result and repository state.
 async fn write_op<T, F>(state: &AppState, f: F) -> CmdResult<Written<T>>
 where
     T: Send + Serialize + 'static,
@@ -232,21 +232,21 @@ where
 {
     with_repo(state, move |s| {
         let result = f(s);
-        // 操作失败也可能已经改了仓库（比如合并停在冲突），照样刷新
+        // A failed operation may still have changed the repository (e.g. a merge stopped on conflicts), so refresh anyway
         s.reload()?;
         Ok(Written { result: result?, state: s.state()?, op: None, note: None })
     })
     .await
 }
 
-/// 记入操作日志的写操作（说明书第 11 节）：返回值带 `op`，前端用它显示带撤销图标的提示
+/// Write operations recorded in the op log (spec §11): the return value carries `op`, which the frontend uses for a toast with an undo icon
 async fn logged_op<T, F>(state: &AppState, label: String, kind: OpKind, f: F) -> CmdResult<Written<T>>
 where
     T: Send + Serialize + 'static,
     F: FnOnce(&mut Session) -> CmdResult<T> + Send + 'static,
 {
     with_repo(state, move |s| {
-        // 操作后的快照和重新读取日志同时进行（说明书 15）
+        // The after snapshot and the log re-read run at the same time (spec §15)
         let r = s.run_op_reload(&label, kind, f);
         let (result, op) = r?;
         Ok(Written { result, state: s.state()?, op, note: None })
@@ -254,7 +254,7 @@ where
     .await
 }
 
-/// 同 `logged_op`，另外按 `scope` 记下未跟踪文件或工作目录（快照只管已跟踪文件），让这些操作也能撤销
+/// Same as `logged_op`, also recording untracked files or worktrees per `scope` (snapshots only cover tracked files) so these operations can be undone too
 async fn logged_op_scoped<T, F>(state: &AppState, label: String, kind: OpKind, scope: OpScope, f: F) -> CmdResult<Written<T>>
 where
     T: Send + Serialize + 'static,
@@ -269,7 +269,7 @@ where
     .await
 }
 
-/// 同 `logged_op`，但日志的说明要先读仓库才能写出来（比如用提交的标题）
+/// Same as `logged_op`, but the log label needs a repository read first (e.g. to use a commit title)
 async fn logged_op_by<T, L, F>(state: &AppState, kind: OpKind, label: L, f: F) -> CmdResult<Written<T>>
 where
     T: Send + Serialize + 'static,
@@ -278,7 +278,7 @@ where
 {
     with_repo(state, move |s| {
         let label = label(s);
-        // 操作后的快照和重新读取日志同时进行（说明书 15）
+        // The after snapshot and the log re-read run at the same time (spec §15)
         let r = s.run_op_reload(&label, kind, f);
         let (result, op) = r?;
         Ok(Written { result, state: s.state()?, op, note: None })
@@ -286,12 +286,12 @@ where
     .await
 }
 
-/// 提交的标题，用在操作日志的说明里
+/// A commit's title, used in op log labels
 fn title_of(s: &Session, id: &str) -> String {
     s.commit_title(id).map(|t| format!("“{}”", short(&t))).unwrap_or_else(|| id.chars().take(7).collect())
 }
 
-/// 提示里显示的提交标题，太长时截断
+/// A commit title shown in toasts, truncated when too long
 fn short(t: &str) -> String {
     if t.chars().count() > 40 { format!("{}…", t.chars().take(40).collect::<String>()) } else { t.to_string() }
 }
@@ -300,10 +300,10 @@ fn short(t: &str) -> String {
 struct Written<T> {
     result: T,
     state: RepoState,
-    /// 这次操作写进操作日志的那一条；没有记日志（无变化、冲突未解决、只读操作）时省略
+    /// The op log entry written by this operation; omitted when nothing was logged (no change, unresolved conflicts, read-only)
     #[serde(skip_serializing_if = "Option::is_none")]
     op: Option<OpInfo>,
-    /// 给用户的补充说明，如拉取后自动搁置的改动没能放回（说明书 7.2）
+    /// Extra notes for the user, e.g. auto-shelved changes couldn't be restored after a pull (spec §7.2)
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
 }
@@ -316,7 +316,7 @@ async fn refs_list(state: State<'_, AppState>) -> CmdResult<RefsList> {
 #[tauri::command]
 async fn log_locate(state: State<'_, AppState>, rev: String, filter: Option<LogFilter>, sort: Option<LogSort>) -> CmdResult<Option<usize>> {
     let f = filter.unwrap_or_default();
-    // 过滤结果还没算完时按目前的结果找（找不到返回 null）
+    // While filter results are incomplete, search what's there so far (null when not found)
     with_repo(&state, move |s| s.log_locate_in(&rev, &f, sort.unwrap_or_default())).await
 }
 
@@ -347,13 +347,13 @@ async fn branch_merge(state: State<'_, AppState>, source: String, mode: Option<M
     logged_op(&state, label, OpKind::Merge, move |s| s.branch_merge_with(&source, mode, message.as_deref())).await
 }
 
-/// 收藏或取消收藏一个本地分支（说明书 6.1、6.3）：存在仓库的 .git/strand/favorites 里，工作目录之间共用
+/// Add or remove a local branch from favorites (spec §6.1, §6.3): stored in the repository's .git/strand/favorites, shared between worktrees
 #[tauri::command]
 async fn prefs_set_favorite(state: State<'_, AppState>, name: String, favorite: bool) -> CmdResult<()> {
     with_repo(&state, move |s| s.set_favorite(&name, favorite)).await
 }
 
-/// 拖拽合并（说明书 6.1）：把 source 合并到 target，target 不是当前分支时先切换过去；整个记成一步。
+/// Drag merge (spec §6.1): merge source into target, switching first when target isn't current; recorded as one step.
 #[tauri::command]
 async fn branch_merge_into(state: State<'_, AppState>, source: String, target: String, mode: Option<MergeMode>, message: Option<String>) -> CmdResult<Written<MergeResult>> {
     let mode = mode.unwrap_or_default();
@@ -361,19 +361,19 @@ async fn branch_merge_into(state: State<'_, AppState>, source: String, target: S
     logged_op(&state, label, OpKind::Merge, move |s| s.branch_merge_into_with(&source, &target, mode, message.as_deref())).await
 }
 
-/// 压缩合并的默认说明，弹框里预填（说明书 6.7）。`target` 为空时按当前分支算。
+/// Default squash-merge message, prefilled in the dialog (spec §6.7). With `target` empty, computed against the current branch.
 #[tauri::command]
 async fn branch_squash_message(state: State<'_, AppState>, source: String, target: Option<String>) -> CmdResult<String> {
     with_repo(&state, move |s| s.squash_message(&source, target.as_deref())).await
 }
 
-/// 变基前的检查：独有提交数、已推送数、目标上的新提交数、有没有合并提交（说明书 6.3）。
+/// Pre-rebase check: own commits, pushed commits, new commits on the target, any merge commits (spec §6.3).
 #[tauri::command]
 async fn branch_rebase_plan(state: State<'_, AppState>, onto: String) -> CmdResult<strand_core::model::RebasePlan> {
     with_repo(&state, move |s| s.branch_rebase_plan(&onto)).await
 }
 
-/// 把当前分支变基到 onto 之上。有冲突时停在变基状态，冲突解决完成后整个过程记成一步。
+/// Rebase the current branch onto onto. Stops in the rebase state on conflicts; the whole process is one step after conflict resolution finishes.
 #[tauri::command]
 async fn branch_rebase(state: State<'_, AppState>, onto: String) -> CmdResult<Written<strand_core::model::RebaseOutcome>> {
     logged_op(&state, format!("变基到 {onto} 之上"), OpKind::Merge, move |s| s.branch_rebase(&onto)).await
@@ -382,7 +382,7 @@ async fn branch_rebase(state: State<'_, AppState>, onto: String) -> CmdResult<Wr
 #[tauri::command]
 async fn merge_abort(state: State<'_, AppState>, marks: Option<serde_json::Value>) -> CmdResult<Written<()>> {
     with_repo(&state, move |s| {
-        // 中止写成一条日志，撤销它回到中止前的冲突和标记（说明书 8.9）；中止拉取时放回拉取前自动搁置的改动
+        // The abort is written as one entry, and undoing it returns to the conflicts and marks before the abort (spec §8.9); aborting a pull restores the changes auto-shelved before it
         let label = match s.state()?.state {
             RepoMode::Rebasing => "中止变基",
             RepoMode::CherryPicking => "中止拣选",
@@ -417,9 +417,9 @@ async fn tag_delete(state: State<'_, AppState>, name: String) -> CmdResult<Writt
     logged_op(&state, format!("删除标签 {name}"), OpKind::Tag, move |s| s.tag_delete(&name)).await
 }
 
-// ---------- 远程操作（说明书第 7 节） ----------
-// 网络操作不持有仓库锁：先取出路径，运行期间界面仍可读日志和差异；结束后再刷新日志。
-// 前端为每次操作生成 task_id，进度通过 task_progress 事件推送，可以用 task_cancel 取消。
+// ---------- Remote operations (spec §7) ----------
+// Network operations don't hold the repository lock: take the path first so the UI can still read the log and diffs while they run; refresh the log afterwards.
+// The frontend generates a task_id per operation; progress is pushed via task_progress events and task_cancel cancels it.
 
 #[derive(Clone, Serialize)]
 struct TaskProgress {
@@ -436,13 +436,13 @@ fn repo_path(state: &AppState) -> CmdResult<std::path::PathBuf> {
         .ok_or_else(|| CoreError::new(ErrorCode::NoRepo, "还没有打开仓库"))
 }
 
-/// 运行一个网络任务：登记取消令牌、转发进度（最多每 100 ms 一次）、结束后刷新日志。
-/// 网络操作写进操作日志的方式
+/// Run a network task: register the cancellation token, forward progress (at most every 100 ms), refresh the log at the end.
+/// How network operations are written to the op log
 enum NetLog {
     None,
-    /// 拉取：开始前的快照；停在冲突时等冲突解决完成再写
+    /// Pull: the before snapshot; when stopped on conflicts, write after conflict resolution finishes
     Pull(String, Box<Snapshot>),
-    /// 推送：只在时间线里显示
+    /// Push: only shown on the timeline
     Push(String),
 }
 
@@ -481,10 +481,10 @@ where
         t.remove(&task_id);
     }
     state.net_busy.store(false, Ordering::SeqCst);
-    // 成功或失败都刷新一次：拉取可能停在冲突状态，抓取更新了远程分支
+    // Refresh once on success or failure: a pull may stop in a conflict, a fetch updates remote branches
     let ok = result.is_ok();
     let (st, op, note) = with_repo(state, move |s| {
-        // 拉取结束（没停在冲突里）时放回拉取前自动搁置的改动，再写操作日志（说明书 7.2）
+        // When the pull ends (not stopped in a conflict), restore the changes auto-shelved before it, then write the op log (spec §7.2)
         let note = if matches!(log, NetLog::Pull(..)) { s.pull_unshelve()? } else { None };
         let op = match log {
             NetLog::Pull(label, before) => s.op_end(&label, OpKind::Pull, *before)?,
@@ -505,9 +505,9 @@ fn task_cancel(state: State<'_, AppState>, task_id: String) {
     }
 }
 
-// ---------- 工作目录（说明书 6.6）和克隆 ----------
+// ---------- Worktrees (spec §6.6) and cloning ----------
 
-/// 新建工作目录。可以撤销：撤销时移除它（里面有没提交的改动时不能撤销），新建的分支一起去掉。
+/// Create a worktree. Undoable: undo removes it (not undoable when it has uncommitted changes), along with the new branch.
 #[tauri::command]
 async fn worktree_add(state: State<'_, AppState>, path: String, branch: String, new_branch: bool, base: Option<String>) -> CmdResult<Written<()>> {
     let label = format!("新建工作目录 {}（{branch}）", short_path(&path));
@@ -515,10 +515,10 @@ async fn worktree_add(state: State<'_, AppState>, path: String, branch: String, 
     logged_op_scoped(&state, label, OpKind::Branch, scope, move |s| s.worktree_add(&path, &branch, new_branch, base.as_deref())).await
 }
 
-/// 移除工作目录。有未提交的改动时不加 force 返回 WORKTREE_CONFLICT。
+/// Remove a worktree. With uncommitted changes returns WORKTREE_CONFLICT unless force.
 #[tauri::command]
 async fn worktree_remove(state: State<'_, AppState>, path: String, force: bool) -> CmdResult<Written<()>> {
-    // 撤销时在原来的位置重新检出原来的分支（强制移除时丢掉的改动回不来）
+    // Undo re-creates the original branch's checkout at the original location (changes lost to a forced removal don't come back)
     let label = format!("移除工作目录 {}", short_path(&path));
     let scope = OpScope { worktrees: true, ..Default::default() };
     logged_op_scoped(&state, label, OpKind::Branch, scope, move |s| s.worktree_remove(&path, force)).await
@@ -528,7 +528,7 @@ fn short_path(p: &str) -> String {
     std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string())
 }
 
-/// 克隆到 dest（完整路径），进度通过 task_progress 推送，可以用 task_cancel 取消。不需要先打开仓库。
+/// Clone into dest (full path); progress is pushed via task_progress and task_cancel cancels it. No repository needs to be open.
 #[tauri::command]
 async fn repo_clone(app: AppHandle, state: State<'_, AppState>, task_id: String, url: String, dest: String) -> CmdResult<String> {
     let cancel = Cancel::default();
@@ -557,7 +557,7 @@ async fn repo_clone(app: AppHandle, state: State<'_, AppState>, task_id: String,
     r
 }
 
-// ---------- 提交前格式化和检查（说明书 4.4、4.6） ----------
+// ---------- Format and check before committing (spec §4.4, §4.6) ----------
 
 #[tauri::command]
 async fn checks_config_get(state: State<'_, AppState>) -> CmdResult<strand_core::checks::ChecksInfo> {
@@ -578,7 +578,7 @@ async fn checks_config_set(state: State<'_, AppState>, config: strand_core::chec
     .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
-/// 运行格式化或检查。在仓库锁外面跑（可能要几十秒），可以用 task_cancel 取消。
+/// Run a format or check. Runs outside the repository lock (may take tens of seconds); task_cancel cancels it.
 #[tauri::command]
 async fn checks_run(
     state: State<'_, AppState>,
@@ -610,7 +610,7 @@ async fn checks_run(
 
 #[tauri::command]
 async fn remote_fetch(app: AppHandle, state: State<'_, AppState>, task_id: String, quiet: Option<bool>) -> CmdResult<Written<FetchResult>> {
-    // 后台自动抓取不弹密码框（说明书 7.5）：需要输入时直接失败，等用户自己抓取、拉取时再问
+    // Background auto-fetch doesn't show a password prompt (spec §7.5): it fails when input is needed, and asks when the user fetches or pulls themselves
     let quiet = quiet.unwrap_or(false);
     net_task(app, &state, task_id, NetLog::None, move |p, c, pr| {
         if quiet {
@@ -624,9 +624,9 @@ async fn remote_fetch(app: AppHandle, state: State<'_, AppState>, task_id: Strin
 
 #[tauri::command]
 async fn remote_pull(app: AppHandle, state: State<'_, AppState>, task_id: String, mode: PullMode, fetched: Option<bool>) -> CmdResult<Written<PullResult>> {
-    // fetched：界面刚抓取过并看过拉取摘要面板（说明书 7.2），这里不再抓取
+    // fetched: the UI just fetched and showed the pull summary panel (spec §7.2), so don't fetch again here
     let fetch = !fetched.unwrap_or(false);
-    // 先拍快照再自动搁置：撤销这次拉取时，工作区的改动回到拉取之前的样子
+    // Snapshot before auto-shelving: undoing this pull returns worktree changes to how they were before the pull
     let (before, branch) = with_repo(&state, |s| {
         let before = s.snapshot()?;
         s.pull_shelve()?;
@@ -638,7 +638,7 @@ async fn remote_pull(app: AppHandle, state: State<'_, AppState>, task_id: String
     net_task(app, &state, task_id, log, move |p, c, pr| remote::pull_with(p, mode, fetch, c, pr)).await
 }
 
-/// 拉取的预演（说明书 7.2）：按上次抓取的结果在内存里合并一遍，不改仓库、不连网
+/// Pull dry run (spec §7.2): merge once in memory using the last fetch's result, without changing the repository or using the network
 #[tauri::command]
 async fn remote_pull_preview(state: State<'_, AppState>, mode: PullMode) -> CmdResult<remote::PullPreview> {
     let dirty = with_repo(&state, |s| Ok(s.status()?.changes.len() as u32)).await?;
@@ -669,14 +669,14 @@ async fn remote_push(app: AppHandle, state: State<'_, AppState>, task_id: String
     net_task(app, &state, task_id, log, move |p, c, pr| remote::push(p, &PushOptions { force, tags, to, remote }, c, pr)).await
 }
 
-/// 推送一个标签（说明书 6.5、7.4）
+/// Push one tag (spec §6.5, §7.4)
 #[tauri::command]
 async fn tag_push(app: AppHandle, state: State<'_, AppState>, task_id: String, name: String) -> CmdResult<Written<()>> {
     let log = NetLog::Push(format!("推送标签 {name}"));
     net_task(app, &state, task_id, log, move |p, c, pr| remote::tag_push(p, &name, c, pr)).await
 }
 
-// ---------- 管理远程 ----------
+// ---------- Managing remotes ----------
 
 #[tauri::command]
 async fn remote_list(state: State<'_, AppState>) -> CmdResult<Vec<remote::RemoteInfo>> {
@@ -704,8 +704,8 @@ async fn remote_set_url(state: State<'_, AppState>, name: String, url: String) -
     write_op(&state, move |s| remote::remote_set_url(s.path(), &name, &url)).await
 }
 
-// ---------- 冲突解决（说明书第 8 节） ----------
-// 标记保存在前端；应用一个文件时把这个文件的全部标记传进来。
+// ---------- Conflict resolution (spec §8) ----------
+// Marks are kept in the frontend; applying a file passes all of that file's marks.
 
 #[tauri::command]
 async fn merge_session(state: State<'_, AppState>) -> CmdResult<Option<MergeSession>> {
@@ -732,14 +732,14 @@ async fn merge_skip(state: State<'_, AppState>) -> CmdResult<Written<FinishResul
     finish_op(&state, |s| s.merge_skip()).await
 }
 
-/// 完成或跳过冲突解决的一步。整个合并（或拉取、变基）结束时，把它写成一条操作日志。
+/// Finish or skip one step of conflict resolution. When the whole merge (or pull, rebase) ends, write it as one op log entry.
 async fn finish_op<F>(state: &AppState, f: F) -> CmdResult<Written<FinishResult>>
 where
     F: FnOnce(&mut Session) -> CmdResult<FinishResult> + Send + 'static,
 {
     with_repo(state, move |s| {
         let r = f(s);
-        // 拉取的冲突解决完成：放回拉取前自动搁置的改动（还没完成时 pull_unshelve 什么都不做）
+        // The pull's conflict resolution finished: restore the changes auto-shelved before the pull (pull_unshelve does nothing while unfinished)
         let note = if r.is_ok() { s.pull_unshelve()? } else { None };
         let op = if r.is_ok() { s.op_finish_pending()? } else { None };
         s.reload()?;
@@ -748,7 +748,7 @@ where
     .await
 }
 
-// ---------- 提交操作（说明书 5.6、5.7） ----------
+// ---------- Commit operations (spec §5.6, §5.7) ----------
 
 #[tauri::command]
 async fn commit_caps(state: State<'_, AppState>, id: String) -> CmdResult<CommitCaps> {
@@ -802,15 +802,15 @@ async fn commit_drop(state: State<'_, AppState>, id: String) -> CmdResult<Writte
     logged_op_by(&state, OpKind::Commit, move |s| format!("丢弃提交{}", title_of(s, &i)), move |s| s.commit_drop(&id)).await
 }
 
-// ---------- 逐行追溯（说明书 10.2） ----------
+// ---------- Blame (spec §10.2) ----------
 
-/// 追溯第 offset+1 行起的 limit 行；rev 为空表示工作区里的文件
+/// Blame `limit` lines starting at line offset+1; rev empty means the file in the worktree
 #[tauri::command]
 async fn blame_file(state: State<'_, AppState>, path: String, rev: Option<String>, offset: u32, limit: u32) -> CmdResult<strand_core::blame::BlamePage> {
     with_repo(&state, move |s| s.blame_file(&path, rev.as_deref(), offset, limit)).await
 }
 
-// ---------- 比较、补丁、查看某个版本的仓库（说明书 10.3–10.5） ----------
+// ---------- Compare, patches, browsing a revision (spec §10.3–10.5) ----------
 
 #[tauri::command]
 async fn compare(state: State<'_, AppState>, from: String, to: String) -> CmdResult<strand_core::compare::Comparison> {
@@ -837,7 +837,7 @@ async fn commit_tree(state: State<'_, AppState>, id: String) -> CmdResult<Vec<St
     with_repo(&state, move |s| s.commit_tree(&id)).await
 }
 
-/// 项目文件（左侧的文件目录树）：已跟踪的和没被忽略的未跟踪文件。在后台跑，不占着仓库
+/// Project files (the file tree on the left): tracked files and untracked files that aren't ignored. Runs in the background without holding the repository
 #[tauri::command]
 async fn project_files(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
     let path = repo_path(&state)?;
@@ -846,13 +846,13 @@ async fn project_files(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
-/// 文件内容：rev 为空时是工作区里的
+/// File content: from the worktree when rev is empty
 #[tauri::command]
 async fn file_text(state: State<'_, AppState>, path: String, rev: Option<String>) -> CmdResult<strand_core::file_history::FileText> {
     with_repo(&state, move |s| s.file_text(&path, rev.as_deref())).await
 }
 
-/// 系统剪贴板里的文字（网页的剪贴板接口在桌面应用里读不到时用）
+/// Text on the system clipboard (used when the web clipboard API can't read it in the desktop app)
 #[tauri::command]
 async fn clipboard_text() -> CmdResult<String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -877,7 +877,7 @@ async fn clipboard_text() -> CmdResult<String> {
     .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
-/// 两段文字的整个文件差异（任意两个文件对比、和剪贴板对比）
+/// Whole-file diff of two texts (compare any two files, compare with clipboard)
 #[tauri::command]
 async fn text_diff(left: String, right: String, name: String) -> CmdResult<strand_core::model::FileDiff> {
     tauri::async_runtime::spawn_blocking(move || strand_core::compare::text_diff(&left, &right, &name))
@@ -885,20 +885,20 @@ async fn text_diff(left: String, right: String, name: String) -> CmdResult<stran
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
-/// 文件某个版本的原始字节（图片对比）；rev 为空是工作区。直接返回二进制，不经过 JSON
+/// A file's raw bytes at a revision (image diffs); rev empty means the worktree. Returned as binary directly, not through JSON
 #[tauri::command]
 async fn file_bytes(state: State<'_, AppState>, path: String, rev: Option<String>) -> CmdResult<tauri::ipc::Response> {
     let b = with_repo(&state, move |s| s.file_bytes(&path, rev.as_deref())).await?;
     Ok(tauri::ipc::Response::new(b))
 }
 
-/// 在差异里编辑后保存工作区文件；expected 是开始编辑时读到的内容（磁盘上的变了就不覆盖）
+/// Save a worktree file after editing in the diff; expected is the content read when editing started (not overwritten if the file on disk changed)
 #[tauri::command]
 async fn save_worktree_file(state: State<'_, AppState>, path: String, text: String, expected: String) -> CmdResult<()> {
     with_repo(&state, move |s| s.save_worktree_file(&path, &text, &expected)).await
 }
 
-/// 文件修改链：git log --follow 在后台跑（长历史上要几秒），跑完再补上引用
+/// File change chain: git log --follow runs in the background (seconds on long histories), refs are filled in afterwards
 #[tauri::command]
 async fn file_history(state: State<'_, AppState>, path: String) -> CmdResult<strand_core::file_history::FileHistory> {
     let dir = repo_path(&state)?;
@@ -912,19 +912,19 @@ async fn file_history(state: State<'_, AppState>, path: String) -> CmdResult<str
     .await
 }
 
-/// 同一个文件两个版本之间的差异：from 为空是新增，to 为空是工作区
+/// The diff between two versions of the same file: from empty means added, to empty means the worktree
 #[tauri::command]
 async fn file_diff_versions(state: State<'_, AppState>, from: Option<String>, from_path: String, to: Option<String>, to_path: String, context: Option<u32>) -> CmdResult<FileDiff> {
     with_repo(&state, move |s| s.file_diff_versions_ctx(from.as_deref(), &from_path, to.as_deref(), &to_path, context.unwrap_or(3))).await
 }
 
-/// 按改动内容搜索时，这个提交里改动行有匹配的文件
+/// When searching by changes, the files in this commit whose changed lines match
 #[tauri::command]
 async fn commit_change_matches(state: State<'_, AppState>, id: String, text: String, regex: bool, case_sensitive: bool) -> CmdResult<Vec<strand_core::search::ChangeMatch>> {
     with_repo(&state, move |s| s.commit_change_matches(&id, &text, regex, case_sensitive)).await
 }
 
-/// 项目文件全文搜（git grep）：rev 为空是工作区。在后台跑，不占着仓库
+/// Full-text search of project files (git grep): rev empty means the worktree. Runs in the background without holding the repository
 #[tauri::command]
 async fn project_search(state: State<'_, AppState>, text: String, regex: bool, case_sensitive: bool, rev: Option<String>) -> CmdResult<strand_core::search::ProjectSearch> {
     let dir = repo_path(&state)?;
@@ -933,7 +933,7 @@ async fn project_search(state: State<'_, AppState>, text: String, regex: bool, c
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
-/// 把文字写到用户在系统保存对话框里选的路径（保存补丁用）
+/// Write text to the path the user picked in the system save dialog (for saving patches)
 #[tauri::command]
 async fn file_save(path: String, text: String) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || std::fs::write(&path, text))
@@ -942,7 +942,7 @@ async fn file_save(path: String, text: String) -> CmdResult<()> {
         .map_err(|e| CoreError::git("保存文件失败", e))
 }
 
-/// 读一个文本文件（选择补丁文件、拖进窗口的补丁）；最多 20 MB
+/// Read a text file (a chosen patch file, a patch dragged into the window); at most 20 MB
 #[tauri::command]
 async fn file_read_text(path: String) -> CmdResult<String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -957,7 +957,7 @@ async fn file_read_text(path: String) -> CmdResult<String> {
     .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
-// ---------- 二分查找 ----------
+// ---------- Bisect ----------
 
 #[tauri::command]
 async fn bisect_status(state: State<'_, AppState>) -> CmdResult<strand_core::bisect::BisectStatus> {
@@ -974,7 +974,7 @@ async fn bisect_reset(state: State<'_, AppState>) -> CmdResult<Written<()>> {
     write_op(&state, |s| s.bisect_reset()).await
 }
 
-// ---------- 签名 ----------
+// ---------- Signing ----------
 
 #[tauri::command]
 async fn commit_signature(state: State<'_, AppState>, id: String) -> CmdResult<strand_core::sign::Signature> {
@@ -991,7 +991,7 @@ async fn signing_set(state: State<'_, AppState>, commit: bool) -> CmdResult<stra
     with_repo(&state, move |s| s.signing_set(commit)).await
 }
 
-// ---------- 操作记录（reflog） ----------
+// ---------- Reflog ----------
 
 #[tauri::command]
 async fn reflog_refs(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
@@ -1003,14 +1003,14 @@ async fn reflog(state: State<'_, AppState>, name: String) -> CmdResult<Vec<stran
     with_repo(&state, move |s| s.reflog(&name)).await
 }
 
-// ---------- 应用补丁 ----------
+// ---------- Applying patches ----------
 
 #[tauri::command]
 async fn patch_preview(state: State<'_, AppState>, text: String) -> CmdResult<strand_core::patch::PatchPreview> {
     with_repo(&state, move |s| s.patch_preview(&text)).await
 }
 
-/// 应用补丁：commit 为真时按邮件格式生成提交，否则应用到工作区（有冲突时进入冲突解决）
+/// Apply a patch: with commit true create commits from mailbox format, otherwise apply to the worktree (entering conflict resolution on conflicts)
 #[tauri::command]
 async fn patch_apply(state: State<'_, AppState>, text: String, commit: bool) -> CmdResult<Written<usize>> {
     let n = strand_core::patch::mail_commits(&text).len();
@@ -1018,18 +1018,18 @@ async fn patch_apply(state: State<'_, AppState>, text: String, commit: bool) -> 
     logged_op(&state, label, kind, move |s| s.patch_apply(&text, commit)).await
 }
 
-/// 只拣选或还原一个提交里的部分文件，结果放在工作区（不生成提交）
+/// Cherry-pick or revert only some files of a commit, leaving the result in the worktree (no commit)
 #[tauri::command]
 async fn commit_files_apply(state: State<'_, AppState>, id: String, paths: Vec<String>, revert: bool) -> CmdResult<Written<()>> {
     let title = with_repo(&state, { let id = id.clone(); move |s| Ok(title_of(s, &id)) }).await?;
     let what = if paths.len() == 1 { paths[0].clone() } else { format!("{} 个文件", paths.len()) };
     let label = if revert { format!("还原{title}里的 {what}") } else { format!("拣选{title}里的 {what}") };
-    // 快照只管已跟踪文件：拣选可能新建文件，要额外记下这些路径，撤销时才能删掉
+    // Snapshots only cover tracked files: a cherry-pick may create files, so record these paths too so undo can delete them
     let scope = OpScope { files: paths.clone(), ..Default::default() };
     logged_op_scoped(&state, label, OpKind::Other, scope, move |s| s.commit_files_apply(&id, &paths, revert)).await
 }
 
-/// 把工作区里的一个文件换成某个版本的内容
+/// Replace a worktree file with its content at a revision
 #[tauri::command]
 async fn file_restore(state: State<'_, AppState>, id: String, path: String) -> CmdResult<Written<()>> {
     let label = format!("把 {path} 取回到 {}", &id[..id.len().min(7)]);
@@ -1037,7 +1037,7 @@ async fn file_restore(state: State<'_, AppState>, id: String, path: String) -> C
     logged_op_scoped(&state, label, OpKind::Other, scope, move |s| s.file_restore(&id, &path)).await
 }
 
-// ---------- 丢弃改动、未跟踪的文件（说明书 4.7、4.8） ----------
+// ---------- Discarding changes, untracked files (spec §4.7, §4.8) ----------
 
 #[tauri::command]
 async fn changes_discard(state: State<'_, AppState>, paths: Vec<String>) -> CmdResult<Written<()>> {
@@ -1047,26 +1047,26 @@ async fn changes_discard(state: State<'_, AppState>, paths: Vec<String>) -> CmdR
 
 #[tauri::command]
 async fn untracked_add(state: State<'_, AppState>, path: String) -> CmdResult<Written<()>> {
-    // 快照只管已跟踪文件，要额外记下这个文件，否则撤销时会把它当成新增的文件删掉
+    // Snapshots only cover tracked files, so record this file too; otherwise undo would delete it as an added file
     let scope = OpScope { files: vec![path.clone()], ..Default::default() };
     logged_op_scoped(&state, format!("把 {path} 加入版本控制"), OpKind::Other, scope, move |s| s.untracked_add(&path)).await
 }
 
-/// 加入忽略规则（写 .gitignore，不记入操作日志：.gitignore 本身会出现在改动里，可以丢弃）
+/// Add to ignore rules (writes .gitignore, not recorded in the op log: .gitignore itself shows up in changes and can be discarded)
 #[tauri::command]
 async fn untracked_ignore(state: State<'_, AppState>, path: String) -> CmdResult<Written<()>> {
     let scope = OpScope { files: vec![".gitignore".into()], ..Default::default() };
     logged_op_scoped(&state, format!("把 {path} 加入忽略规则"), OpKind::Other, scope, move |s| s.untracked_ignore(&path)).await
 }
 
-/// 删除未跟踪的文件：移到废纸篓，可以从废纸篓找回（不记入操作日志）
+/// Delete an untracked file: moved to the Trash and recoverable from there (not recorded in the op log)
 #[tauri::command]
 async fn untracked_delete(state: State<'_, AppState>, path: String) -> CmdResult<Written<()>> {
     let scope = OpScope { files: vec![path.clone()], ..Default::default() };
     logged_op_scoped(&state, format!("把 {path} 移到废纸篓"), OpKind::Other, scope, move |s| s.untracked_delete(&path)).await
 }
 
-// ---------- 整理提交（说明书第 9 节） ----------
+// ---------- Rebasing commits (spec §9) ----------
 
 #[tauri::command]
 async fn rebase_range(state: State<'_, AppState>, from: Option<String>) -> CmdResult<RebaseRange> {
@@ -1079,14 +1079,14 @@ async fn rebase_apply(state: State<'_, AppState>, steps: Vec<Step>) -> CmdResult
     logged_op(&state, label, OpKind::Commit, move |s| s.rebase_apply(&steps)).await
 }
 
-/// Fixup（message 为空）或 Squash Into（带新说明）：把勾选的改动并入某个提交
+/// Fixup (empty message) or Squash Into (with a new message): fold the checked changes into a commit
 #[tauri::command]
 async fn commit_fixup(state: State<'_, AppState>, id: String, selection: Selection, message: Option<String>) -> CmdResult<Written<()>> {
     let i = id.clone();
     logged_op_by(&state, OpKind::Commit, move |s| format!("把改动并入{}", title_of(s, &i)), move |s| s.commit_fixup(&id, &selection, message.as_deref())).await
 }
 
-// ---------- 贮藏和暂存架（说明书 4.9） ----------
+// ---------- Stash and shelf (spec §4.9) ----------
 
 #[tauri::command]
 async fn stash_list(state: State<'_, AppState>) -> CmdResult<Vec<StashEntry>> {
@@ -1103,7 +1103,7 @@ async fn stash_push(state: State<'_, AppState>, message: Option<String>) -> CmdR
     logged_op(&state, "贮藏改动".into(), OpKind::Stash, move |s| s.stash_push(message.as_deref())).await
 }
 
-/// 取回贮藏：`drop` 为真是取回并删除（pop），否则取回但保留（apply）
+/// Restore a stash: `drop` true restores and deletes (pop), otherwise restores and keeps (apply)
 #[tauri::command]
 async fn stash_apply(state: State<'_, AppState>, index: usize, drop: bool) -> CmdResult<Written<()>> {
     logged_op_by(
@@ -1152,7 +1152,7 @@ async fn shelf_restore(state: State<'_, AppState>, id: u64, paths: Option<Vec<St
         move |s| {
             let n = s.shelf_list().ok().and_then(|l| l.into_iter().find(|e| e.id == id)).map(|e| e.name).unwrap_or_default();
             match some {
-                // 只取回部分文件（说明书 4.9）
+                // Restore only some files (spec §4.9)
                 Some(k) => format!("从搁置“{}”取回 {k} 个文件", short(&n)),
                 None => format!("取回搁置“{}”", short(&n)),
             }
@@ -1194,14 +1194,14 @@ async fn shelf_rename(state: State<'_, AppState>, id: u64, name: String) -> CmdR
     with_repo(&state, move |s| s.shelf_rename(id, &name)).await
 }
 
-// ---------- 撤销、重做和操作时间线（说明书第 11 节） ----------
+// ---------- Undo, redo and the op timeline (spec §11) ----------
 
 #[tauri::command]
 async fn oplog_list(state: State<'_, AppState>, limit: Option<usize>) -> CmdResult<OpList> {
     with_repo(&state, move |s| s.oplog_list(limit.unwrap_or(50))).await
 }
 
-/// 撤销最近一步，或撤销到 `to_id`（含）为止。越过已推送的步骤需要 `confirm_pushed`。
+/// Undo the latest step, or undo up to and including `to_id`. Crossing pushed steps needs `confirm_pushed`.
 #[tauri::command]
 async fn oplog_undo(state: State<'_, AppState>, to_id: Option<u64>, confirm_pushed: Option<bool>) -> CmdResult<Written<Vec<OpInfo>>> {
     write_op(&state, move |s| s.oplog_undo(to_id, confirm_pushed.unwrap_or(false))).await
@@ -1212,9 +1212,9 @@ async fn oplog_redo(state: State<'_, AppState>) -> CmdResult<Written<Vec<OpInfo>
     write_op(&state, |s| s.oplog_redo()).await
 }
 
-// ---------- 需要输入凭据时（说明书 7.5） ----------
+// ---------- When credentials are needed (spec §7.5) ----------
 
-/// 等用户回答的请求：编号 → 把回答交回 askpass 的通道
+/// Requests waiting for the user's answer: id → channel handing the answer back to askpass
 static AUTH_WAIT: Mutex<Option<HashMap<String, std::sync::mpsc::Sender<Option<String>>>>> = Mutex::new(None);
 
 #[derive(Serialize, Clone)]
@@ -1224,8 +1224,8 @@ struct AuthEvent {
     secret: bool,
 }
 
-/// 让 git 需要输入时通过 askpass 问界面：发 `auth_required` 事件，等 `auth_reply`；
-/// 用户点了停止（任务取消）时收回输入框（`auth_closed`）并按取消处理。
+/// When git needs input, ask the UI through askpass: emit `auth_required` and wait for `auth_reply`;
+/// when the user presses stop (task cancelled), close the input box (`auth_closed`) and treat it as cancelled.
 fn setup_askpass(app: AppHandle) {
     if let Ok(exe) = std::env::current_exe() {
         strand_core::askpass::set_program(exe);
@@ -1253,7 +1253,7 @@ fn setup_askpass(app: AppHandle) {
     }));
 }
 
-/// 回答 `auth_required`；`secret` 为空表示取消。回答不写日志，只交给发起请求的那一次 git 进程。
+/// Answer `auth_required`; an empty `secret` means cancel. Answers aren't logged and only go to the git process that asked.
 #[tauri::command]
 fn auth_reply(request_id: String, secret: Option<String>) {
     let tx = AUTH_WAIT.lock().unwrap().as_mut().and_then(|m| m.remove(&request_id));
@@ -1262,7 +1262,7 @@ fn auth_reply(request_id: String, secret: Option<String>) {
     }
 }
 
-/// 控制台（说明书 5.8）：新条目发 `console_line` 事件；同样的内容写进应用日志目录（保留 7 天）
+/// Console (spec §5.8): new entries emit a `console_line` event; the same content is written to the app log directory (kept 7 days)
 fn setup_console(app: AppHandle) {
     use tauri::Manager;
     if let Ok(dir) = app.path().app_log_dir() {
@@ -1273,20 +1273,20 @@ fn setup_console(app: AppHandle) {
     }));
 }
 
-/// 控制台最近的条目（从旧到新）
+/// Latest console entries (oldest to newest)
 #[tauri::command]
 fn console_tail(limit: Option<usize>) -> Vec<strand_core::console::Entry> {
     strand_core::console::tail(limit.unwrap_or(strand_core::console::MAX_LINES))
 }
 
-/// 清空控制台（日志文件不动）
+/// Clear the console (log files untouched)
 #[tauri::command]
 fn console_clear() {
     strand_core::console::clear();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-/// `adopted`：启动时并入了登录 shell 的 PATH，用了多少毫秒（写进控制台和日志，方便排查用的是哪个 git）
+/// `adopted`: the login shell's PATH was merged in at startup, and how many ms it took (written to the console and log to help tell which git is used)
 pub fn run(adopted: Option<u128>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

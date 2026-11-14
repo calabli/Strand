@@ -1,9 +1,9 @@
-//! 从访达、程序坞启动时，应用拿到的 PATH 只有系统默认的几项（/usr/bin:/bin:/usr/sbin:/sbin），
-//! 用的是系统自带的 git，而不是用户在终端里用的那个（如 Homebrew 的）。两个 git 的配置、版本、
-//! 凭据辅助程序都可能不同：钥匙串里存的凭据是终端那个 git 存的，换一个程序去读，macOS 会弹窗要登录密码。
+//! When launched from Finder or the Dock, the app's PATH has only the system defaults (/usr/bin:/bin:/usr/sbin:/sbin),
+//! so it uses the system git rather than the one the user runs in the terminal (e.g. Homebrew's). The two gits may differ in config, version
+//! and credential helper: keychain credentials were stored by the terminal's git, and when another program reads them macOS prompts for the login password.
 //!
-//! 所以启动时（只在不是从终端启动的时候）跑一次用户的登录 shell，读出它的 PATH，排在现有 PATH 前面。
-//! 之后核心层调用的 git 和提交前检查的命令都和终端里一致。shell 最多等 3 秒，超时或失败就保持原样。
+//! So at startup (only when not launched from a terminal) run the user's login shell once, read its PATH, and put it in front of the existing PATH.
+//! From then on the git called by the core layer and pre-commit check commands match the terminal. Waits for the shell at most 3 seconds; on timeout or failure nothing changes.
 
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -12,14 +12,14 @@ use std::time::{Duration, Instant};
 const START: &str = "__STRAND_PATH_START__";
 const END: &str = "__STRAND_PATH_END__";
 
-/// 从 shell 的输出里取出 PATH（登录脚本可能打印别的东西，所以用前后标记包住）
+/// Extract PATH from the shell's output (login scripts may print other things, so it's wrapped in markers)
 pub fn parse(out: &str) -> Option<String> {
     let rest = &out[out.rfind(START)? + START.len()..];
     let path = &rest[..rest.find(END)?];
     (!path.trim().is_empty()).then(|| path.to_string())
 }
 
-/// 合并：shell 的在前，原来有而 shell 没有的接在后面，去掉重复和空项
+/// Merge: the shell's entries first, then existing ones the shell lacks, removing duplicates and empty entries
 pub fn merge(shell: &str, current: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     for p in shell.split(':').chain(current.split(':')) {
@@ -30,10 +30,10 @@ pub fn merge(shell: &str, current: &str) -> String {
     out.join(":")
 }
 
-/// 跑用户的登录 shell（读 .zprofile、.zshrc 等），取它的 PATH。失败或超过 `timeout` 返回 `None`。
+/// Run the user's login shell (reading .zprofile, .zshrc, etc.) and take its PATH. Returns `None` on failure or after `timeout`.
 pub fn login_path(timeout: Duration) -> Option<String> {
     let shell = std::env::var("SHELL").ok().filter(|s| s.starts_with('/')).unwrap_or_else(|| "/bin/zsh".into());
-    // -i：很多人把 brew shellenv、nvm 之类写在 .zshrc 里，只有交互式 shell 才读
+    // -i: many people put brew shellenv, nvm and the like in .zshrc, which only interactive shells read
     let script = format!("printf '%s%s%s' '{START}' \"$PATH\" '{END}'");
     let mut child = Command::new(&shell)
         .args(["-l", "-i", "-c", &script])
@@ -59,8 +59,8 @@ pub fn login_path(timeout: Duration) -> Option<String> {
     parse(&out)
 }
 
-/// 不是从终端启动时（父进程是 launchd），把登录 shell 的 PATH 并进本进程的 PATH。
-/// 要在启动任何线程之前调用（会改环境变量）。返回用了多少毫秒，没做时返回 `None`。
+/// When not launched from a terminal (parent is launchd), merge the login shell's PATH into this process's PATH.
+/// Call before starting any threads (it changes environment variables). Returns how many ms it took, or `None` when skipped.
 #[cfg(unix)]
 pub fn adopt_login_path() -> Option<u128> {
     if std::os::unix::process::parent_id() != 1 || std::env::var_os("STRAND_KEEP_PATH").is_some() {
@@ -69,7 +69,7 @@ pub fn adopt_login_path() -> Option<u128> {
     let t = Instant::now();
     let shell = login_path(Duration::from_secs(3))?;
     let merged = merge(&shell, &std::env::var("PATH").unwrap_or_default());
-    // SAFETY: 在 main 一开始、还没有别的线程时调用
+    // SAFETY: called at the very start of main, before any other threads exist
     unsafe { std::env::set_var("PATH", merged) };
     Some(t.elapsed().as_millis())
 }

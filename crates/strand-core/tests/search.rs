@@ -1,4 +1,4 @@
-//! 按内容搜索：在历史改动里搜（git log -S / -G，日志过滤的一种）、提交里哪些文件匹配、项目文件全文搜（git grep）。
+//! Searching by content: in historical changes (git log -S / -G, a kind of log filter), which files in a commit match, full-text search of project files (git grep).
 
 use std::path::Path;
 use std::process::Command;
@@ -34,7 +34,7 @@ fn commit(dir: &Path, msg: &str) {
     git(dir, &["commit", "-q", "-m", msg]);
 }
 
-/// 1 加 fetchUser → 2 改了别的行 → 3 在另一个文件里也调用 fetchUser → 4 删掉 a 里的 fetchUser
+/// 1 add fetchUser → 2 change another line → 3 also call fetchUser in another file → 4 remove fetchUser from a
 fn repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -71,20 +71,20 @@ fn changes(text: &str) -> LogFilter {
 fn search_history_changes() {
     let d = repo();
     let mut s = Session::open(d.path()).unwrap();
-    // 文字：出现次数变了的提交（加进来、调用、删掉），只改了别的行的“改了返回值”不算
+    // Text: commits where the occurrence count changed (added, called, removed); "changed the return value", which only changed another line, doesn't count
     assert_eq!(titles(&mut s, &changes("fetchUser")), ["改名成 loadUser", "b 里调用", "加 fetchUser"]);
-    // 不区分大小写：b.js 的 FETCHUSER 也算，但“b 里调用”本来就在
+    // Case-insensitive: FETCHUSER in b.js counts too, but "call in b" was already there
     let ci = LogFilter { case_sensitive: false, ..changes("fetchuser") };
     assert_eq!(titles(&mut s, &ci), ["改名成 loadUser", "b 里调用", "加 fetchUser"]);
-    // 正则：改动的行匹配就算，“改了返回值”改的是 return 那一行
+    // Regex: a matching changed line counts, and "changed the return value" changed the return line
     let re = LogFilter { regex: true, ..changes(r"return id( \+ 1)?;") };
     assert_eq!(titles(&mut s, &re), ["改了返回值", "加 fetchUser"]);
-    // 和路径一起用
+    // Combined with a path
     let path = LogFilter { path: Some("b.js".into()), ..changes("fetchUser") };
     assert_eq!(titles(&mut s, &path), ["b 里调用"]);
-    // 说明里有这个词但改动里没有的不算；按说明搜照旧
+    // Commits with the word only in the message don't count; message search works as before
     assert_eq!(titles(&mut s, &LogFilter { text: "loadUser".into(), ..Default::default() }), ["改名成 loadUser"]);
-    // 正则写错
+    // Bad regex
     let bad = LogFilter { regex: true, ..changes("(fetch") };
     let e = loop {
         match s.log_query(&bad, LogSort::Topo, 0, 10) {
@@ -104,7 +104,7 @@ fn partial_clone_refuses_history_search() {
     let mut s = Session::open(d.path()).unwrap();
     let e = s.log_query(&changes("fetchUser"), LogSort::Topo, 0, 10).unwrap_err();
     assert_eq!(e.code, ErrorCode::PartialClone);
-    // 按说明搜不受影响
+    // Message search is unaffected
     assert!(s.log_query(&LogFilter { text: "fetch".into(), ..Default::default() }, LogSort::Topo, 0, 10).is_ok());
 }
 
@@ -124,40 +124,40 @@ fn files_matching_in_a_commit() {
 fn project_search_worktree_and_versions() {
     let d = repo();
     let p = d.path();
-    // 工作区：含未跟踪的 notes.md
+    // Worktree: includes the untracked notes.md
     let r = project_search(p, "fetchUser", false, true, None).unwrap();
     let got: Vec<(&str, Vec<u32>)> = r.files.iter().map(|f| (f.path.as_str(), f.hits.iter().map(|h| h.line).collect())).collect();
     assert_eq!(got, [("notes.md", vec![1]), ("src/b.js", vec![1])]);
     assert_eq!(r.total, 2);
     assert_eq!(r.files[1].hits[0].text, "const u = fetchUser(1);");
-    // 不区分大小写
+    // Case-insensitive
     assert_eq!(project_search(p, "fetchuser", false, false, None).unwrap().total, 3);
-    // 某个版本：最早的提交里 a.js 还有 fetchUser
+    // A revision: in the earliest commit a.js still has fetchUser
     let first = git(p, &["rev-list", "--max-parents=0", "HEAD"]);
     let r = project_search(p, "fetchUser", false, true, Some(&first)).unwrap();
     assert_eq!(r.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["src/a.js"]);
-    // 正则
+    // Regex
     let r = project_search(p, r"(load|fetch)User\(", true, true, None).unwrap();
     assert_eq!(r.total, 2);
-    // 没有匹配
+    // No matches
     assert_eq!(project_search(p, "没有这个词", false, true, None).unwrap().total, 0);
-    // 正则写错
+    // Bad regex
     assert_eq!(project_search(p, "(x", true, true, None).unwrap_err().code, ErrorCode::InvalidRegex);
 }
 
-/// 搜索和路径过滤只扫日志里的引用：Strand 存撤销快照的 refs/strand/ops/* 不扫
+/// Search and path filtering only scan the log's refs: Strand's undo snapshots in refs/strand/ops/* aren't scanned
 #[test]
 fn background_queries_skip_internal_snapshots() {
     let d = repo();
     let p = d.path();
     let mut s = Session::open(p).unwrap();
-    // 做一步写操作，留下一个快照提交（树里有 before-worktree/src/a.js 之类的路径）
+    // Do one write, leaving a snapshot commit (its tree has paths like before-worktree/src/a.js)
     s.run_op("新建分支 x", strand_core::oplog::OpKind::Branch, |s| s.branch_create("x", None, false)).unwrap();
     assert!(!git(p, &["for-each-ref", "refs/strand/ops"]).is_empty(), "应该有快照引用");
     let snapshots: Vec<String> = git(p, &["log", "--format=%H", "--glob=refs/strand/ops/*", "--no-walk"]).lines().map(str::to_string).collect();
     let hits = strand_core::log_filter::path_commits(p, "a.js", false).unwrap();
     assert!(!hits.is_empty());
     assert!(hits.iter().all(|h| !snapshots.contains(&h.to_string())), "路径过滤扫到了内部快照");
-    // 改动内容搜索的结果也都在日志里
+    // Change search results are all in the log too
     assert_eq!(titles(&mut s, &changes("fetchUser")), ["改名成 loadUser", "b 里调用", "加 fetchUser"]);
 }

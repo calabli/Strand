@@ -1,4 +1,4 @@
-//! 暂存架看整个文件、两段文字对比、冲突时各方的文件内容。
+//! Whole-file shelf diffs, diffs of two texts, each side's file content during a conflict.
 
 use std::path::Path;
 use std::process::Command;
@@ -46,7 +46,7 @@ fn shelf_diff_full_file() {
     let full = s.shelf_diff(e.id, "a.txt", Some(1_000_000)).unwrap();
     assert_eq!(full.hunks.len(), 1);
     let lines = &full.hunks[0].lines;
-    // 整个文件：30 行原文 + 1 行改 + 1 行新增
+    // Whole file: 30 original lines + 1 changed + 1 added
     assert_eq!(lines.iter().filter(|l| l.kind != LineKind::Add).count(), 30);
     assert_eq!(lines.iter().filter(|l| l.kind == LineKind::Add).map(|l| l.text.as_str()).collect::<Vec<_>>(), vec!["第三行", "新的最后一行"]);
     assert_eq!(lines.iter().filter(|l| l.kind == LineKind::Del).map(|l| l.text.as_str()).collect::<Vec<_>>(), vec!["第 3 行", "第 25 行"]);

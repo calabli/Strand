@@ -1,5 +1,5 @@
-/* Strand 原型 · 冲突列表、合并窗口、拉取摘要 */
-/* ---------- 冲突 ---------- */
+/* Strand prototype · conflict list, merge window, pull summary */
+/* ---------- Conflicts ---------- */
 function splitDiff(x, y) {
   if (y === undefined) return ['', x, ''];
   var p = 0; while (p < x.length && p < y.length && x[p] === y[p]) p++;
@@ -100,7 +100,7 @@ function mergeWindow() {
     '<button type="button" class="btn primary ib lg" data-act="cfApply" aria-label="应用：这个文件处理完了" title="应用：这个文件处理完了">' + IC.check + '</button></span></div></div></div>';
 }
 
-/* ---------- 浮层 ---------- */
+/* ---------- Overlays ---------- */
 function sheetView() {
   return '<div class="sheet" role="dialog" aria-modal="true" aria-label="拉取遇到冲突"><div class="pad"><h1>拉取完成了一部分，还有冲突要你决定</h1><span class="muted">从 <span class="mono">origin/' + esc(S.branch) + '</span> 拉取</span></div>' +
     '<div class="pad" style="padding-top:0"><div class="seg" style="margin:0;display:inline-flex" role="group" aria-label="拉取方式">' + [['merge', '合并'], ['rebase', '变基']].map(function (x) { return '<button type="button" data-act="pullMode" data-arg="' + x[0] + '" aria-pressed="' + (S.pullMode === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +

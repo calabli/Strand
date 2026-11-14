@@ -1,7 +1,7 @@
-//! 前后端之间传递的数据结构，对应说明书第 13 节。
+//! Data structures passed between frontend and backend, matching spec §13.
 //!
-//! 字段名用下划线命名，时间用 Unix 秒，哈希用完整的 40 位字符串。
-//! 前端的 `src/api/types.ts` 必须和这里保持一致。
+//! Field names are snake_case, times are Unix seconds, hashes are full 40-character strings.
+//! The frontend's `src/api/types.ts` must stay in sync with this file.
 
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 pub enum HeadKind {
     Branch,
     Detached,
-    /// 新建仓库还没有任何提交
+    /// A new repository with no commits yet
     Unborn,
 }
 
@@ -31,7 +31,7 @@ pub enum RepoMode {
     Rebasing,
     CherryPicking,
     Reverting,
-    /// 取回贮藏或暂存架时有冲突，还没处理完（说明书 4.9、8.1）
+    /// Restoring a stash or shelf entry hit conflicts that aren't resolved yet (spec §4.9, §8.1)
     Unstashing,
 }
 
@@ -41,7 +41,7 @@ pub struct RepoState {
     pub name: String,
     pub head: Head,
     pub state: RepoMode,
-    /// 二分查找进行中（git bisect）；这时 HEAD 停在要测试的提交上，其余操作照常
+    /// Bisect in progress (git bisect); HEAD sits on the commit to test, other operations work as usual
     #[serde(default)]
     pub bisecting: bool,
 }
@@ -58,7 +58,7 @@ pub enum RefKind {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Ref {
     pub kind: RefKind,
-    /// 短名，如 `main`、`origin/main`、`v0.4.0`
+    /// Short name, e.g. `main`, `origin/main`, `v0.4.0`
     pub name: String,
 }
 
@@ -78,41 +78,41 @@ pub struct Commit {
     pub time: i64,
     pub refs: Vec<Ref>,
     pub is_merge: bool,
-    /// 从当前分支能到达、但不在它的跟踪分支里（没有跟踪分支时：不在任何远程分支里）
+    /// Reachable from the current branch but not in its upstream (without an upstream: not in any remote branch)
     pub unpushed: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
-    /// 同一条泳道继续往下
+    /// The same lane continues down
     Straight,
-    /// 从这一行分出去到别的泳道（第一个父提交在别的泳道，或分支起点）
+    /// Branches off from this row to another lane (the first parent is in another lane, or a branch start)
     Fork,
-    /// 合并提交的第二个及以后的父提交
+    /// The second and later parents of a merge commit
     Merge,
-    /// 长连线在这里折叠：从本行往下画一小段，末端是向下的箭头，不连到下一行（这条泳道让给别的线）
+    /// A long edge collapses here: a short segment down from this row ending in a down arrow, not connected to the next row (the lane is given to other edges)
     CutOut,
-    /// 折叠的长连线在这里接回来：本行顶部是向下的箭头，再从本行一直画到下一行
+    /// A collapsed long edge rejoins here: a down arrow at the top of this row, then drawn from this row to the next
     CutIn,
 }
 
-/// 从本行到下一行的一段连线。
+/// One segment from this row to the next.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Edge {
     pub from_lane: u32,
     pub to_lane: u32,
     pub kind: EdgeKind,
-    /// 折叠的线（`CutOut`、`CutIn`）另一头所在的行：收住处指向父提交，接回处指向这条线出发的子提交。
-    /// 点箭头跳过去。父提交不在列表里时为空
+    /// The row at the other end of a collapsed edge (`CutOut`, `CutIn`): the cap points to the parent, the rejoin to the child the edge started from.
+    /// Clicking the arrow jumps there. Empty when the parent isn't in the list
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<u32>,
 }
 
-/// 图谱的一行，和 `LogPage.rows` 一一对应。
+/// One row of the graph, matching `LogPage.rows` one to one.
 ///
-/// `edges` 是从本行画到下一行的所有线段，包括只是从这一行经过的泳道，
-/// 前端逐行画线即可，不需要知道父提交在哪一行。
+/// `edges` are all segments drawn from this row to the next, including lanes that only pass through,
+/// so the frontend draws row by row without knowing which row a parent is on.
 #[derive(Debug, Clone, Serialize)]
 pub struct GraphRow {
     pub lane: u32,
@@ -125,11 +125,11 @@ pub struct LogPage {
     pub rows: Vec<Commit>,
     pub graph: Vec<GraphRow>,
     pub total: usize,
-    /// 整个日志最多用到几条泳道，前端据此定图谱列宽
+    /// The most lanes used anywhere in the log; the frontend sizes the graph column from it
     pub lanes: u32,
-    /// 过滤结果还没算完（说明书 15“首批结果先返回，其余分批追加”）：total 是目前找到的数目，过一会儿再查会更多
+    /// Filter results aren't complete yet (spec §15 "first results return first, the rest are appended in batches"): total is the count so far, querying again later gives more
     pub partial: bool,
-    /// 折叠线性分支时：和 rows 一一对应，这一行下面折叠起来的提交数（0 是没有折叠）；没折叠时为空
+    /// With linear branches collapsed: matches rows one to one, the number of commits folded under that row (0 means none); empty when not collapsed
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub folded: Vec<u32>,
 }
@@ -139,12 +139,12 @@ pub struct GitInfo {
     pub found: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    /// 版本不低于 `MIN_GIT_VERSION`
+    /// Version not lower than `MIN_GIT_VERSION`
     pub ok: bool,
     pub min_version: String,
 }
 
-// ---------- 工作区、差异、提交详情（说明书 4、5.5、10 节） ----------
+// ---------- Worktree, diffs, commit details (spec §4, §5.5, §10) ----------
 
 #[derive(Debug, Clone, Copy, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum FileStatus {
@@ -152,7 +152,7 @@ pub enum FileStatus {
     A,
     D,
     R,
-    /// 类型变化（如普通文件变成符号链接），界面按 M 显示
+    /// Type change (e.g. a regular file became a symlink); the UI shows it as M
     T,
 }
 
@@ -165,14 +165,14 @@ pub struct FileChange {
     pub added: u32,
     pub deleted: u32,
     pub binary: bool,
-    /// 部分克隆里文件内容不在本地、也没能下载：added / deleted 不可用
+    /// In a partial clone the file content isn't local and couldn't be downloaded: added / deleted unavailable
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub no_stats: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct WorktreeStatus {
-    /// 已跟踪文件相对 HEAD 的改动（不区分是否已暂存，提交面板不使用暂存区概念）
+    /// Changes to tracked files relative to HEAD (staged or not; the commit panel has no staging area concept)
     pub changes: Vec<FileChange>,
     pub untracked: Vec<String>,
 }
@@ -197,7 +197,7 @@ pub struct DiffLine {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Hunk {
-    /// 函数或结构名 + 起始行，如 `fn place · 第 88 行起`
+    /// Function or struct name + starting line, e.g. `fn place · from line 88`
     pub title: String,
     pub old_start: u32,
     pub new_start: u32,
@@ -209,29 +209,29 @@ pub struct FileDiff {
     pub path: String,
     pub binary: bool,
     pub hunks: Vec<Hunk>,
-    /// 行数超过上限被截断
+    /// Truncated for exceeding the line limit
     pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CommitDetail {
     pub commit: Commit,
-    /// 相对第一个父提交的改动；根提交相对空树
+    /// Changes relative to the first parent; a root commit relative to the empty tree
     pub files: Vec<FileChange>,
-    /// 说明书 5.6 各操作是否可用
+    /// Availability of each operation in spec §5.6
     pub caps: crate::commits::CommitCaps,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct SelectedFile {
     pub path: String,
-    /// 重命名时一起提交旧路径的删除
+    /// For renames, also commit the deletion of the old path
     #[serde(default)]
     pub old_path: Option<String>,
-    /// 整个文件；为假时只提交 `lines` 里的改动行（说明书 4.3）
+    /// Whole file; when false, only commit the changed lines in `lines` (spec §4.3)
     #[serde(default = "yes")]
     pub whole: bool,
-    /// 要提交的改动行：`diff_worktree(path, 不忽略空白, 3 行上下文)` 里第 hunk 块第 line 行
+    /// A changed line to commit: line `line` of block `hunk` in `diff_worktree(path, keep whitespace, 3 lines of context)`
     #[serde(default)]
     pub lines: Vec<LineRef>,
 }
@@ -254,50 +254,50 @@ pub struct Selection {
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeScope {
-    /// 分支、标签、HEAD 变了：日志和分支要刷新
+    /// Branches, tags or HEAD changed: refresh the log and branches
     Refs,
-    /// 工作区或索引变了：提交面板要刷新
+    /// Worktree or index changed: refresh the commit panel
     Status,
-    /// 贮藏变了（如在命令行里 git stash）：贮藏列表要刷新，日志不用
+    /// Stashes changed (e.g. git stash on the command line): refresh the stash list, not the log
     Stash,
-    /// 暂存架变了：暂存架列表要刷新
+    /// The shelf changed: refresh the shelf list
     Shelf,
 }
 
-// ---------- 分支、远程分支、标签（说明书第 6 节） ----------
+// ---------- Branches, remote branches, tags (spec §6) ----------
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Branch {
     pub name: String,
     pub head: String,
-    /// 跟踪的远程分支，如 `origin/main`
+    /// The tracked remote branch, e.g. `origin/main`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream: Option<String>,
-    /// 相对跟踪分支领先、落后的提交数；没有跟踪分支时都是 0
+    /// Commits ahead of and behind the upstream; both 0 without an upstream
     pub ahead: u32,
     pub behind: u32,
     pub is_current: bool,
-    /// 已经完全包含在当前分支里，删除时不会丢提交
+    /// Fully contained in the current branch; deleting it loses no commits
     pub merged: bool,
-    /// 在另一个工作目录里检出（那个目录的路径）；这时不能在这里切换到它
+    /// Checked out in another worktree (that directory's path); can't be switched to here
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
-    /// 本地改写了已经推送的提交（远程独有的提交在本地都有内容相同的版本）：推送需要强制推送
+    /// Local history rewrote pushed commits (every remote-only commit has a same-content version locally): pushing needs a force push
     pub needs_force: bool,
-    /// 不能把当前分支变基到它之上的原因（说明书 6.3）；能变基或不确定时为空。当前分支自己、不在分支上时也为空
+    /// Why the current branch can't be rebased onto it (spec §6.3); empty when it can or it's unclear. Also empty for the current branch itself and when not on a branch
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rebase_block: Option<String>,
-    /// 收藏了（说明书 6.1）：在分支树和分支弹窗里排在前面
+    /// Favorite (spec §6.1): listed first in the branch tree and branch popup
     pub favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteBranch {
-    /// 如 `origin/main`
+    /// E.g. `origin/main`
     pub name: String,
     pub remote: String,
     pub head: String,
-    /// 不能把当前分支变基到它之上的原因，同 `Branch::rebase_block`
+    /// Why the current branch can't be rebased onto it, same as `Branch::rebase_block`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rebase_block: Option<String>,
 }
@@ -305,11 +305,11 @@ pub struct RemoteBranch {
 #[derive(Debug, Clone, Serialize)]
 pub struct Tag {
     pub name: String,
-    /// 标签指向的提交
+    /// The commit the tag points to
     pub at: String,
-    /// 还没推送到 origin（按上次抓取时记下的远程标签）；从没抓取过时为 false
+    /// Not pushed to origin yet (per the remote tags recorded at the last fetch); false if never fetched
     pub unpushed: bool,
-    /// 带说明的标签（git tag -a）的说明；轻量标签没有
+    /// The message of an annotated tag (git tag -a); lightweight tags have none
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
@@ -320,55 +320,55 @@ pub struct RefsList {
     pub remotes: Vec<RemoteBranch>,
     pub tags: Vec<Tag>,
     pub head: Head,
-    /// 工作目录（说明书 6.6），第一个是主工作目录
+    /// Worktrees (spec §6.6); the first is the main worktree
     pub worktrees: Vec<crate::worktrees::Worktree>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeResult {
-    /// 当前分支已经包含了它，什么也没做
+    /// Already contained in the current branch, nothing done
     UpToDate,
     FastForward,
     Merged,
-    /// 压缩合并：它的改动合成一个普通提交（只有一个父提交）
+    /// Squash merge: its changes combined into one normal commit (one parent)
     Squashed,
 }
 
-/// 合并方式（说明书 6.7 的 `mode`）
+/// Merge mode (`mode` in spec §6.7)
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeMode {
-    /// 能快进就快进，否则生成合并提交
+    /// Fast-forward when possible, otherwise create a merge commit
     #[default]
     Auto,
-    /// 总是生成合并提交（`--no-ff`）
+    /// Always create a merge commit (`--no-ff`)
     NoFf,
-    /// 把它的改动压缩成一个提交（不记它是合并来的）
+    /// Squash its changes into one commit (without recording it as a merge)
     Squash,
 }
 
-/// 变基前的检查结果（说明书 6.3“变基到某分支之上”），界面据此弹确认框
+/// Pre-rebase check result (spec §6.3 "rebase onto a branch"), used by the UI for the confirmation dialog
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RebasePlan {
     pub branch: String,
     pub onto: String,
-    /// 当前分支独有的提交数（要被改写的）
+    /// Number of commits only on the current branch (to be rewritten)
     pub own: u32,
-    /// 其中已经推送过的（在任意远程分支里）；大于 0 时变基后需要强制推送
+    /// How many of them were already pushed (in any remote branch); a force push is needed after rebasing when greater than 0
     pub pushed: u32,
-    /// 目标分支上当前分支还没有的提交数
+    /// Commits on the target branch that the current branch doesn't have
     pub incoming: u32,
-    /// 独有提交里有合并提交：不能变基
+    /// Own commits include a merge commit: can't rebase
     pub has_merge: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RebaseOutcome {
-    /// 已经在目标分支之上，什么也没做
+    /// Already on top of the target branch, nothing done
     UpToDate,
-    /// 当前分支没有独有提交，直接快进到目标
+    /// The current branch has no own commits; fast-forward straight to the target
     FastForward,
     Rebased,
 }

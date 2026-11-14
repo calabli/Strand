@@ -1,4 +1,4 @@
-/* 布局：桌面上是一个 macOS 窗口（工具栏 + 三栏），窄屏时各栏上下堆叠 */
+/* Layout: on desktop a macOS window (toolbar + three columns); on narrow screens the columns stack vertically */
 :root {
   --desk: #E4E4E9; --win: #FFFFFF; --side: #F5F5F7; --bar: #F5F5F7; --soft: #FAFAFB;
   --line: #DCDCE0; --line2: #C9C9CF; --fg: #1D1D1F; --fg2: #5F5F65; --chip: #E4E4E8; --hover: #ECECF0;
@@ -84,7 +84,7 @@ button.item:hover { background: var(--hover); }
 .main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 
-/* 历史 */
+/* History */
 .graph { position: relative; padding: 8px 10px 8px 0; }
 .graph svg { position: absolute; left: 10px; top: 8px; pointer-events: none; }
 .crow { display: grid; grid-template-columns: minmax(0, 1fr) 52px 76px; align-items: center; gap: 12px; width: calc(100% - 96px); height: 36px; margin-left: 96px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; text-align: left; }
@@ -116,7 +116,7 @@ button.item:hover { background: var(--hover); }
 button.pill:hover { background: var(--hover); }
 span.pill { color: var(--fg2); }
 
-/* 改动 */
+/* Changes */
 .left { flex: 0 0 330px; box-sizing: border-box; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: auto; }
 .left .files { padding: 12px 10px; display: flex; flex-direction: column; gap: 3px; }
 .frow2 { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 6px; border-radius: 7px; }
@@ -138,7 +138,7 @@ span.pill { color: var(--fg2); }
 .empty { margin: auto; padding: 40px 20px; text-align: center; color: var(--fg2); max-width: 36ch; }
 .empty strong { display: block; color: var(--fg); font-size: 15px; margin-bottom: 6px; }
 
-/* 冲突 */
+/* Conflicts */
 .tri { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); }
 .colhead { position: sticky; top: 0; z-index: 1; background: var(--bar); border-bottom: 1px solid var(--line); }
 .colhead > div { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 3px solid var(--fg); min-width: 0; }
@@ -193,7 +193,7 @@ span.pill { color: var(--fg2); }
 .info b { font-size: 11px; color: var(--mine-ink); } .info.t b { color: var(--theirs-ink); }
 .sub2 { padding-left: 16px; font-size: 11px; color: var(--fg2); }
 
-/* 新增：分支、过滤、弹窗、整理提交 */
+/* Added: branches, filters, popups, interactive rebase */
 .brow { cursor: grab; }
 .brow .acts { display: none; gap: 2px; }
 .brow:hover .acts, .brow:focus-within .acts { display: flex; }
@@ -236,7 +236,7 @@ button.frow:hover { background: var(--hover); }
 .bl2 .n { text-align: right; padding-right: 8px; color: var(--fg2); line-height: 22px; }
 .bl2 .code { white-space: pre; overflow: hidden; line-height: 22px; }
 
-/* 重排：提交面板 + 日志同屏 */
+/* Rearranged: commit panel + log on one screen */
 .left { flex: 0 0 290px; }
 .tabs { display: flex; align-items: flex-end; gap: 2px; padding: 6px 10px 0; background: var(--bar); border-bottom: 1px solid var(--line); }
 .tabs button[role="tab"] { height: 28px; padding: 0 12px; border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; }
@@ -275,7 +275,7 @@ button.frow:hover { background: var(--hover); }
   .cfc { display: none; }
 }
 
-/* 第三批：推送、分支弹窗、多选、差异选项、贮藏、未跟踪 */
+/* Third batch: push, branch popup, multi-select, diff options, stash, untracked */
 .capsule .bbtn { border-left: 0; font-family: var(--mono); font-size: 12px; }
 .crow.msel { background: var(--theirs-bg); }
 .st.U { background: var(--chip); color: var(--fg2); }
@@ -293,7 +293,7 @@ button.frow:hover { background: var(--hover); }
 .ds .code.off { opacity: 0.5; }
 .composer .btn.ib.lg { width: 34px; height: 34px; }
 
-/* 第四批：对照 JetBrains 截图补齐 */
+/* Fourth batch: filled in against JetBrains screenshots */
 .tree { flex: 0 0 232px; flex-direction: row; padding: 0; gap: 0; overflow: hidden; }
 .tbar { flex: 0 0 30px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; border-right: 1px solid var(--line); overflow: auto; }
 .tbar .btn.ib, .ctb .btn.ib, .dtop .btn.ib { width: 24px; height: 22px; border-color: transparent; background: transparent; }
@@ -316,7 +316,7 @@ button.frow:hover { background: var(--hover); }
 .menu button:hover:not(:disabled) .kbd { color: #FFFFFF; }
 @media (max-width: 900px) { .tree { flex: 0 0 auto; flex-direction: column; } .tbar { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); padding: 4px 8px; } .crow.abs { grid-template-columns: minmax(0, 1fr) 112px; } .detail.split { overflow: visible; } }
 
-/* 浮层 */
+/* Overlays */
 #overlay:empty, #pal:empty, #toast:empty { display: none; }
 #overlay, #pal { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,0.42); display: flex; justify-content: center; align-items: flex-start; padding: max(16px, 9vh) 16px 16px; overflow: auto; }
 .sheet { width: 100%; max-width: 540px; border-radius: 14px; background: var(--win); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }

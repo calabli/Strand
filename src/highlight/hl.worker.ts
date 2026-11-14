@@ -1,5 +1,5 @@
-// 语法高亮的后台线程：用 highlight.js 给整段文字着色，拆成每一行的 [开始, 结束, 种类] 列表交回界面。
-// 整段一起着色（不是一行一行），跨行的注释、字符串才认得对。只注册常用的语言，打包体积不会太大。
+// The syntax highlighting worker: colors whole texts with highlight.js and returns per-line [start, end, kind] lists to the UI.
+// Coloring the whole text at once (not line by line) gets multi-line comments and strings right. Only common languages are registered to keep the bundle small.
 
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
@@ -33,12 +33,12 @@ import yaml from "highlight.js/lib/languages/yaml";
 const LANGS = { bash, c, cpp, csharp, css, dart, dockerfile, go, ini, java, javascript, json, kotlin, lua, makefile, markdown, php, python, ruby, rust, scala, scss, sql, swift, typescript, xml, yaml };
 for (const [name, def] of Object.entries(LANGS)) hljs.registerLanguage(name, def);
 
-/** 一段着色：[开始, 结束, 种类]（种类是 hljs 的类名去掉前缀，如 keyword、string） */
+/** One colored run: [start, end, kind] (kind is the hljs class name without the prefix, e.g. keyword, string) */
 export type Tok = [number, number, string];
 
 const ENT: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#x27;": "'", "&#39;": "'" };
 
-/** 把 highlight.js 输出的 HTML 拆成每一行的着色段 */
+/** Split highlight.js's HTML output into per-line colored runs */
 function toLines(html: string): Tok[][] {
   const lines: Tok[][] = [[]];
   const stack: string[] = [];
@@ -46,7 +46,7 @@ function toLines(html: string): Tok[][] {
   const re = /<span class="([^"]+)">|<\/span>|([^<]+)/g;
   for (let m = re.exec(html); m; m = re.exec(html)) {
     if (m[1] !== undefined) {
-      // “hljs-title function_” 取第一个类名
+      // "hljs-title function_" takes the first class name
       stack.push(m[1].split(" ")[0].replace(/^hljs-/, ""));
     } else if (m[0] === "</span>") {
       stack.pop();

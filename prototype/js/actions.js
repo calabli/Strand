@@ -1,5 +1,5 @@
-/* Strand 原型 · 所有动作（data-act 对应的处理函数） */
-/* ---------- 动作 ---------- */
+/* Strand prototype · all actions (handlers for data-act) */
+/* ---------- Actions ---------- */
 function cfGoto(gi) {
   var g = G[gi]; S.cf.file = g.file; S.cf.cur = g.idx;
   if (S.cf.open != null && !CF[g.file].card) S.cf.open = g.file;
@@ -389,7 +389,7 @@ var act = {
     if (m && act[m.run]) act[m.run](m.arg, val); else render();
   },
 
-  /* 远程 */
+  /* Remotes */
   fetch: function () { var b = B(); git('$ git fetch origin'); toast(b.behind ? '已抓取：远程有 ' + b.behind + ' 个新提交，可以拉取' : '已抓取：远程没有新提交'); },
   pull: function () {
     var b = B();
@@ -423,7 +423,7 @@ var act = {
     pendingScroll = 0; render();
   },
 
-  /* 历史过滤、比较、追溯、标签 */
+  /* History filters, compare, blame, tags */
   hpath: function (p) { S.hpath = p || ''; S.view = 'main'; S.tab = 'log'; render(); },
   pullMode: function (m) { S.pullMode = m; render(); },
   cmp: function (id) { S.cmp = id || ''; render(); if (id) toast('已设为比较起点，再点另一个提交'); },
@@ -442,7 +442,7 @@ var act = {
   cfMode: function (m) { S.cf.mode = m; render(); },
   cfSkip: function () { S.cf.skip = true; act.cfFinish(); },
 
-  /* 提交操作 */
+  /* Commit operations */
   cpick: function (id) {
     var c = commitById(id); if (!c || S.merging) return;
     var d = snap('拣选 ' + id);
@@ -476,7 +476,7 @@ var act = {
     snap('修改提交说明'); commitById(id).msg = val; render(); toast('已修改提交说明', true);
   },
 
-  /* 分支 */
+  /* Branches */
   bnew: function (at) { ask({ kind: 'prompt', title: at ? '从 ' + at + ' 新建分支' : '从当前位置新建分支', text: '新建后会切换到这个分支。', value: 'feature/', run: 'bnewDo', arg: at || '' }); },
   bnewDo: function (at, val) {
     var n = validName(val); if (!n) { render(); return; }
@@ -519,7 +519,7 @@ var act = {
     S.timeline.unshift({ label: '合并 ' + a[0], time: '刚刚', depth: d }); render();
   },
 
-  /* 交互式变基 */
+  /* Interactive rebase */
   rbOpen: function () {
     if (S.merging) { toast('合并还没完成，不能整理提交'); return; }
     var chain = rbChain();
@@ -535,7 +535,7 @@ var act = {
   },
   rbApply: function () { var rows = S.rb; S.rb = null; applyRows(rows, '整理提交'); },
 
-  /* 改动 */
+  /* Changes */
   cfile: function (i) { S.cfile = +i; S.dopen = true; S.tab = 'diff'; S.view = 'main'; render(); },
   tfile: function (p) { if (S.offFiles[p]) delete S.offFiles[p]; else S.offFiles[p] = true; render(); },
   tline: function (k) { if (S.offLines[k]) delete S.offLines[k]; else S.offLines[k] = true; render(); },
@@ -608,7 +608,7 @@ var act = {
     return true;
   },
 
-  /* 冲突 */
+  /* Conflicts */
   cfOpen: function (i) { if (CF[+i].card) return; S.cf.open = +i; S.cf.file = +i; S.cf.cur = 0; S.cf.checked = false; pendingScroll = 0; render(); },
   cfGo: function (gi) { cfGoto(+gi); },
   cfStep: function (d) {

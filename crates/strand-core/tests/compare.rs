@@ -1,4 +1,4 @@
-//! 比较、补丁、查看某个版本的仓库（说明书 10.3–10.5）。
+//! Compare, patches, and browsing the repository at a revision (spec §10.3–10.5).
 
 use std::path::Path;
 use std::process::Command;
@@ -27,7 +27,7 @@ fn commit(p: &Path, file: &str, text: &str, msg: &str) -> String {
     git(p, &["rev-parse", "HEAD"])
 }
 
-/// main: A - B - C；feature 从 A 分出：F1 - F2
+/// main: A - B - C; feature branches from A: F1 - F2
 fn sample() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -63,7 +63,7 @@ fn compare_branches_and_files() {
     assert_eq!(diff.hunks.len(), 1);
     assert_eq!(s.compare("main", "不存在").unwrap_err().code, ErrorCode::NotFound);
 
-    // 和本地比较：不能是最新提交本身
+    // Compare with local: can't be the latest commit itself
     let head = git(p, &["rev-parse", "HEAD"]);
     assert!(!s.commit_caps(&head).unwrap().compare_local.ok);
     let a = git(p, &["rev-parse", "HEAD~2"]);
@@ -87,7 +87,7 @@ fn patches_and_tree() {
     let sel = Selection { files: vec![SelectedFile { path: "a.txt".into(), old_path: None, whole: true, lines: vec![] }] };
     let wp = s.patch_worktree(&sel).unwrap();
     assert!(wp.contains("+工作区里改") && !wp.contains("不选"));
-    // 补丁能原样应用回去
+    // The patch applies back as is
     git(p, &["checkout", "--", "a.txt"]);
     std::fs::write(p.join("x.patch"), &wp).unwrap();
     git(p, &["apply", "x.patch"]);

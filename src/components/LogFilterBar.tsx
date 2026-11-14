@@ -1,6 +1,6 @@
-// 日志过滤栏（说明书 5.1）：分支树开关、搜索（正则、区分大小写）、分支、作者、日期、路径、按时间排序、
-// 刷新、拣选、显示选项、跳到提交、整理提交。
-// 条件取交集；没设置的条件只显示图标，设置后显示取值和清除按钮。
+// Log filter bar (spec §5.1): branch tree toggle, search (regex, case sensitivity), branch, author, date, path, sort by time,
+// refresh, cherry-pick, display options, jump to commit, rebase commits.
+// Conditions are intersected; unset conditions show only an icon, set ones show their value and a clear button.
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/commands";
@@ -14,29 +14,29 @@ import { setSettings, useSettings } from "../settings";
 
 export type DateRange = "all" | "today" | "3d" | "6d" | "custom";
 
-/** 过滤栏的界面状态；`toFilter` 换算成发给核心层的条件 */
+/** The filter bar's UI state; `toFilter` converts it to the conditions sent to the core layer */
 export interface LogUi {
   text: string;
   regex: boolean;
   caseSensitive: boolean;
   branch: string | null;
-  /** 勾选的作者（多选） */
+  /** Checked authors (multiple) */
   authors: LogAuthor[];
-  /** 按规则匹配的作者，和勾选的是“或” */
+  /** Authors matched by rule, OR-ed with the checked ones */
   authorRule: AuthorMatch | null;
   date: DateRange;
-  /** 自定义范围的起止日期（YYYY-MM-DD，两头都含），date 为 custom 时用 */
+  /** Start and end dates of a custom range (YYYY-MM-DD, both inclusive), used when date is custom */
   from: string | null;
   to: string | null;
   path: string | null;
   sort: LogSort;
-  /** 搜索框搜哪里：提交说明和哈希，还是改动内容（这段文字加进来或删掉的提交） */
+  /** Where the search box searches: commit messages and hashes, or changes (commits that added or removed the text) */
   searchIn: "message" | "changes";
-  /** 只看第一父提交 */
+  /** First parent only */
   firstParent: boolean;
-  /** 不显示合并提交 */
+  /** Hide merge commits */
   noMerges: boolean;
-  /** 折叠线性分支（没有别的过滤、按图谱顺序时才有效） */
+  /** Collapse linear branches (only effective without other filters, in graph order) */
   collapse: boolean;
 }
 
@@ -44,13 +44,13 @@ export const EMPTY_UI: LogUi = { text: "", regex: false, caseSensitive: false, b
 
 const DATE_LABEL: Record<Exclude<DateRange, "custom">, string> = lazy(() => ({ all: t("所有日期"), today: t("今天"), "3d": t("最近 3 天"), "6d": t("最近 6 天") }));
 
-/** 本机时区某天 0 点（YYYY-MM-DD），加 days 天 */
+/** Midnight of a day in the local time zone (YYYY-MM-DD), plus days */
 function dayStart(d: string, days = 0): number {
   const [y, m, dd] = d.split("-").map(Number);
   return Math.floor(new Date(y, m - 1, dd + days).getTime() / 1000);
 }
 
-/** 今天 0 点往前推 days - 1 天（“最近 3 天”是今天和前两天） */
+/** Today's midnight minus days - 1 days ("last 3 days" is today and the two before) */
 function sinceOf(d: DateRange): number | null {
   if (d === "all" || d === "custom") return null;
   const days = d === "today" ? 1 : d === "3d" ? 3 : 6;
@@ -80,7 +80,7 @@ export function toFilter(u: LogUi): LogFilter {
 
 export const isFiltered = (u: LogUi) => !!(u.text || u.branch || u.authors.length || u.authorRule || u.date !== "all" || u.path || u.sort !== "topo" || u.firstParent || u.noMerges);
 
-/** 作者条件显示成一小段文字：勾选的第一个人的名字（多的显示 +N），有规则时接上规则 */
+/** The author condition shown as a short text: the first checked person's name (+N for more), followed by the rule when there is one */
 function authorText(u: LogUi): string | null {
   const parts: string[] = [];
   if (u.authors.length) parts.push(u.authors[0].name + (u.authors.length > 1 ? ` +${u.authors.length - 1}` : ""));
@@ -88,7 +88,7 @@ function authorText(u: LogUi): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-/** 日期条件的文字 */
+/** Text for the date condition */
 function dateText(u: LogUi): string | null {
   if (u.date === "all") return null;
   if (u.date !== "custom") return DATE_LABEL[u.date];
@@ -125,18 +125,18 @@ interface Props {
   treeOpen: boolean;
   onToggleTree: () => void;
   onJump: () => void;
-  /** 打开整理窗口（全部可整理的提交） */
+  /** Open the rebase window (all rebaseable commits) */
   onRebase: () => void;
-  /** 重新读取日志 */
+  /** Re-read the log */
   onRefresh: () => void;
-  /** 拣选选中的提交；不可用时 why 是原因 */
+  /** Cherry-pick the selected commits; why is the reason when unavailable */
   pick: { run: () => void; ok: boolean; why?: string | null; count: number };
-  /** 比较模式的起点（说明书 10.3）；给出时显示“比较起点”标记 */
+  /** Start point of compare mode (spec §10.3); shows a "compare base" marker when given */
   compareBase?: string | null;
   onExitCompare?: () => void;
-  /** 正则写错了 */
+  /** The regex is invalid */
   badRegex: boolean;
-  /** 搜索框获得焦点的请求（⌘F），n 每次不同 */
+  /** Request to focus the search box (⌘F); n differs every time */
   focus: number;
 }
 
@@ -152,10 +152,10 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
   const latest = useRef(ui);
   latest.current = ui;
 
-  // 外面清空了条件（如“定位”、跳到提交）时同步输入框
+  // Sync the input when conditions were cleared from outside (e.g. "locate", jump to commit)
   useEffect(() => setText(ui.text), [ui.text]);
 
-  // 输入后 150 ms 再过滤；搜改动内容时每次都要在全部历史上跑一遍 git，等 600 ms（或按回车）
+  // Filter 150 ms after typing; searching changes runs git over the whole history every time, so wait 600 ms (or Enter)
   useEffect(() => {
     if (text === latest.current.text) return;
     const t = window.setTimeout(() => onChange({ ...latest.current, text }), latest.current.searchIn === "changes" ? 600 : 150);
@@ -279,7 +279,7 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
           </button>
         </span>
       )}
-      {/* 右边的操作图标作为一组：放不下时整组换到第二行、靠右 */}
+      {/* The action icons on the right form a group: when they don't fit, the whole group wraps to a second line, right-aligned */}
       <span className="fbar-acts">
       <button
         type="button"
@@ -289,7 +289,7 @@ export function LogFilterBar({ ui, onChange, refs, treeOpen, onToggleTree, onJum
         aria-haspopup="menu"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          // 折叠只在按图谱顺序、没有别的过滤条件时有效（过滤和按时间排序时不画图谱）
+          // Collapsing only works in graph order without other filters (no graph is drawn when filtering or sorting by time)
           const plain = !isFiltered({ ...ui, sort: "topo", firstParent: false, noMerges: false }) && ui.sort === "topo" && !ui.firstParent && !ui.noMerges;
           setMenu({
             x: r.left,

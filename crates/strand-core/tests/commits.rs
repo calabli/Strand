@@ -1,4 +1,4 @@
-//! 提交操作和可用条件（说明书 5.6、5.7）。
+//! Commit operations and availability (spec §5.6, §5.7).
 
 use std::path::Path;
 use std::process::Command;
@@ -36,7 +36,7 @@ struct Repo {
     f: String,
 }
 
-/// main: A - B（已推送） - C - D（未推送）；feature: B - F
+/// main: A - B (pushed) - C - D (unpushed); feature: B - F
 fn sample() -> Repo {
     let origin = tempfile::tempdir().unwrap();
     git(origin.path(), &["init", "-q", "--bare", "-b", "main"]);
@@ -100,7 +100,7 @@ fn cherry_pick_revert_undo_reword() {
     s.reload().unwrap();
     assert_eq!(git(p, &["log", "-1", "--format=%s"]), "F 加 f");
     assert!(p.join("f.txt").exists());
-    // 拣选过的提交不在历史里（哈希不同），仍然可以再拣选；当前分支的新提交是未推送的
+    // A cherry-picked commit isn't in the history (different hash), so it can be picked again; new commits on the current branch are unpushed
     let top = s.log_page(0, 1).unwrap().rows.remove(0);
     assert!(top.unpushed);
 
@@ -118,10 +118,10 @@ fn cherry_pick_revert_undo_reword() {
     s.commit_undo().unwrap();
     s.reload().unwrap();
     assert_eq!(git(p, &["log", "-1", "--format=%s"]), "F 加 f");
-    // 改动留在工作区（c.txt 的删除还在）
+    // Changes stay in the worktree (c.txt's deletion is still there)
     assert!(git(p, &["status", "--porcelain"]).contains("c.txt"));
 
-    // 不可用时拒绝
+    // Rejected when unavailable
     assert_eq!(s.commit_reword(&r.b, "x").unwrap_err().code, ErrorCode::InvalidRange);
 }
 
@@ -129,11 +129,11 @@ fn cherry_pick_revert_undo_reword() {
 fn cherry_pick_empty_commits() {
     let r = sample();
     let p = r.dir.path();
-    // 原本就是空的提交：照样拣选过来
+    // A commit that was empty to begin with: still picked
     git(p, &["checkout", "-q", "feature"]);
     git(p, &["commit", "-q", "--allow-empty", "-m", "空提交"]);
     let empty = git(p, &["rev-parse", "HEAD"]);
-    // 改动和 main 上已有的完全一样：拣选后为空，自动跳过，不停在拣选状态
+    // Changes identical to what's already on main: empty after picking, skipped automatically, not left in the cherry-pick state
     let dup = commit(p, "c.txt", "c\n", "和 C 一样");
     git(p, &["checkout", "-q", "main"]);
     let mut s = Session::open(p).unwrap();
@@ -153,13 +153,13 @@ fn reset_modes_and_drop() {
     assert_eq!(git(p, &["log", "--format=%s", "-3"]), "D\nB\nA");
     assert!(!p.join("c.txt").exists() && p.join("d.txt").exists());
 
-    // 混合重置到 B：D 的改动回到工作区，没加入索引
+    // Mixed reset to B: D's changes go back to the worktree, not staged
     s.commit_reset(&r.b, ResetMode::Mixed).unwrap();
     s.reload().unwrap();
     assert_eq!(git(p, &["rev-parse", "HEAD"]), r.b);
     assert_eq!(git(p, &["status", "--porcelain"]), "?? d.txt");
 
-    // 硬重置：先重新提交，再丢掉
+    // Hard reset: commit again first, then discard
     git(p, &["add", "d.txt"]);
     git(p, &["commit", "-q", "-m", "D2"]);
     s.reload().unwrap();
@@ -172,7 +172,7 @@ fn reset_modes_and_drop() {
 fn cherry_pick_conflict_stops_and_caps_turn_off() {
     let r = sample();
     let p = r.dir.path();
-    // feature 上再改 d.txt，和 main 的 D 冲突
+    // Change d.txt again on feature, conflicting with D on main
     git(p, &["checkout", "-q", "feature"]);
     let g = commit(p, "d.txt", "feature 的 d\n", "G 改 d");
     git(p, &["checkout", "-q", "main"]);
@@ -189,7 +189,7 @@ fn cherry_pick_conflict_stops_and_caps_turn_off() {
     assert_eq!(git(p, &["rev-parse", "HEAD"]), r.d);
 }
 
-/// 修改更早的提交的说明（说明书 5.6）：用变基换说明，之后的提交原样接上；工作区改动保留；可以撤销
+/// Reword an earlier commit (spec §5.6): the message is replaced via rebase and later commits are reattached as they are; worktree changes are kept; can be undone
 #[test]
 fn reword_earlier_commit() {
     let r = sample();

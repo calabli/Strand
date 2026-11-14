@@ -9,7 +9,7 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-# 日志用 gix；工作区状态和差异用 git2；提交、网络、变基调用系统 git（会运行钩子、签名、换行符转换）
+# Log uses gix; worktree status and diffs use git2; commits, network and rebase call system git (runs hooks, signing, line-ending conversion)
 gix = { version = "0.90", default-features = false, features = ["max-performance", "sha1", "revision"] }
 
 git2 = { version = "0.21", default-features = false }

@@ -1,5 +1,5 @@
-// 在差异里直接编辑工作区文件：读出现在的内容放进编辑框，保存时核心层先核对磁盘上的没被别处改过再写回。
-// 打开时跳到正在看的那一处改动；⌘S 保存，Esc 关闭（有没保存的修改时先问一下）。Tab 按这个文件的缩进习惯插入制表符或空格。
+// Edit a worktree file directly in the diff: load the current content into the editor; on save the core layer checks the file on disk wasn't changed elsewhere before writing it back.
+// Opens at the change being viewed; ⌘S saves, Esc closes (asking first if there are unsaved edits). Tab inserts a tab or spaces following this file's indentation.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -10,10 +10,10 @@ const LH = 20;
 
 interface Props {
   path: string;
-  /** 打开时光标放在这一行（从 1 开始） */
+  /** Put the cursor on this line when opening (1-based) */
   line?: number;
   onClose: () => void;
-  /** 保存成功后（重新读差异、刷新状态） */
+  /** After a successful save (re-read the diff, refresh status) */
   onSaved: () => void;
 }
 
@@ -45,7 +45,7 @@ export function EditFile({ path, line, onClose, onSaved }: Props) {
     };
   }, [path]);
 
-  // 读到内容后把光标放到要看的那一行，滚到上面三分之一处
+  // Once the content is loaded, put the cursor on the target line and scroll it to the upper third
   useEffect(() => {
     const el = area.current;
     if (orig == null || !el) return;
@@ -88,7 +88,7 @@ export function EditFile({ path, line, onClose, onSaved }: Props) {
     area.current?.focus();
   };
 
-  // ⌘S 保存、Esc 关闭：挂在窗口上（焦点不在编辑框里时也管用）
+  // ⌘S save, Esc close: attached to the window (works even when focus isn't in the editor)
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
     if (e.key === "Escape") {
@@ -161,7 +161,7 @@ export function EditFile({ path, line, onClose, onSaved }: Props) {
               onChange={(e) => setText(e.target.value)}
               onScroll={(e) => gutter.current && (gutter.current.scrollTop = e.currentTarget.scrollTop)}
               onKeyDown={(e) => {
-                // Tab 插入缩进（用 insertText 让撤销还能用）
+                // Tab inserts indentation (via insertText so undo still works)
                 if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
                   e.preventDefault();
                   document.execCommand("insertText", false, indent);

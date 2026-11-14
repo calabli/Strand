@@ -1,5 +1,5 @@
-/* Strand 原型 · 渲染和事件绑定，最后启动 */
-/* ---------- 渲染和事件 ---------- */
+/* Strand prototype · rendering and event binding, started last */
+/* ---------- Rendering and events ---------- */
 function render() {
   var old = $('cf-scroll'), keep = old ? old.scrollTop : null;
   var ae = document.activeElement, fid = ae && (ae.id === 'hq' || ae.id === 'hp' || ae.id === 'tq') ? ae.id : null;

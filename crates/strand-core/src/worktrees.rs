@@ -1,7 +1,7 @@
-//! 工作目录（git worktree，说明书 6.6）：同一个仓库在另一个文件夹里同时检出另一个分支。
+//! Worktrees (git worktree, spec §6.6): the same repository with another branch checked out in another folder at the same time.
 //!
-//! 列表来自 `git worktree list --porcelain`，新建和移除调用系统 git。
-//! 新建、移除只记在操作时间线里，不能撤销（工作目录不是引用，快照恢复不了）。
+//! The list comes from `git worktree list --porcelain`; creating and removing call system git.
+//! Creating and removing are only recorded on the timeline and can't be undone (worktrees aren't refs, so snapshots can't restore them).
 
 use std::path::{Path, PathBuf};
 
@@ -14,21 +14,21 @@ use crate::Session;
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Worktree {
     pub path: String,
-    /// 检出的分支；分离头指针时为空
+    /// The branch checked out; empty when detached
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
-    /// 当前提交（空仓库时为空）
+    /// The current commit (empty in an empty repository)
     pub head: String,
-    /// 仓库的主工作目录（不能移除）
+    /// The repository's main worktree (can't be removed)
     pub is_main: bool,
-    /// 就是现在打开的这个
+    /// The one currently open
     pub is_current: bool,
     pub locked: bool,
-    /// 文件夹已经不在了（可以清理）
+    /// The folder no longer exists (can be pruned)
     pub prunable: bool,
 }
 
-/// 规范化路径（macOS 上 /var 是 /private/var 的链接）；文件夹已经不在时规范化它的上级再接上名字
+/// Normalize the path (on macOS /var links to /private/var); when the folder is gone, normalize its parent and append the name
 fn norm(p: &Path) -> PathBuf {
     if let Ok(c) = p.canonicalize() {
         return c;
@@ -39,7 +39,7 @@ fn norm(p: &Path) -> PathBuf {
     }
 }
 
-/// 解析 `git worktree list --porcelain`
+/// Parse `git worktree list --porcelain`
 pub fn parse_list(text: &str, current: &Path) -> Vec<Worktree> {
     let cur = norm(current);
     let mut out = Vec::new();
@@ -73,7 +73,7 @@ impl Session {
         Ok(parse_list(&text, self.path()))
     }
 
-    /// 新建工作目录。`new_branch` 为真时以 `base`（为空则当前位置）新建分支 `branch` 再检出。
+    /// Create a worktree. With `new_branch` true, create branch `branch` from `base` (current position when empty) and check it out.
     pub fn worktree_add(&self, path: &str, branch: &str, new_branch: bool, base: Option<&str>) -> Result<()> {
         let p = Path::new(path.trim());
         if !p.is_absolute() {
@@ -98,8 +98,8 @@ impl Session {
         r.map(|_| ()).map_err(|e| checked_out_elsewhere(e, branch))
     }
 
-    /// 移除工作目录。里面有未提交的改动（包括未跟踪文件）时不加 `force` 返回 `WORKTREE_CONFLICT`，
-    /// `detail.files` 是改动的文件数。文件夹已经不在时只清理记录。
+    /// Remove a worktree. With uncommitted changes inside (including untracked files) returns `WORKTREE_CONFLICT` unless `force`,
+    /// with the number of changed files in `detail.files`. When the folder is gone, only the record is pruned.
     pub fn worktree_remove(&self, path: &str, force: bool) -> Result<()> {
         let list = self.worktree_list()?;
         let target = norm(Path::new(path));
@@ -127,7 +127,7 @@ impl Session {
         }
         let mut args = vec!["worktree", "remove"];
         if force {
-            // 两次 --force 连锁定的也移除
+            // Two --force also remove locked ones
             args.extend(["--force", "--force"]);
         }
         args.push(&w.path);
@@ -135,10 +135,10 @@ impl Session {
     }
 }
 
-/// git 报“分支已经在别的工作目录检出”时换成好懂的说明
+/// Replace git's "branch already checked out in another worktree" with a clear explanation
 pub(crate) fn checked_out_elsewhere(e: CoreError, branch: &str) -> CoreError {
     let stderr = e.detail.as_ref().and_then(|d| d.get("stderr")).and_then(|s| s.as_str()).unwrap_or("").to_string();
-    // git 2.40 以后：“'x' is already used by worktree at '/p'”；更早：“'x' is already checked out at '/p'”
+    // git 2.40+: "'x' is already used by worktree at '/p'"; earlier: "'x' is already checked out at '/p'"
     for key in ["is already used by worktree at '", "is already checked out at '"] {
         if let Some(i) = stderr.find(key) {
             let rest = &stderr[i + key.len()..];

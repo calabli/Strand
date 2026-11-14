@@ -1,8 +1,8 @@
-//! 提交上的操作和它们的可用条件（说明书 5.6、5.7）：拣选、还原、重置、撤销提交、修改说明、丢弃提交。
+//! Operations on commits and when they are available (spec §5.6, §5.7): cherry-pick, revert, reset, undo commit, reword, drop.
 //!
-//! 可用条件在这里算好随提交详情返回（`caps`），前端只负责置灰和显示原因。
-//! “未推送”指从当前分支能到达、但不在它的跟踪分支里；没有跟踪分支时，不在任何远程分支里。
-//! “未推送段”指从当前分支最新提交沿第一父提交往回走，连续的、未推送的、非合并的提交。
+//! Availability is computed here and returned with the commit detail (`caps`); the frontend only greys out and shows the reason.
+//! "Unpushed" means reachable from the current branch but not in its upstream; without an upstream, not in any remote branch.
+//! "The unpushed run" means the consecutive unpushed non-merge commits walking back from the current branch's latest commit along first parents.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ use crate::git_cli;
 use crate::model::{HeadKind, RepoMode};
 use crate::repo::Session;
 
-/// 一个操作能不能用；不能用时给出原因
+/// Whether an operation is available; the reason when it isn't
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Cap {
     pub ok: bool,
@@ -40,21 +40,21 @@ pub struct CommitCaps {
     pub undo: Cap,
     pub reword: Cap,
     pub drop: Cap,
-    /// 从这里开始整理（说明书 9.2）
+    /// Rebase from here (spec §9.2)
     pub rebase_from: Cap,
-    /// Fixup / Squash Into：把工作区里勾选的改动并入这个提交（还要求提交面板有勾选，前端判断）
+    /// Fixup / Squash Into: fold the checked worktree changes into this commit (also requires checked files in the commit panel, checked by the frontend)
     pub fixup: Cap,
-    /// 和本地比较（说明书 10.3）：起点是这个提交，终点是当前的 HEAD
+    /// Compare with local (spec §10.3): from this commit to the current HEAD
     pub compare_local: Cap,
-    /// 推送到这里为止（说明书 5.6）：在未推送段里，远程没有新提交（按上次抓取）
+    /// Push up to here (spec §5.6): within the unpushed run, and the remote has no new commits (as of the last fetch)
     pub push_to: Cap,
-    /// 第一父提交（在日志里时）
+    /// First parent (when in the log)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
-    /// 子提交：优先取以它为第一父提交的那个
+    /// Child commit: prefer the one that has it as first parent
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child: Option<String>,
-    /// 托管平台上这个提交的页面（origin 的地址能认出平台时才有）
+    /// This commit's page on the hosting service (only when origin's URL is a recognized host)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_url: Option<String>,
 }
@@ -68,7 +68,7 @@ pub enum ResetMode {
 }
 
 impl Session {
-    /// 重新读取日志后：算出哪些行从 HEAD 能到达、哪些未推送
+    /// After re-reading the log: work out which rows are reachable from HEAD and which are unpushed
     pub(crate) fn compute_reach(&mut self) {
         let n = self.ids.len();
         let head = self.head_row();
@@ -83,7 +83,7 @@ impl Session {
         self.index.get(&id).copied()
     }
 
-    /// 当前分支的跟踪分支；没有时取所有远程分支
+    /// The current branch's upstream; all remote branches when there is none
     fn upstream_rows(&self) -> Vec<u32> {
         let Ok(repo) = self.git2() else { return Vec::new() };
         let up = repo
@@ -128,7 +128,7 @@ impl Session {
         self.index.get(&oid).copied().ok_or_else(not_found)
     }
 
-    /// 未推送段：从 HEAD 沿第一父提交往回，连续的、未推送的、非合并的提交
+    /// The unpushed run: consecutive unpushed non-merge commits walking back from HEAD along first parents
     fn segment(&self) -> Vec<u32> {
         let mut out = Vec::new();
         let mut cur = self.head_row();
@@ -143,7 +143,7 @@ impl Session {
         out
     }
 
-    /// 说明书 5.6 的可用条件
+    /// Availability rules from spec §5.6
     pub fn commit_caps(&self, id: &str) -> Result<CommitCaps> {
         let row = self.row_of(id)?;
         let st = self.state()?;
@@ -167,7 +167,7 @@ impl Session {
         } else if is_head {
             Cap::no("这就是当前分支的最新提交")
         } else {
-            // 它之后的提交（从 HEAD 能到达、从它到达不了的）必须全部未推送
+            // All commits after it (reachable from HEAD, not from it) must be unpushed
             let below = self.reach(vec![row]);
             let after_pushed = (0..self.ids.len()).any(|r| self.head_reach[r] && !below[r] && !self.unpushed[r]);
             Cap::when(!after_pushed, "它之后有已经推送的提交")
@@ -191,7 +191,7 @@ impl Session {
             _ if is_merge => Cap::no("合并提交不能撤销，可以重置到它之前"),
             _ => Cap::when(has_parent, "这是仓库的第一个提交"),
         });
-        // 最新提交直接 amend；更早的提交用变基换说明（说明书 5.6）：它和它之后的提交都要在可整理的范围里、都未推送
+        // The latest commit is amended directly; earlier commits are reworded with a rebase (spec §5.6): it and the commits after it must all be in the rebaseable range and unpushed
         let range = self.rebase_rows().unwrap_or_default();
         let reword = gate(if !on_branch {
             Cap::no("现在不在任何分支上")
@@ -243,7 +243,7 @@ impl Session {
         Ok(CommitCaps { cherry_pick, checkout, reset, revert, undo, reword, drop, rebase_from, fixup, compare_local, push_to, parent, child, web_url })
     }
 
-    /// 推送到某个提交为止的远程条件：有 origin；有跟踪分支时远程不能有本地没有的提交（按上次抓取）
+    /// Remote conditions for pushing up to a commit: origin exists; with an upstream, the remote must not have commits we don't (as of the last fetch)
     fn remote_behind_cap(&self) -> Cap {
         let Ok(repo) = self.git2() else { return Cap::no("读取仓库失败") };
         if repo.find_remote("origin").is_err() {
@@ -258,7 +258,7 @@ impl Session {
         }
     }
 
-    /// 子提交：日志里排在它前面、父提交含它的；优先以它为第一父提交的，其次离它最近的
+    /// Child commit: listed before it in the log and has it as a parent; prefer the one with it as first parent, otherwise the nearest
     fn child_of(&self, row: u32) -> Option<u32> {
         let mut any = None;
         for r in (0..row).rev() {
@@ -273,7 +273,7 @@ impl Session {
         any
     }
 
-    /// 日志里某个提交的标题（操作日志的说明用）
+    /// The title of a commit in the log (used in op log labels)
     pub fn commit_title(&self, id: &str) -> Option<String> {
         self.find_logged(id).ok().map(|c| c.title)
     }
@@ -286,7 +286,7 @@ impl Session {
         git_cli::run(self.path(), args, stdin).map_err(worktree_error)
     }
 
-    /// 拣选：按从旧到新的顺序依次拣选。有冲突时停在拣选状态，返回 `CONFLICTS`。
+    /// Cherry-pick: pick one by one from oldest to newest. Stops in the cherry-pick state on conflicts and returns `CONFLICTS`.
     pub fn commit_cherry_pick(&self, ids: &[String]) -> Result<()> {
         if ids.is_empty() {
             return Err(CoreError::new(ErrorCode::NothingSelected, "没有选中提交"));
@@ -296,21 +296,21 @@ impl Session {
             self.require(self.commit_caps(id)?.cherry_pick)?;
             rows.push(self.row_of(id)?);
         }
-        // 日志里行号大的更旧
+        // Higher row numbers in the log are older
         rows.sort_unstable_by(|a, b| b.cmp(a));
         let hex: Vec<String> = rows.iter().map(|&r| self.ids[r as usize].to_string()).collect();
-        // --allow-empty：原本就是空提交的也拣选过来
+        // --allow-empty: also pick commits that were empty to begin with
         let mut args = vec!["cherry-pick", "--allow-empty"];
         args.extend(hex.iter().map(String::as_str));
         let mut r = self.with_conflicts(&args);
-        // 改动已经在当前分支里、拣选后成了空提交时 git 会停下来等待；这种没有冲突的停顿直接跳过
+        // When the changes are already on the current branch and the pick ends up empty, git stops and waits; skip such conflict-free stops
         while matches!(&r, Err(e) if e.code == ErrorCode::Conflicts) && self.stopped_empty() {
             r = self.with_conflicts(&["cherry-pick", "--skip"]);
         }
         r
     }
 
-    /// 停在拣选中，但没有冲突文件、也没有要提交的改动（拣选结果为空）
+    /// Stopped mid cherry-pick with no conflicted files and nothing to commit (the pick came out empty)
     fn stopped_empty(&self) -> bool {
         let Ok(repo) = self.git2() else { return false };
         if repo.state() != git2::RepositoryState::CherryPick && repo.state() != git2::RepositoryState::CherryPickSequence {
@@ -325,18 +325,18 @@ impl Session {
         staged == 0
     }
 
-    /// 还原：新建一个提交撤掉它的改动，说明为“还原“原说明””
+    /// Revert: create a new commit that undoes its changes, with the message "Revert "original message""
     pub fn commit_revert(&self, id: &str) -> Result<()> {
         self.require(self.commit_caps(id)?.revert)?;
         let c = self.find_logged(id)?;
         let msg = format!("还原“{}”\n\n这个提交撤掉了 {} 的改动。\n", c.title, c.id);
         match self.with_conflicts(&["revert", "--no-edit", id]) {
             Ok(()) => {
-                // 刚生成的提交，只改说明；钩子在 revert 时已经运行过
+                // The commit just created, only the message changes; hooks already ran during revert
                 self.git_run(&["commit", "--amend", "--only", "--no-verify", "--file=-"], Some(&msg)).map(|_| ())
             }
             Err(e) if e.code == ErrorCode::Conflicts => {
-                // 冲突解决完成时 git 用 MERGE_MSG 作为说明
+                // When conflict resolution finishes git uses MERGE_MSG as the message
                 if let Ok(repo) = self.git2() {
                     let _ = std::fs::write(repo.path().join("MERGE_MSG"), &msg);
                 }
@@ -346,7 +346,7 @@ impl Session {
         }
     }
 
-    /// 把当前分支重置到这个提交（说明书 5.7）
+    /// Reset the current branch to this commit (spec §5.7)
     pub fn commit_reset(&self, id: &str, mode: ResetMode) -> Result<()> {
         self.require(self.commit_caps(id)?.reset)?;
         let flag = match mode {
@@ -357,7 +357,7 @@ impl Session {
         self.git_run(&["reset", "--quiet", flag, id], None).map(|_| ())
     }
 
-    /// 撤销最新提交：等同于软重置到父提交，改动留在工作区
+    /// Undo the latest commit: same as a soft reset to its parent, changes stay in the worktree
     pub fn commit_undo(&self) -> Result<()> {
         let head = self.head_row().ok_or_else(not_found)?;
         let id = self.ids[head as usize].to_string();
@@ -365,7 +365,7 @@ impl Session {
         self.git_run(&["reset", "--quiet", "--soft", "HEAD~1"], None).map(|_| ())
     }
 
-    /// 修改最新提交的说明（不带入工作区的改动）
+    /// Change the latest commit's message (without bringing in worktree changes)
     pub fn commit_reword(&self, id: &str, message: &str) -> Result<()> {
         self.require(self.commit_caps(id)?.reword)?;
         if message.trim().is_empty() {
@@ -374,18 +374,18 @@ impl Session {
         if self.head_row() == Some(self.row_of(id)?) {
             return self.git_run(&["commit", "--amend", "--only", "--quiet", "--allow-empty", "--file=-"], Some(message)).map(|_| ());
         }
-        // 更早的提交：从它开始变基，只换它的说明，之后的提交原样接上（改动不变，不会冲突）
+        // Earlier commits: rebase from it, changing only its message, and reattach the later commits as they are (same changes, no conflicts)
         self.reword_earlier(id, message)
     }
 
-    /// 丢弃未推送段里的一个提交和它的改动。之后的提交接到它的父提交上；有冲突时停在变基状态。
+    /// Drop a commit in the unpushed run along with its changes. Later commits are reattached to its parent; stops in the rebase state on conflicts.
     pub fn commit_drop(&self, id: &str) -> Result<()> {
         self.require(self.commit_caps(id)?.drop)?;
         let parent = format!("{id}^");
         self.with_conflicts(&["rebase", "--autostash", "--onto", &parent, id])
     }
 
-    /// 运行可能停在冲突的命令：停住时返回 `CONFLICTS`，界面随后进入冲突解决
+    /// Run a command that may stop on conflicts: returns `CONFLICTS` when it stops, and the UI then enters conflict resolution
     fn with_conflicts(&self, args: &[&str]) -> Result<()> {
         match git_cli::run(self.path(), args, None) {
             Ok(_) => Ok(()),
@@ -403,7 +403,7 @@ fn not_found() -> CoreError {
     CoreError::new(ErrorCode::NotFound, "提交不存在，日志可能已经变化")
 }
 
-/// 工作区里有会被覆盖的改动时，给出能看懂的说明
+/// Give a readable explanation when worktree changes would be overwritten
 fn worktree_error(e: CoreError) -> CoreError {
     let text = e.detail.as_ref().map(|d| d.to_string()).unwrap_or_default();
     if text.contains("would be overwritten") || text.contains("Your local changes") || text.contains("uncommitted changes") {
@@ -412,8 +412,8 @@ fn worktree_error(e: CoreError) -> CoreError {
     e
 }
 
-/// 按远程地址拼出托管平台上提交页面的地址（说明书 5.6“在浏览器中查看”）。
-/// 认 https、ssh、scp 三种写法；只认 GitHub、GitLab、Bitbucket、Gitee、Codeberg 和带 gitea 的主机，其他返回空。
+/// Build the URL of a commit page on the hosting service from the remote URL (spec §5.6 "View in browser").
+/// Understands https, ssh and scp forms; only GitHub, GitLab, Bitbucket, Gitee, Codeberg and hosts containing gitea are recognized, others return empty.
 pub fn commit_web_url(remote: &str, id: &str) -> Option<String> {
     let u = remote.trim();
     let (host, path) = if let Some(rest) = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://")) {
@@ -424,7 +424,7 @@ pub fn commit_web_url(remote: &str, id: &str) -> Option<String> {
         let (hp, path) = rest.split_once('/')?;
         (hp.split(':').next()?, path)
     } else if !u.contains("://") && u.contains(':') {
-        // scp 写法：git@host:owner/repo.git
+        // scp form: git@host:owner/repo.git
         let rest = u.split_once('@').map(|(_, r)| r).unwrap_or(u);
         rest.split_once(':')?
     } else {

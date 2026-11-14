@@ -1,5 +1,5 @@
-/* Strand 原型 · 提交面板、差异、控制台、主视图 */
-/* ---------- 提交面板和差异 ---------- */
+/* Strand prototype · commit panel, diffs, console, main view */
+/* ---------- Commit panel and diffs ---------- */
 function commitPane() {
   if (S.cfile >= S.changes.length) S.cfile = 0;
   var onCount = S.changes.filter(function (f) { return !S.offFiles[f.path]; }).length;

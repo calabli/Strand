@@ -1,20 +1,20 @@
-//! 提交前格式化和检查（说明书 4.4、4.6）。
+//! Format and check before committing (spec §4.4, §4.6).
 //!
-//! 配置按仓库保存在仓库自己的 Git 配置里（`.git/config`），命令行也能改：
+//! Settings are stored per repository in the repository's own Git config (`.git/config`), so the command line can change them too:
 //!
-//! | 键 | 含义 | 默认 |
+//! | Key | Meaning | Default |
 //! | --- | --- | --- |
-//! | `strand.formatCommand` | 格式化命令 | 空（不格式化） |
-//! | `strand.checkCommand` | 检查命令 | 空（不检查） |
-//! | `strand.formatOnCommit` | 提交前格式化 | 关 |
-//! | `strand.checkOnCommit` | 提交前运行检查 | 开 |
+//! | `strand.formatCommand` | Format command | empty (no formatting) |
+//! | `strand.checkCommand` | Check command | empty (no checking) |
+//! | `strand.formatOnCommit` | Format before committing | off |
+//! | `strand.checkOnCommit` | Run checks before committing | on |
 //!
-//! 读取时也认全局配置（`git config --global strand.checkCommand …` 对所有仓库生效），写入只写仓库配置。
+//! Reads also honor global config (`git config --global strand.checkCommand …` applies to every repository); writes only go to the repository config.
 //!
-//! 命令用系统 shell 在仓库根目录运行（macOS 上是 `sh -c`，Windows 上是 `cmd /C`）。
-//! 要提交的文件通过两种方式传给命令：命令里的 `{files}` 换成加了引号、用空格隔开的路径；
-//! 环境变量 `STRAND_FILES` 是按换行分隔的路径。退出码为 0 算通过。
-//! 检查失败时从输出里认出“文件:行:列: 说明”这类问题，认不出的只显示原始输出。
+//! Commands run in the system shell at the repository root (`sh -c` on macOS, `cmd /C` on Windows).
+//! The files being committed are passed to the command two ways: `{files}` in the command is replaced by the quoted, space-separated paths;
+//! the environment variable `STRAND_FILES` holds the paths separated by newlines. Exit code 0 means pass.
+//! When a check fails, issues like "file:line:col: message" are recognized in the output; anything not recognized is shown as raw output.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -29,11 +29,11 @@ use crate::error::{CoreError, ErrorCode, Result};
 use crate::git_cli;
 use crate::remote::Cancel;
 
-/// 输出最多保留这么多字节
+/// Keep at most this many bytes of output
 const MAX_OUTPUT: usize = 64 * 1024;
-/// 最多认出这么多个问题
+/// Recognize at most this many issues
 const MAX_ISSUES: usize = 200;
-/// 命令最多运行这么久
+/// Run a command for at most this long
 const TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ pub struct ChecksConfig {
     pub check_on_commit: bool,
 }
 
-/// 读取配置时一并给出的建议命令（按仓库里有哪些文件推测），界面上作为占位提示
+/// Suggested commands returned with the config (guessed from the files in the repository), shown as placeholders in the UI
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ChecksInfo {
     #[serde(flatten)]
@@ -65,7 +65,7 @@ pub struct CheckIssue {
     pub path: String,
     pub line: Option<u32>,
     pub col: Option<u32>,
-    /// 级别：error、warning 或空
+    /// Level: error, warning or empty
     pub level: String,
     pub message: String,
 }
@@ -75,15 +75,15 @@ pub struct CheckRun {
     pub kind: CheckKind,
     pub command: String,
     pub ok: bool,
-    /// 退出码；超时或被取消时为空
+    /// Exit code; empty on timeout or cancel
     pub code: Option<i32>,
-    /// 标准输出和标准错误（去掉颜色控制符），超出 64 KB 的部分截掉
+    /// stdout and stderr (color codes removed), truncated beyond 64 KB
     pub output: String,
     pub truncated: bool,
     pub timed_out: bool,
     pub issues: Vec<CheckIssue>,
     pub ms: u64,
-    /// 格式化：内容被改动的文件（只看传进来的文件）
+    /// Format: files whose content changed (only the files passed in)
     pub changed: Vec<String>,
 }
 
@@ -112,7 +112,7 @@ pub fn config(dir: &Path) -> ChecksInfo {
 pub fn set_config(dir: &Path, c: &ChecksConfig) -> Result<()> {
     for (key, val) in [("strand.formatCommand", c.format_command.trim()), ("strand.checkCommand", c.check_command.trim())] {
         if val.is_empty() {
-            // 没有这个键时 --unset 返回 5，忽略
+            // --unset returns 5 when the key doesn't exist; ignore
             let _ = git_cli::run(dir, &["config", "--local", "--unset-all", key], None);
         } else {
             if val.contains('\n') {
@@ -126,7 +126,7 @@ pub fn set_config(dir: &Path, c: &ChecksConfig) -> Result<()> {
     Ok(())
 }
 
-/// 按仓库里的文件推测常用命令
+/// Guess common commands from the files in the repository
 fn suggest(dir: &Path) -> (Vec<String>, Vec<String>) {
     let mut f = Vec::new();
     let mut c = Vec::new();
@@ -172,7 +172,7 @@ fn suggest(dir: &Path) -> (Vec<String>, Vec<String>) {
     (f, c)
 }
 
-/// 给 shell 用的引号
+/// Quoting for the shell
 fn quote(p: &str) -> String {
     if cfg!(windows) {
         format!("\"{}\"", p.replace('"', "\"\""))
@@ -181,14 +181,14 @@ fn quote(p: &str) -> String {
     }
 }
 
-/// 运行一次格式化或检查。`files` 是要提交的文件（相对仓库根目录）。
+/// Run a format or check once. `files` are the files being committed (relative to the repository root).
 pub fn run(dir: &Path, kind: CheckKind, command: &str, files: &[String], cancel: &Cancel) -> Result<CheckRun> {
     let command = command.trim();
     if command.is_empty() {
         return Err(CoreError::new(ErrorCode::NotFound, "还没有设置要运行的命令"));
     }
     let line = command.replace("{files}", &files.iter().map(|f| quote(f)).collect::<Vec<_>>().join(" "));
-    // 格式化前记下文件内容，结束后比较
+    // Record file contents before formatting and compare afterwards
     let before: HashMap<&String, Option<Vec<u8>>> =
         if kind == CheckKind::Format { files.iter().map(|f| (f, std::fs::read(dir.join(f)).ok())).collect() } else { HashMap::new() };
 
@@ -207,7 +207,7 @@ pub fn run(dir: &Path, kind: CheckKind, command: &str, files: &[String], cancel:
         .stderr(Stdio::piped())
         .env("STRAND_FILES", files.join("\n"))
         .env("STRAND_KIND", if kind == CheckKind::Format { "format" } else { "check" })
-        // 有些工具看到终端以外的输出就不加颜色；再明确说一次
+        // Some tools drop colors when output isn't a terminal; say it explicitly once more
         .env("NO_COLOR", "1")
         .env("GIT_TERMINAL_PROMPT", "0");
     git_cli::hide_console(&mut cmd);
@@ -243,7 +243,7 @@ pub fn run(dir: &Path, kind: CheckKind, command: &str, files: &[String], cancel:
         }
         std::thread::sleep(Duration::from_millis(30));
     };
-    // 被取消时子进程可能还拿着管道（sh 启动的孙进程），读线程不一定能结束，不等它们
+    // After a cancel the child (a grandchild started by sh) may still hold the pipes, so the reader threads may not finish; don't wait for them
     let (mut raw, truncated) = if status.is_some() {
         let mut raw = read_out.join().unwrap_or_default();
         let err = read_err.join().unwrap_or_default();
@@ -290,7 +290,7 @@ pub fn run(dir: &Path, kind: CheckKind, command: &str, files: &[String], cancel:
 fn kill_tree(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
-        // sh -c 起的命令可能又起了子进程；先杀直接子进程，孙进程失去管道后通常会自己退出
+        // A command started by sh -c may start its own children; kill the direct child first, grandchildren usually exit once their pipes close
         let _ = Command::new("pkill").args(["-TERM", "-P", &child.id().to_string()]).status();
     }
     #[cfg(windows)]
@@ -309,12 +309,12 @@ fn strip_ansi(s: &str) -> String {
     RE.get_or_init(|| Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07").unwrap()).replace_all(s, "").replace('\r', "")
 }
 
-/// 从输出里认出问题。认这几种常见格式：
-/// - `path:line:col: message`、`path:line: message`、`path(line,col): message`（gcc、tsc、eslint unix、ruff、go vet 等）
-/// - rustc / clippy：`error[E0425]: message` 后面一行 `--> path:line:col`
-/// - eslint 默认格式：单独一行文件路径，下面若干行 `  line:col  error  message`
+/// Recognize issues in the output. These common formats are understood:
+/// - `path:line:col: message`, `path:line: message`, `path(line,col): message` (gcc, tsc, eslint unix, ruff, go vet, etc.)
+/// - rustc / clippy: `error[E0425]: message` followed by a `--> path:line:col` line
+/// - eslint default format: a file path on its own line, then lines like `  line:col  error  message`
 ///
-/// 只保留路径确实在仓库里的，避免把普通输出当成问题。
+/// Only paths that really exist in the repository are kept, so ordinary output isn't taken for issues.
 pub fn parse_issues(dir: &Path, output: &str) -> Vec<CheckIssue> {
     static RES: std::sync::OnceLock<[Regex; 4]> = std::sync::OnceLock::new();
     let [colon, paren, arrow, stylish] = RES.get_or_init(|| {
@@ -353,8 +353,8 @@ pub fn parse_issues(dir: &Path, output: &str) -> Vec<CheckIssue> {
 
     let output = strip_ansi(output);
     let mut out = Vec::new();
-    let mut last_head: Option<String> = None; // rustc 的 “error: …” 一行
-    let mut cur_file: Option<String> = None; // eslint 默认格式的当前文件
+    let mut last_head: Option<String> = None; // rustc's "error: …" line
+    let mut cur_file: Option<String> = None; // Current file in eslint's default format
     for line in output.lines() {
         if out.len() >= MAX_ISSUES {
             break;
@@ -385,7 +385,7 @@ pub fn parse_issues(dir: &Path, output: &str) -> Vec<CheckIssue> {
                 continue;
             }
         }
-        // 单独一行路径：eslint 默认格式的文件标题
+        // A path on its own line: a file heading in eslint's default format
         if !line.starts_with(char::is_whitespace) {
             cur_file = rel(line);
         }

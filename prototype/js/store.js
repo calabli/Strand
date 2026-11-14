@@ -1,5 +1,5 @@
-/* Strand 原型 · 通用：控制台记录、撤销重做、提示、提交和冲突的查询 */
-/* ---------- 通用 ---------- */
+/* Strand prototype · shared: console records, undo/redo, toasts, commit and conflict queries */
+/* ---------- Shared ---------- */
 function B() { for (var i = 0; i < S.branches.length; i++) if (S.branches[i].name === S.branch) return S.branches[i]; return S.branches[0]; }
 function branchBy(n) { for (var i = 0; i < S.branches.length; i++) if (S.branches[i].name === n) return S.branches[i]; return null; }
 var consoleLog = [];

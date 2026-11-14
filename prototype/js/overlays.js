@@ -1,4 +1,4 @@
-/* Strand 原型 · 对话框、命令面板和分支弹窗、右键菜单 */
+/* Strand prototype · dialogs, command palette and branch popup, context menus */
 function modalView() {
   var m = S.modal, body = '';
   if (m.kind === 'prompt') body = '<input id="modal-in" type="text" aria-label="' + esc(m.title) + '" value="' + esc(m.value || '') + '" autocomplete="off">';
@@ -126,7 +126,7 @@ function palOpen(mode) {
 }
 function palClose() { pal.open = false; $('pal').innerHTML = ''; }
 
-/* ---------- 右键菜单 ---------- */
+/* ---------- Context menus ---------- */
 var ctxOpen = false;
 function ctxClose() { var el = $('ctx'); if (el) el.innerHTML = ''; ctxOpen = false; }
 function ctxShow(x, y, items) {

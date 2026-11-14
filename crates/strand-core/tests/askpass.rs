@@ -1,4 +1,4 @@
-//! 需要输入凭据时向用户要（说明书 7.5）：git 通过 askpass 把提示交给界面，回答只给这一次 git 进程。
+//! Ask the user for credentials when needed (spec §7.5): git hands the prompt to the UI via askpass, and the answer only goes to this git process.
 
 use std::sync::{Arc, Mutex};
 
@@ -18,7 +18,7 @@ fn asks_the_user_and_handles_cancel() {
         match *mode2.lock().unwrap() {
             "answer" => Some(if req.secret { "s3cret 密码".to_string() } else { "linxia".to_string() }),
             "wait" => {
-                // 用户迟迟不输入，期间点了停止
+                // The user doesn't type and presses stop meanwhile
                 while !cancel.is_cancelled() {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                 }
@@ -28,7 +28,7 @@ fn asks_the_user_and_handles_cancel() {
         }
     }));
 
-    // 1. 用户名和密码都向用户要，回答交给 git
+    // 1. Ask the user for both username and password, hand the answers to git
     let out = remote::credential_probe(dir.path(), "https://example.invalid/repo.git", &Cancel::default()).unwrap();
     assert!(out.contains("username=linxia"), "{out}");
     assert!(out.contains("password=s3cret 密码"), "{out}");
@@ -37,14 +37,14 @@ fn asks_the_user_and_handles_cancel() {
     assert!(asked[0].prompt.starts_with("Username for 'https://example.invalid'") && !asked[0].secret, "{asked:?}");
     assert!(asked[1].prompt.starts_with("Password for") && asked[1].secret, "{asked:?}");
 
-    // 2. 用户取消：按取消处理，不再追问密码
+    // 2. The user cancels: treated as cancel, no further password prompt
     seen.lock().unwrap().clear();
     *mode.lock().unwrap() = "cancel";
     let e = remote::credential_probe(dir.path(), "https://example.invalid/repo.git", &Cancel::default()).unwrap_err();
     assert_eq!(e.code, ErrorCode::Cancelled, "{e:?}");
     assert_eq!(seen.lock().unwrap().len(), 1);
 
-    // 3. 等输入时点了停止：输入框收回，操作取消
+    // 3. Stop pressed while waiting for input: the input box closes and the operation is cancelled
     *mode.lock().unwrap() = "wait";
     let cancel = Cancel::default();
     let c2 = cancel.clone();
@@ -55,7 +55,7 @@ fn asks_the_user_and_handles_cancel() {
     let e = remote::credential_probe(dir.path(), "https://example.invalid/repo.git", &cancel).unwrap_err();
     assert_eq!(e.code, ErrorCode::Cancelled);
 
-    // 4. 后台操作不问：需要输入时直接失败，界面不弹框
+    // 4. Background operations don't ask: fail directly when input is needed, no dialog
     *mode.lock().unwrap() = "answer";
     seen.lock().unwrap().clear();
     let e = askpass::without_prompt(|| remote::credential_probe(dir.path(), "https://example.invalid/repo.git", &Cancel::default())).unwrap_err();
@@ -63,7 +63,7 @@ fn asks_the_user_and_handles_cancel() {
     assert!(seen.lock().unwrap().is_empty());
 }
 
-/// 不是以 askpass 方式启动时，client_main 不接管
+/// client_main doesn't take over when not started in askpass mode
 #[test]
 fn client_main_is_inert_normally() {
     assert_eq!(askpass::client_main(), None);

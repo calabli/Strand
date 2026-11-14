@@ -1,7 +1,7 @@
-//! Strand 核心层。
+//! The Strand core layer.
 //!
-//! 这一层不依赖 Tauri：所有 Git 逻辑都在这里实现和测试，`src-tauri` 只负责把它注册成命令。
-//! 说明书第 2 节规定了分工：前端不推算 Git 状态，所有状态由这里计算后返回。
+//! This layer doesn't depend on Tauri: all Git logic is implemented and tested here, and `src-tauri` only registers it as commands.
+//! Spec §2 sets the division of work: the frontend doesn't infer Git state; all state is computed here and returned.
 
 pub mod askpass;
 pub mod bisect;

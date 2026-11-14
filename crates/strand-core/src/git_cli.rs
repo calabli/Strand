@@ -1,7 +1,7 @@
-//! 系统 Git 的检测。
+//! Detecting system Git.
 //!
-//! 安装包不附带 Git，默认用户自己安装（说明书 2.3、15 节）。
-//! 启动时检测，找不到或版本低于 2.30 时由前端提示。
+//! The installer doesn't bundle Git; users install it themselves (spec §2.3, §15).
+//! Detected at startup; the frontend shows a notice when it's missing or older than 2.30.
 
 use std::process::Command;
 
@@ -41,7 +41,7 @@ fn major_minor(v: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
-/// Windows 上调用命令行程序时不弹出黑色控制台窗口。
+/// Don't pop up a black console window when running command-line programs on Windows.
 #[cfg(windows)]
 pub(crate) fn hide_console(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -67,12 +67,12 @@ mod tests {
     }
 }
 
-/// 在仓库目录里运行系统 git，返回标准输出。失败时返回 `GIT_FAILED`，标准错误放进 `detail.stderr`。
+/// Run system git in the repository directory and return stdout. On failure returns `GIT_FAILED` with stderr in `detail.stderr`.
 pub fn run(dir: &std::path::Path, args: &[&str], stdin: Option<&str>) -> crate::Result<String> {
     run_env(dir, args, stdin, &[])
 }
 
-/// 同 [`run`]，另外设置一些环境变量（如交互式变基的 `GIT_SEQUENCE_EDITOR`）。
+/// Same as [`run`], also setting some environment variables (e.g. `GIT_SEQUENCE_EDITOR` for interactive rebase).
 pub fn run_env(dir: &std::path::Path, args: &[&str], stdin: Option<&str>, envs: &[(&str, &str)]) -> crate::Result<String> {
     use std::io::Write;
     use std::process::Stdio;
@@ -83,7 +83,7 @@ pub fn run_env(dir: &std::path::Path, args: &[&str], stdin: Option<&str>, envs: 
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // 不弹出编辑器或凭据输入框；需要交互的操作由界面负责
+        // Never open an editor or credential prompt; interactive steps are handled by the UI
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_EDITOR", "true");
     for (k, v) in envs {

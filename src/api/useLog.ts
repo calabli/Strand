@@ -1,8 +1,8 @@
-// 按需分页加载日志。列表滚动到哪里就请求哪一页，已加载的页缓存起来。
-// 过滤条件或排序变化时清空缓存重新读（核心层缓存了过滤结果，翻页不会重算）。
-// 过滤结果还没算完（partial，说明书 15 的“首批结果先返回，其余分批追加”）时，每 300 ms 把已经加载的页重新查一遍，
-// 新结果到了再替换，替换前旧的行留着，列表不闪。
-// 同一个仓库重新读取（提交、外部修改等）或换过滤条件时也一样：旧的页先留着显示，新的第一页回来后整体换掉。
+// Loads the log page by page on demand. Pages are requested as the list scrolls to them, and loaded pages are cached.
+// When filters or sorting change, the cache is cleared and reloaded (the core layer caches filter results, so paging doesn't recompute).
+// While filter results are incomplete (partial, spec §15 "first results return first, the rest are appended in batches"), loaded pages are re-queried every 300 ms
+// and replaced when new results arrive; old rows stay until then so the list doesn't flicker.
+// The same happens when the same repository is re-read (commits, external changes, etc.) or filters change: old pages keep showing until the new first page arrives and replaces them all.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errOf } from "./commands";
@@ -17,22 +17,22 @@ export interface LogQuery {
 
 export interface LogData {
   total: number;
-  /** 0 表示没有图谱（有过滤或按时间排序） */
+  /** 0 means no graph (filtered or sorted by time) */
   lanes: number;
-  /** 第一页还没回来 */
+  /** The first page hasn't arrived yet */
   loading: boolean;
-  /** 过滤结果还没算完，还会追加 */
+  /** Filter results aren't complete; more will be appended */
   partial: boolean;
-  /** 第 i 行的数据，没加载时为 undefined；没有图谱时 graph 为 undefined */
+  /** Row i's data; undefined when not loaded; graph is undefined when there's no graph */
   row: (i: number) => { commit: Commit; graph?: GraphRow; folded?: number } | undefined;
-  /** 确保 [start, end) 范围内的行已经加载或正在加载 */
+  /** Make sure rows in [start, end) are loaded or loading */
   ensure: (start: number, end: number) => void;
   error: { code: ErrorCode; message: string } | null;
 }
 
 export function useLog(repoKey: string | null, query: LogQuery): LogData {
   const pages = useRef(new Map<number, { rows: Commit[]; graph: GraphRow[]; folded?: number[] }>());
-  /** 重新读取前的页：新的第一页回来之前照样显示 */
+  /** Pages from before the re-read: still shown until the new first page arrives */
   const stale = useRef(new Map<number, { rows: Commit[]; graph: GraphRow[]; folded?: number[] }>());
   const lastRepo = useRef<string | null>(null);
   const pending = useRef(new Set<number>());
@@ -48,7 +48,7 @@ export function useLog(repoKey: string | null, query: LogQuery): LogData {
   q.current = query;
   const qKey = JSON.stringify(query);
 
-  // 结果还没算完：过一会儿把已经加载的页（至少第一页）重新查一遍
+  // Results not complete yet: re-query the loaded pages (at least the first) a little later
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current !== undefined) return;
     const gen = generation.current;
@@ -79,7 +79,7 @@ export function useLog(repoKey: string | null, query: LogQuery): LogData {
     api
       .logQuery(page * PAGE, PAGE, q.current.filter, q.current.sort)
       .then((p) => {
-        if (gen !== generation.current) return; // 仓库或过滤条件已经变了，丢弃旧结果
+        if (gen !== generation.current) return; // The repository or filters already changed; drop the old results
         pages.current.set(page, { rows: p.rows, graph: p.graph, folded: p.folded });
         if (page === 0) stale.current.clear();
         setTotal(p.total);
@@ -104,7 +104,7 @@ export function useLog(repoKey: string | null, query: LogQuery): LogData {
 
   useEffect(() => {
     generation.current += 1;
-    // 同一个仓库（repoKey 是“路径#时间”）：旧的页留着，等新的第一页；换了仓库就清掉
+    // Same repository (repoKey is "path#time"): keep old pages until the new first page arrives; clear them for a different repository
     const repoPath = repoKey?.split("#")[0] ?? null;
     stale.current = repoPath !== null && repoPath === lastRepo.current ? new Map([...stale.current, ...pages.current]) : new Map();
     lastRepo.current = repoPath;

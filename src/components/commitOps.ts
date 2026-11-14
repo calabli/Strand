@@ -1,5 +1,5 @@
-// 提交上的操作（说明书 5.6、5.7）。详情栏的图标行、右键菜单、F2 都调用这里，规则只写一份。
-// 可用条件由核心层算好（caps），这里只负责弹对话框、调用命令、提示结果。
+// Operations on commits (spec §5.6, §5.7). The detail icon row, context menu and F2 all call this, so the rules are written once.
+// Availability is computed by the core layer (caps); this only shows dialogs, calls commands and reports results.
 
 import { useCallback } from "react";
 import { api, errOf } from "../api/commands";
@@ -12,14 +12,14 @@ import { t, lazy } from "../i18n";
 interface Deps {
   ask: (d: DialogSpec) => void;
   done: (state: RepoState, message: string, op?: OpInfo) => void;
-  /** 失败后仓库可能变了（如停在冲突），重新读取 */
+  /** The repository may have changed after a failure (e.g. stopped on conflicts): re-read */
   failed: (message: string) => void;
   say: (message: string) => void;
-  /** 当前 HEAD 的提交：改的不是它时，提示之后的提交会重新生成 */
+  /** The current HEAD commit: when changing something other than it, note that later commits will be recreated */
   head?: string | null;
 }
 
-/** 提交操作的图标（详情栏图标行和右键菜单共用，14×14） */
+/** Icons for commit operations (shared by the detail icon row and context menu, 14×14) */
 export const COMMIT_ICONS = {
   copy: "M4.5 4.5h7v8h-7zM2.5 9.5v-8h7",
   console: "M1.5 2.5h11v9h-11zM4 5.5l2 1.5-2 1.5M7.5 9h2.5",
@@ -53,7 +53,7 @@ export const COMMIT_ICONS = {
   push: "M7 12.5v-8M3.5 7.5 7 4l3.5 3.5M2 1.5h10",
   fetch: "M7 2a5 5 0 1 0 5 5M7 4.5v4.5M5 7l2 2 2-2",
   commit: "M7 9.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M1.5 7h3M9.5 7h3",
-  // 下面这些主要给命令面板用（说明书 12.1）
+  // The following are mainly for the command palette (spec §12.1)
   redo: "M9.5 2l3 3-3 3M12.5 5h-7a4 4 0 0 0 0 8H8",
   history: "M7 12.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11M7 4v3l2 1.5",
   changes: "M2.5 1.5h9v11h-9zM5 5h4M5 7.5h4M5 10h2",
@@ -86,7 +86,7 @@ export function useCommitOps({ ask, done, failed, say, head }: Deps) {
       } catch (e) {
         const err = errOf(e);
         if (err.code === "CONFLICTS") {
-          // 仓库停在拣选、还原或变基中，重新读取后主界面换成冲突列表
+          // The repository stopped mid cherry-pick, revert or rebase; after re-reading the main view switches to the conflict list
           failed("");
           say(t("有冲突需要解决，请逐个处理"));
         } else if (err.code === "EMPTY_MESSAGE") return err.message;
@@ -142,7 +142,7 @@ export function useCommitOps({ ask, done, failed, say, head }: Deps) {
     (c: Commit) =>
       ask({
         title: t("修改提交说明"),
-        // 更早的提交用变基换说明（说明书 5.6）：之后的提交会重新生成
+        // Earlier commits are reworded via rebase (spec §5.6): later commits are recreated
         message: head && c.id !== head ? t("它之后的提交会重新生成（哈希会变），改动不变。可以撤销。") : undefined,
         input: { initial: c.body ? `${c.title}\n\n${c.body}` : c.title, multiline: true, placeholder: t("第一行是标题") },
         confirm: t("修改"),
@@ -169,8 +169,8 @@ export function useCommitOps({ ask, done, failed, say, head }: Deps) {
 export type CommitOps = ReturnType<typeof useCommitOps>;
 
 /**
- * 右键菜单里的提交操作（和详情栏图标行同一组）。按说明书 12.2 分组，组间有分隔线：
- * 复制和补丁 / 查看 / 重置和还原 / 整理 / 分支和标签 / 跳转 / 浏览器。
+ * Commit operations in the context menu (the same set as the detail icon row). Grouped per spec §12.2 with dividers:
+ * copy and patches / view / reset and revert / rebase / branches and tags / navigate / browser.
  */
 export function commitActions(
   c: Commit,
@@ -189,15 +189,15 @@ export function commitActions(
     tree: () => void;
     compareLocal: () => void;
     setBase: () => void;
-    /** 推送到这里为止（说明书 5.6） */
+    /** Push up to here (spec §5.6) */
     pushTo: () => void;
-    /** 指向这个提交的本地分支（没有则为当前分支）各自的分支菜单 */
+    /** Branch menus for each local branch pointing at this commit (or the current branch if none) */
     branches: { name: string; items: MenuEntry[] }[];
     jump: (id: string) => void;
     openWeb: (url: string) => void;
-    /** 二分查找：标好、坏、跳过；active 为真时已经开始 */
+    /** Bisect: mark good, bad, skip; active true means it has started */
     bisect?: { active: boolean; mark: (m: "good" | "bad" | "skip") => void };
-    /** 只拣选或还原部分文件（打开选文件的对话框）；仓库不在普通状态时为空 */
+    /** Cherry-pick or revert only some files (opens the file picker dialog); absent when the repository isn't in a normal state */
     pickFiles?: (revert: boolean) => void;
   },
 ): MenuEntry[] {
@@ -206,17 +206,17 @@ export function commitActions(
   const jump = (id: string | undefined, none: string) => ({ disabled: !id, why: caps ? none : t("正在读取…"), run: () => id && extra.jump(id) });
   const branchItems: MenuEntry[] = extra.branches.map((b) => ({ label: t("分支 {0}", b.name), icon: I.branch, sub: b.items }));
   return [
-    // 复制和补丁
+    // Copy and patches
     { label: t("复制版本号"), icon: I.copy, run: () => ops.copy(c) },
     { label: t("创建补丁…"), icon: I.patch, run: extra.patch },
     "-",
-    // 查看
+    // View
     { label: t("查看这个版本时的仓库…"), icon: I.tree, run: extra.tree },
     { label: t("和本地比较"), icon: I.compare, run: extra.compareLocal, ...cap("compare_local") },
     { label: t("设为比较起点"), icon: I.base, run: extra.setBase },
     { label: t("检出这个版本"), icon: I.checkout, run: extra.checkout, ...cap("checkout") },
     "-",
-    // 重置和还原
+    // Reset and revert
     { label: t("拣选到当前分支"), icon: I.cherry, run: () => ops.cherryPick([c.id]), ...cap("cherry_pick") },
     { label: t("重置当前分支到这里…"), icon: I.reset, run: () => ops.reset(c, branch), ...cap("reset") },
     { label: t("还原提交…"), icon: I.revert, run: () => ops.revert(c), ...cap("revert") },
@@ -232,20 +232,20 @@ export function commitActions(
     },
     { label: t("撤销提交"), icon: I.undo, run: ops.undo, ...cap("undo") },
     "-",
-    // 整理
+    // Rebase
     { label: t("修改提交说明…"), icon: I.reword, run: () => ops.reword(c), hint: "F2", ...cap("reword") },
     { label: t("Fixup：并入勾选的 {0} 个文件", extra.picked), icon: I.fixup, run: extra.fixup, ...fix },
     { label: t("Squash Into：并入并修改说明…"), icon: I.squash, run: extra.squashInto, ...fix },
     { label: t("从这里开始整理…"), icon: I.rebase, run: extra.rebaseFrom, ...cap("rebase_from") },
     { label: t("丢弃提交…"), icon: I.drop, run: () => ops.drop(c), danger: true, ...cap("drop") },
     "-",
-    // 分支和标签
+    // Branches and tags
     ...branchItems,
     { label: t("推送到这里为止…"), icon: I.push, run: extra.pushTo, ...cap("push_to") },
     { label: t("从这里新建分支…"), icon: I.branch, run: extra.newBranch },
     { label: t("在这里新建标签…"), icon: I.tag, run: extra.newTag },
     "-",
-    // 二分查找
+    // Bisect
     ...(extra.bisect
       ? ([
           {
@@ -260,10 +260,10 @@ export function commitActions(
           "-",
         ] as MenuEntry[])
       : []),
-    // 跳转
+    // Navigate
     { label: t("跳到父提交"), icon: I.parent, hint: "→", ...jump(caps?.parent, t("没有父提交")) },
     { label: t("跳到子提交"), icon: I.child, hint: "←", ...jump(caps?.child, t("没有子提交")) },
-    // 浏览器
+    // Browser
     ...(caps?.web_url ? (["-", { label: t("在浏览器中查看"), icon: I.web, run: () => extra.openWeb(caps.web_url!) }] as MenuEntry[]) : []),
   ];
 }

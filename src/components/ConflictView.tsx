@@ -1,7 +1,7 @@
-// 冲突解决（说明书第 8 节）：冲突列表 + 三栏合并窗口。
+// Conflict resolution (spec §8): conflict list + three-pane merge window.
 //
-// 标记（接受、舍弃、手动编辑）保存在前端：撤销、重做都在这里；“稍后继续”时存进本地存储，
-// 关掉客户端再打开也能接着处理。应用一个文件时，把它的全部标记交给核心层生成结果。
+// Marks (accept, ignore, hand edit) are kept in the frontend, along with undo and redo; "continue later" saves them to local storage,
+// so work can resume after closing and reopening the client. Applying a file hands all its marks to the core layer to build the result.
 
 import { useReturnFocus } from "./focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,21 +14,21 @@ import { useSettings } from "../settings";
 import { ImageDiff, isImage } from "./ImageDiff";
 import { t, tr, withNote, lazy } from "../i18n";
 
-type Marks = Record<string, Record<string, ChangeMark>>; // 文件 → 修改处编号 → 标记
+type Marks = Record<string, Record<string, ChangeMark>>; // file → change id → mark
 
 const CHANGE_TEXT: Record<SideChange, string> = lazy(() => ({ modified: t("已修改"), deleted: t("已删除"), added: t("已新增"), renamed: t("已重命名") }));
 const KIND_TEXT = lazy(() => ({ merge: t("合并"), rebase: t("变基"), cherry_pick: t("拣选"), revert: t("还原"), unstash: t("取回") }));
-/** 一处全部标记后，等多久自动跳到下一处（说明书 8.6） */
+/** How long to wait after a change is fully marked before jumping to the next (spec §8.6) */
 const AUTO_NEXT_MS = 650;
 
 const changesOf = (f: ConflictFile) => f.segments.filter((s): s is Change & { type: "change" } => s.type === "change");
 const markOf = (m: Record<string, ChangeMark> | undefined, id: string): ChangeMark => m?.[id] ?? { mine: "none", theirs: "none" };
-/** 这一处还有几个修改块没标记 */
+/** How many blocks in this change are still unmarked */
 const leftIn = (c: Change, m: ChangeMark) =>
   m.custom ? 0 : (c.mine && m.mine === "none" ? 1 : 0) + (c.theirs && m.theirs === "none" ? 1 : 0);
 const blocksIn = (c: Change) => (c.mine ? 1 : 0) + (c.theirs ? 1 : 0);
 
-/** 结果栏的内容（说明书 8.6 的表） */
+/** The result pane's content (table in spec §8.6) */
 function resultOf(c: Change, m: ChangeMark): { lines: string[]; note: string | null } {
   if (m.custom) return { lines: m.custom, note: null };
   const left = leftIn(c, m);
@@ -45,21 +45,21 @@ function resultOf(c: Change, m: ChangeMark): { lines: string[]; note: string | n
 interface Props {
   session: MergeSession;
   repo: RepoState;
-  /** 操作完成（整个合并结束），带最新状态和提示 */
+  /** The operation finished (the whole merge ended), with the latest state and a notice */
   onDone: (state: RepoState, message: string, op?: OpInfo) => void;
-  /** 仓库状态变了但没结束（应用了文件、变基进入下一个提交），重新读取会话 */
+  /** The repository state changed but didn't end (a file was applied, the rebase moved to the next commit); re-read the session */
   onChanged: (state: RepoState) => void;
   onLater: () => void;
   onAbort: () => void;
   onError: (message: string) => void;
-  /** 还有几处待处理（没标记的修改块，加上只能整文件选的文件），工具栏显示（说明书 3.3） */
+  /** How many remain (unmarked blocks plus files that can only be taken whole), shown in the toolbar (spec §3.3) */
   onProgress?: (left: number) => void;
-  /** 命令面板发来的命令（说明书 12.1）：回到冲突列表、接受所有没有冲突的修改块；n 每次不同 */
+  /** A command from the command palette (spec §12.1): back to the conflict list, accept all non-conflicting blocks; n differs every time */
   command?: { kind: "list" | "auto"; n: number } | null;
 }
 
 export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbort, onError, onProgress, command }: Props) {
-  // 标记按“这次操作”保存：两边的提交变了（比如变基到了下一个提交）就是新的一轮
+  // Marks are saved per "this operation": when the commits on either side change (e.g. the rebase moved to the next commit), it's a new round
   const key = `strand.marks:${repo.path}:${session.kind}:${session.mine.commit ?? ""}:${session.theirs.commit ?? ""}`;
   const saved = session.saved_marks?.[key];
   const [marks, setMarks] = useState<Marks>(() => load(key, saved));
@@ -69,7 +69,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
   const [open, setOpen] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
-  /** 展开了图片预览的二进制文件 */
+  /** Binary files with the image preview expanded */
   const [preview, setPreview] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -81,7 +81,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
   }, [key]);
   useEffect(() => save(key, marks, resolved), [key, marks, resolved]);
 
-  // 核心层也会列出已经解决的文件（含在命令行里 git add 的），和这里记下的合在一起显示
+  // The core layer also lists resolved files (including those git add-ed on the command line); show them together with the ones recorded here
   const files = useMemo(() => session.files.filter((f) => !f.resolved), [session.files]);
   const doneFiles = useMemo(() => {
     const byPath = new Map(session.files.filter((f) => f.resolved).map((f) => [f.path, f] as const));
@@ -93,7 +93,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
     if (open && !file) setOpen(null);
   }, [open, file]);
 
-  /** 改标记：记一步撤销 */
+  /** Change a mark: record an undo step */
   const change = useCallback((f: (m: Marks) => Marks) => {
     setMarks((m) => {
       setUndo((u) => [...u.slice(-200), m]);
@@ -104,7 +104,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
   const setMark = (path: string, id: string, patch: Partial<ChangeMark>) =>
     change((m) => ({ ...m, [path]: { ...m[path], [id]: { ...markOf(m[path], id), ...patch } } }));
 
-  // 标记撤完再撤销等同于中止（说明书 8.7）；中止后可以撤销那一步回来（8.9）
+  // Undoing past the last mark equals aborting (spec §8.7); after aborting, that step can be undone to come back (§8.9)
   const doUndo = () => {
     const prev = undo[undo.length - 1];
     if (!prev) return onAbort();
@@ -120,7 +120,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
     setMarks(next);
   };
 
-  // 统计
+  // Statistics
   const unmarkedIn = (f: ConflictFile) => changesOf(f).reduce((n, c) => n + leftIn(c, markOf(marks[f.path], c.id)), 0);
   const totalBlocks = files.reduce((n, f) => n + changesOf(f).reduce((k, c) => k + blocksIn(c), 0), 0);
   const unmarked = files.reduce((n, f) => n + (f.kind === "text" ? unmarkedIn(f) : 0), 0);
@@ -129,8 +129,8 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
   useEffect(() => onProgress?.(left), [left, onProgress]);
 
   /**
-   * 处理完一个文件后，它的行挪到“已解决”里、按钮没了，用键盘操作的人会丢掉位置（说明书 12.4）：
-   * 焦点刚才在冲突界面里（或已经掉到页面上）时，放到下一个没解决的文件的第一个按钮上；都处理完了就放到“完成”上
+   * After a file is handled, its row moves to "resolved" and its buttons disappear, so keyboard users would lose their place (spec §12.4):
+   * when focus was in the conflict view (or already fell to the page), move it to the first button of the next unresolved file; when all are done, to "finish"
    */
   const focusNext = () =>
     window.setTimeout(() => {
@@ -141,7 +141,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
       (next ?? done)?.focus();
     }, 300);
 
-  /** 写操作之后：会话结束就完成，否则让外面重新读取 */
+  /** After a write: finish if the session ended, otherwise let the outside re-read */
   const after = async (p: Promise<{ state: RepoState }>, path?: string) => {
     setBusy(true);
     try {
@@ -181,7 +181,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
     }
   }, [key, onDone, onChanged, onError, session.kind]);
 
-  // 最后一个文件解决后自动完成（说明书 8.2）
+  // Finish automatically once the last file is resolved (spec §8.2)
   const autoFinished = useRef(false);
   useEffect(() => {
     if (files.length === 0 && doneFiles.length > 0 && !autoFinished.current && !busy) {
@@ -216,7 +216,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
       setChecked(false);
     }
   };
-  /** 接受所有没有冲突的修改块（说明书 8.7），作用于所有文件 */
+  /** Accept all non-conflicting blocks (spec §8.7), across all files */
   const acceptNonConflicting = () => {
     let n = 0;
     const next: Marks = { ...marks };
@@ -232,7 +232,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
     change(() => next);
   };
 
-  // 命令面板的命令：回到冲突列表 / 接受所有没有冲突的修改块
+  // Command palette commands: back to the conflict list / accept all non-conflicting blocks
   const lastCmd = useRef(0);
   useEffect(() => {
     if (!command || command.n === lastCmd.current) return;
@@ -241,7 +241,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
     else acceptNonConflicting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command]);
-  /** 整个文件都接受一边（合并窗口里）：选中侧接受，另一侧舍弃，覆盖已有标记 */
+  /** Take one side for the whole file (in the merge window): accept the chosen side, ignore the other, overriding existing marks */
   const wholeFile = (f: ConflictFile, side: Side) =>
     change((m) => {
       const fm: Record<string, ChangeMark> = {};
@@ -367,7 +367,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
               {f.kind === "binary" && isImage(f.path) && preview.has(f.path) && (
                 <div className="cf-preview">
                   <ImageDiff
-                    // 变基时“你的”是 git 的 theirs（索引第 3 方）
+                    // During a rebase "yours" is git's theirs (index stage 3)
                     left={{ path: f.path, rev: session.kind === "rebase" ? ":3" : ":2" }}
                     right={{ path: f.path, rev: session.kind === "rebase" ? ":2" : ":3" }}
                     names={{ left: t("你的"), right: t("对方的"), leftNone: t("你这边删掉了"), rightNone: t("对方删掉了") }}
@@ -431,7 +431,7 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
   );
 }
 
-// ---------- 合并窗口（说明书 8.4–8.7） ----------
+// ---------- Merge window (spec §8.4–8.7) ----------
 
 const ROW_H = 22;
 
@@ -455,7 +455,7 @@ interface WinProps {
 
 type MwView = "three" | "sides" | "result";
 const VIEW_KEY = "strand.mergeView";
-/** 视图切换按钮：图标里的竖线位置画出几栏 */
+/** View switch buttons: the vertical lines in the icon show how many panes */
 const VIEWS: { id: MwView; label: string; lines: number[] }[] = [
   { id: "three", label: "三栏：你的、结果、对方的", lines: [5.5, 10.5] },
   { id: "sides", label: "只看两边对比（隐藏结果栏）", lines: [8] },
@@ -465,7 +465,7 @@ const VIEWS: { id: MwView; label: string; lines: number[] }[] = [
 function MergeWindow(p: WinProps) {
   const { file, marks, checked } = p;
   const changes = useMemo(() => changesOf(file), [file]);
-  // 语法高亮：三栏各自按显示的顺序拼成整段（你的、结果、对方的），在后台线程里着色，按各栏的行号对上；结果栏随标记变化
+  // Syntax highlighting: each pane is joined into one text in display order (yours, result, theirs), colored on a background thread and matched by each pane's line numbers; the result pane follows the marks
   const syntax = useSettings().diffSyntax;
   const cols = useMemo(() => {
     const A: string[] = [], B: string[] = [], C: string[] = [];
@@ -494,7 +494,7 @@ function MergeWindow(p: WinProps) {
   const [cur, setCur] = useState(0);
   const [edit, setEdit] = useState<{ id: string; text: string } | null>(null);
   useReturnFocus(!!edit);
-  // 视图（说明书 8.4）：三栏、只看两边对比（隐藏结果栏）、只看结果；记在本机
+  // View (spec §8.4): three panes, both sides only (result hidden), result only; remembered on this machine
   const [view, setViewState] = useState<MwView>(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY);
@@ -508,12 +508,12 @@ function MergeWindow(p: WinProps) {
     try {
       localStorage.setItem(VIEW_KEY, v);
     } catch {
-      /* 只在本次有效 */
+      /* Only for this session */
     }
   };
   const scroller = useRef<HTMLDivElement>(null);
   const jumpTimer = useRef<number>(0);
-  // 打开时焦点放进合并窗口（说明书 12.4）：当前这一处的第一个按钮，没有就放到顶部工具行的第一个按钮
+  // Focus the merge window when it opens (spec §12.4): the first button of the current change, otherwise the first button of the top tool row
   useEffect(() => {
     const t0 = window.setTimeout(() => {
       const a = document.activeElement;
@@ -526,7 +526,7 @@ function MergeWindow(p: WinProps) {
     return () => window.clearTimeout(t0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path]);
-  // 标记以后那个按钮没了，焦点会掉到页面上：放到当前这一处剩下的按钮上；这一处都标记完、自动跳到下一处后，放到下一处的按钮上
+  // After marking, that button disappears and focus would fall to the page: move it to the remaining buttons of this change; once it's fully marked and auto-jumps, to the next change's buttons
   useEffect(() => {
     const t0 = window.setTimeout(() => {
       if (document.activeElement && document.activeElement !== document.body) return;
@@ -550,7 +550,7 @@ function MergeWindow(p: WinProps) {
     scroller.current?.querySelector(`[data-change="${changes[k].id}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [changes]);
 
-  // 一处标完后，650 ms 后跳到下一处未处理的；期间有别的操作就取消
+  // After a change is fully marked, jump to the next unhandled one after 650 ms; cancelled by any other action meanwhile
   const prevLeft = useRef<Record<string, number>>({});
   useEffect(() => {
     const now: Record<string, number> = {};
@@ -573,7 +573,7 @@ function MergeWindow(p: WinProps) {
     };
   }, []);
 
-  // ⌥↑ / ⌥↓ 上一处、下一处；⌘Z / ⇧⌘Z 撤销、重做
+  // ⌥↑ / ⌥↓ previous and next change; ⌘Z / ⇧⌘Z undo and redo
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (edit || (e.target instanceof HTMLElement && e.target.closest("textarea, input"))) return;
@@ -585,7 +585,7 @@ function MergeWindow(p: WinProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [cur, goTo, edit, p]);
 
-  // 校验失败后跳到第一处没标记的
+  // After a failed validation, jump to the first unmarked change
   useEffect(() => {
     if (!checked) return;
     const i = changes.findIndex((c) => leftIn(c, markOf(marks, c.id)) > 0);
@@ -593,7 +593,7 @@ function MergeWindow(p: WinProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checked]);
 
-  // 生成三栏的行
+  // Build the rows of the three panes
   const rows: React.ReactNode[] = [];
   const railMarks: { top: number; done: boolean; i: number }[] = [];
   let a = 0, b = 0, c = 0, y = 0, k = 0;
@@ -650,7 +650,7 @@ function MergeWindow(p: WinProps) {
             ✕
           </button>
         );
-        // 引入这一块的提交（说明书 8.5）；找不到时显示这一侧的提交
+        // The commit that introduced this block (spec §8.5); this side's commit when not found
         const origin = side === "mine" ? ch.mine_origin : ch.theirs_origin;
         const label = (
           <span
@@ -869,15 +869,15 @@ function MergeWindow(p: WinProps) {
   );
 }
 
-// ---------- 本地保存（稍后继续） ----------
+// ---------- Local saving (continue later) ----------
 
-/** 本地保存的一项；本地没有时用撤销“中止合并”后核心层还回来的 */
+/** One locally saved item; when absent locally, use what the core layer returned after undoing "abort merge" */
 function stored(key: string, saved: unknown): { marks?: Marks; resolved?: string[] } {
   try {
     const local = localStorage.getItem(key);
     if (local) return JSON.parse(local) ?? {};
   } catch {
-    /* 读不了就看核心层的 */
+    /* Unreadable: use the core layer's */
   }
   return saved && typeof saved === "object" ? (saved as { marks?: Marks; resolved?: string[] }) : {};
 }
@@ -890,7 +890,7 @@ function loadResolved(key: string, saved?: unknown): string[] {
 
 const prefixOf = (repoPath: string) => `strand.marks:${repoPath}:`;
 
-/** 这个仓库本地保存的冲突标记（中止时交给核心层，说明书 8.9） */
+/** This repository's locally saved conflict marks (handed to the core layer on abort, spec §8.9) */
 export function marksOf(repoPath: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   try {
@@ -899,12 +899,12 @@ export function marksOf(repoPath: string): Record<string, unknown> {
       if (k?.startsWith(prefixOf(repoPath))) out[k] = JSON.parse(localStorage.getItem(k) ?? "null");
     }
   } catch {
-    /* 读不了就不带标记 */
+    /* Unreadable: go without marks */
   }
   return out;
 }
 
-/** 中止后清掉本地的标记 */
+/** Clear local marks after aborting */
 export function dropMarks(repoPath: string) {
   for (const k of Object.keys(marksOf(repoPath))) clear(k);
 }
@@ -913,13 +913,13 @@ function save(key: string, marks: Marks, resolved: string[]) {
   try {
     localStorage.setItem(key, JSON.stringify({ marks, resolved }));
   } catch {
-    /* 存不了就只在这次有效 */
+    /* Can't save: valid for this session only */
   }
 }
 function clear(key: string) {
   try {
     localStorage.removeItem(key);
   } catch {
-    /* 忽略 */
+    /* Ignore */
   }
 }

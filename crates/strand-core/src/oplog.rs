@@ -1,14 +1,14 @@
-//! 操作日志、撤销和重做（说明书第 11 节）。
+//! Op log, undo and redo (spec §11).
 //!
-//! 每个写操作执行前后各拍一张快照：HEAD、本地分支和标签的位置、索引对应的树、工作区已跟踪文件对应的树。
-//! 日志只保存前后不同的引用；树对象写进 Git 对象库，每条日志在 `refs/strand/ops/<id>` 下留一个提交
-//! （树里放四棵快照树，父提交是变动前后的提交），这样撤销掉的提交、删掉的分支不会被垃圾回收。
+//! Each write operation takes a snapshot before and after: positions of HEAD, local branches and tags, the tree for the index, and the tree for tracked worktree files.
+//! The log stores only refs that differ; trees are written into the Git object database, and each entry leaves a commit under `refs/strand/ops/<id>`
+//! (its tree holds the four snapshot trees, its parents are the commits before and after), so undone commits and deleted branches aren't garbage-collected.
 //!
-//! 撤销 = 恢复到 `before`，重做 = 恢复到 `after`。恢复前核对仓库现在的样子：
-//! - HEAD 和这一步改过的引用必须还是这一步结束时的位置，否则说明仓库在别处被改过，返回 `STATE_DIVERGED`；
-//! - 文件按路径核对：只改这一步改过的文件，用户之后在别的文件上的改动保留；同一个文件又被改过时返回 `STATE_DIVERGED`。
+//! Undo = restore `before`, redo = restore `after`. Before restoring, the repository's current state is checked:
+//! - HEAD and the refs this step changed must still be where the step left them, otherwise the repository was changed elsewhere and `STATE_DIVERGED` is returned;
+//! - files are checked by path: only files this step changed are touched, so later edits to other files are kept; `STATE_DIVERGED` when the same file changed again.
 //!
-//! 日志保存在 `.git/strand/oplog.json`，保留最近 200 条、30 天。重做列表只在内存里，重启后清空。
+//! The log is stored in `.git/strand/oplog.json`, keeping the latest 200 entries and 30 days. The redo list is in memory only and cleared on restart.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ const MAX_ENTRIES: usize = 200;
 const MAX_AGE_SECS: i64 = 30 * 86_400;
 const KEEP_PREFIX: &str = "refs/strand/ops/";
 
-/// 操作的类别。推送只在时间线里显示，不能撤销。
+/// Operation category. Pushes only appear on the timeline and can't be undone.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OpKind {
@@ -43,47 +43,47 @@ pub enum OpKind {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", content = "name", rename_all = "snake_case")]
 pub enum HeadRef {
-    /// 完整引用名，如 `refs/heads/main`；分支还没有提交时也是它
+    /// Full ref name, e.g. `refs/heads/main`; also this when the branch has no commits yet
     Branch(String),
     Detached(String),
 }
 
-/// 仓库某一刻的样子
+/// What the repository looks like at one moment
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Snapshot {
     pub head: HeadRef,
-    /// 本地分支和标签：完整引用名 → 对象哈希
+    /// Local branches and tags: full ref name → object hash
     pub refs: BTreeMap<String, String>,
-    /// 索引对应的树；裸仓库没有
+    /// The tree for the index; none for bare repositories
     pub index: Option<String>,
-    /// 工作区里已跟踪文件对应的树；裸仓库没有
+    /// The tree for tracked worktree files; none for bare repositories
     pub worktree: Option<String>,
-    /// 贮藏列表（新的在前）
+    /// The stash list (newest first)
     #[serde(default)]
     pub stash: Vec<StashRef>,
-    /// 暂存架里没删除的条目
+    /// Shelf entries not deleted
     #[serde(default)]
     pub shelf: Vec<u64>,
-    /// 指定的几个文件（不管跟踪与否）的样子，只有 [`Session::run_op_scoped`] 才拍
+    /// The state of specific files (tracked or not); only captured by [`Session::run_op_scoped`]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<FilesSnap>,
-    /// 链接的工作目录，只有 [`Session::run_op_scoped`] 才拍
+    /// Linked worktrees; only captured by [`Session::run_op_scoped`]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktrees: Option<Vec<WorktreeSnap>>,
-    /// 停在冲突中的现场（见 [`Session::merge_abort_logged`]）：一棵树，放着 `.git` 下的索引文件、
-    /// 合并和变基的状态文件、Strand 自己的冲突记录、前端的标记，以及当时还没写成日志的那一步（`pending.json`）
+    /// The state while stopped in a conflict (see [`Session::merge_abort_logged`]): a tree holding the index file under `.git`,
+    /// the merge and rebase state files, Strand's own conflict record, the frontend's marks, and the step not yet written to the log (`pending.json`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict: Option<String>,
 }
 
-/// 快照里额外记下的文件：`paths` 是记下的路径，`tree` 里只有当时存在的那些
+/// Extra files recorded in a snapshot: `paths` are the recorded paths, `tree` only holds those that existed then
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FilesSnap {
     pub paths: Vec<String>,
     pub tree: String,
 }
 
-/// 一个链接的工作目录：检出的分支，或分离头指针时的提交
+/// A linked worktree: the branch checked out, or the commit when detached
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorktreeSnap {
     pub path: String,
@@ -93,9 +93,9 @@ pub struct WorktreeSnap {
     pub detached: Option<String>,
 }
 
-/// 普通快照之外还要记下的东西。快照只管已跟踪文件，未跟踪文件和工作目录要操作自己说明：
-/// - `files`：加入版本控制、加入忽略规则、删除未跟踪文件涉及的路径；
-/// - `worktrees`：新建、移除工作目录。
+/// Things to record beyond a normal snapshot. Snapshots only cover tracked files; untracked files and worktrees must be declared by the operation:
+/// - `files`: paths involved in adding to version control, adding to ignore rules, deleting untracked files;
+/// - `worktrees`: creating and removing worktrees.
 #[derive(Debug, Clone, Default)]
 pub struct OpScope {
     pub files: Vec<String>,
@@ -108,18 +108,18 @@ pub struct StashRef {
     pub message: String,
 }
 
-/// 日志里保存的一侧：只有这一步改过的引用
+/// One side as stored in the log: only the refs this step changed
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct Side {
     head: HeadRef,
-    /// 这一步改过的引用在这一侧的位置；`None` 表示不存在
+    /// Where the refs changed by this step are on this side; `None` means it doesn't exist
     refs: BTreeMap<String, Option<String>>,
     index: Option<String>,
     worktree: Option<String>,
-    /// 这一步改了贮藏列表时，这一侧的完整列表
+    /// When this step changed the stash list, the full list on this side
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stash: Option<Vec<StashRef>>,
-    /// 这一步改了暂存架时，这一侧没删除的条目
+    /// When this step changed the shelf, the entries on this side that aren't deleted
     #[serde(default, skip_serializing_if = "Option::is_none")]
     shelf: Option<Vec<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,15 +139,15 @@ struct Entry {
     before: Side,
     after: Side,
     undoable: bool,
-    /// 已被撤销（等待重做）
+    /// Undone (waiting for redo)
     #[serde(default)]
     undone: bool,
-    /// 不能撤销的原因
+    /// Why it can't be undone
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
 }
 
-/// 合并、拉取停在冲突时，先记下开始前的快照，整个冲突解决完成后才写成一条日志
+/// When a merge or pull stops on conflicts, record the snapshot from before it started and write one log entry only after the whole conflict resolution finishes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Pending {
     label: String,
@@ -163,7 +163,7 @@ struct File {
     pending: Option<Pending>,
 }
 
-/// 前端看到的一条日志
+/// One log entry as the frontend sees it
 #[derive(Debug, Clone, Serialize)]
 pub struct OpInfo {
     pub id: u64,
@@ -178,17 +178,17 @@ pub struct OpInfo {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OpList {
-    /// 新的在前
+    /// Newest first
     pub entries: Vec<OpInfo>,
     pub can_undo: bool,
     pub can_redo: bool,
 }
 
-/// 内存里的日志状态，挂在 `Session` 上
+/// In-memory op log state, attached to `Session`
 #[derive(Default)]
 pub struct OpLog {
     file: Option<File>,
-    /// 重做列表：每项是一次撤销涉及的日志（一次退回多步算一项），按撤销的顺序
+    /// The redo list: each item is the entries touched by one undo (undoing several steps at once is one item), in undo order
     redo: Vec<Vec<u64>>,
 }
 
@@ -213,7 +213,7 @@ impl Session {
         if self.oplog.file.is_none() {
             let path = self.oplog_dir()?.join("oplog.json");
             let mut f: File = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-            // 重做列表不跨重启保留
+            // The redo list isn't kept across restarts
             f.entries.retain(|e| !e.undone);
             self.oplog.file = Some(f);
         }
@@ -230,14 +230,14 @@ impl Session {
         std::fs::rename(&tmp, dir.join("oplog.json")).map_err(|e| CoreError::git("保存操作日志失败", e))
     }
 
-    /// 仓库现在的快照。树对象会写进对象库。
+    /// A snapshot of the repository now. Tree objects are written to the object database.
     pub fn snapshot(&self) -> Result<Snapshot> {
         let repo = self.git2()?;
         let trees = if repo.is_bare() { (None, None) } else { snapshot_trees(repo.path(), self.path(), &self.oplog_dir()?, None) };
         self.snapshot_with(trees)
     }
 
-    /// 快照里便宜的部分（HEAD、引用、贮藏、暂存架），配上算好的索引树和工作区树
+    /// The cheap parts of a snapshot (HEAD, refs, stashes, shelf), paired with the computed index and worktree trees
     fn snapshot_with(&self, (index, worktree): (Option<String>, Option<String>)) -> Result<Snapshot> {
         let repo = self.git2()?;
         let head = match repo.find_reference("HEAD").map_err(git_err("读取 HEAD 失败"))?.symbolic_target().ok().flatten() {
@@ -255,7 +255,7 @@ impl Session {
         Ok(Snapshot { head, refs, index, worktree, stash, shelf: self.shelf_visible(), files: None, worktrees: None, conflict: None })
     }
 
-    /// 普通快照，加上 `scope` 要求额外记下的文件和工作目录
+    /// A normal snapshot plus the files and worktrees `scope` asks to record
     fn snapshot_scoped(&self, scope: &OpScope) -> Result<Snapshot> {
         let mut s = self.snapshot()?;
         if !scope.files.is_empty() {
@@ -302,8 +302,8 @@ impl Session {
         Ok(list)
     }
 
-    /// 执行一个要记入日志的写操作。操作失败但仓库停在合并或变基中（冲突）时，记下开始前的快照，
-    /// 冲突解决完成（[`Session::op_finish_pending`]）后再写成一条日志。
+    /// Run a write operation recorded in the log. When the operation fails but the repository is stopped mid merge or rebase (conflicts), record the snapshot from before it started
+    /// and write one entry after conflict resolution finishes ([`Session::op_finish_pending`]).
     pub fn run_op<T>(&mut self, label: &str, kind: OpKind, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<(T, Option<OpInfo>)> {
         let before = self.snapshot()?;
         crate::console::note(label);
@@ -313,7 +313,7 @@ impl Session {
         Ok((t, op?))
     }
 
-    /// 同 [`Session::run_op`]，另外按 `scope` 记下未跟踪文件和工作目录，让这些也能撤销
+    /// Same as [`Session::run_op`], also recording untracked files and worktrees per `scope` so those can be undone too
     pub fn run_op_scoped<T>(&mut self, label: &str, kind: OpKind, scope: &OpScope, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<(T, Option<OpInfo>)> {
         let before = self.snapshot_scoped(scope)?;
         crate::console::note(label);
@@ -323,8 +323,8 @@ impl Session {
         Ok((t, op?))
     }
 
-    /// 同 [`Session::run_op`]，最后再重新读取日志（界面要刷新）。操作后的快照和重新读取同时进行，
-    /// 省下其中一个的时间（说明书 15）。不管操作成功与否都会重新读取。
+    /// Same as [`Session::run_op`], then re-read the log (the UI needs to refresh). The after snapshot and the re-read run at the same time,
+    /// saving one of their durations (spec §15). The log is re-read whether or not the operation succeeds.
     pub fn run_op_reload<T>(&mut self, label: &str, kind: OpKind, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<(T, Option<OpInfo>)> {
         let before = self.snapshot()?;
         crate::console::note(label);
@@ -349,8 +349,8 @@ impl Session {
             (None, None)
         } else {
             let (git_dir, workdir, scratch) = (repo.path().to_path_buf(), self.path().to_path_buf(), self.oplog_dir()?);
-            // 操作后的快照、界面紧接着要的工作区状态（都从同一次 git status 出发，免得把全部文件扫两遍），
-            // 和重新读取日志同时做
+            // The after snapshot and the worktree status the UI needs next (both from the same git status, so all files aren't scanned twice),
+            // done alongside re-reading the log
             let ((trees, status), reloaded) = std::thread::scope(|sc| {
                 let h = sc.spawn(|| {
                     let pre = crate::worktree::porcelain(&workdir);
@@ -373,7 +373,7 @@ impl Session {
         self.op_push(label, kind, before, after, true).map(Some)
     }
 
-    /// 写操作结束：和开始前的快照比较，有变化就写一条日志
+    /// A write operation ended: compare with the before snapshot and write an entry if anything changed
     pub fn op_end(&mut self, label: &str, kind: OpKind, before: Snapshot) -> Result<Option<OpInfo>> {
         self.op_end_scoped(label, kind, before, &OpScope::default())
     }
@@ -384,7 +384,7 @@ impl Session {
             self.oplog_save()?;
             return Ok(None);
         }
-        // 之前停在冲突、后来在别处中止的合并：它记下的开始前快照已经没用了
+        // A merge that stopped on conflicts and was later aborted elsewhere: its recorded before snapshot is no longer useful
         if self.oplog_file()?.pending.take().is_some() {
             self.oplog_save()?;
         }
@@ -395,14 +395,14 @@ impl Session {
         self.op_push(label, kind, before, after, true).map(Some)
     }
 
-    /// 推送：只在时间线里显示
+    /// Push: only shown on the timeline
     pub fn op_note(&mut self, label: &str, kind: OpKind) -> Result<OpInfo> {
         crate::console::note(label);
         let s = self.snapshot()?;
         self.op_push(label, kind, s.clone(), s, false)
     }
 
-    /// 冲突解决完成：把合并或拉取的整个过程写成一条日志
+    /// Conflict resolution finished: write the whole merge or pull as one entry
     pub fn op_finish_pending(&mut self) -> Result<Option<OpInfo>> {
         if self.state()?.state != RepoMode::Normal {
             return Ok(None);
@@ -416,7 +416,7 @@ impl Session {
         self.op_push(&p.label, p.kind, p.before, after, true).map(Some)
     }
 
-    /// 中止了合并或变基：仓库回到开始前，不写日志
+    /// The merge or rebase was aborted: the repository is back to before it started; no entry
     pub fn op_drop_pending(&mut self) -> Result<()> {
         if self.state()?.state == RepoMode::Normal && self.oplog_file()?.pending.take().is_some() {
             self.oplog_save()?;
@@ -424,10 +424,10 @@ impl Session {
         Ok(())
     }
 
-    /// 中止合并、变基、拣选、还原、取回或拉取，并写成一条可以撤销的日志（说明书 8.9）：
-    /// 中止前把冲突现场存下来（见 [`Snapshot::conflict`]），撤销这一步就回到中止前的冲突和标记。
-    /// `marks` 是前端的标记（原样存、原样还给 [`crate::conflict::MergeSession::saved_marks`]）。
-    /// 拉取前自动搁置的改动照常放回；返回放回时的提示和这条日志。
+    /// Abort a merge, rebase, cherry-pick, revert, restore or pull, writing it as one undoable entry (spec §8.9):
+    /// before aborting, save the conflict state (see [`Snapshot::conflict`]); undoing this step returns to the conflicts and marks before the abort.
+    /// `marks` are the frontend's marks (stored as is and returned as is through [`crate::conflict::MergeSession::saved_marks`]).
+    /// Changes auto-shelved before a pull are restored as usual; returns the restore notice and this entry.
     pub fn merge_abort_logged(&mut self, label: &str, marks: Option<serde_json::Value>) -> Result<(Option<String>, Option<OpInfo>)> {
         if self.state()?.state == RepoMode::Normal {
             self.merge_abort()?;
@@ -446,7 +446,7 @@ impl Session {
         Ok((note, Some(self.op_push(label, OpKind::Merge, before, after, true)?)))
     }
 
-    /// 把冲突现场写成一棵树：`.git` 下的状态文件按原路径放（`git/…`），另有 `marks.json`、`pending.json`
+    /// Write the conflict state as a tree: state files under `.git` at their original paths (`git/…`), plus `marks.json` and `pending.json`
     fn capture_conflict(&self, pending: Option<&Pending>, marks: Option<&serde_json::Value>) -> Result<git2::Oid> {
         let repo = self.git2()?;
         let git_dir = repo.path().to_path_buf();
@@ -490,7 +490,7 @@ impl Session {
             conflict: s.conflict.clone(),
         };
         let (b, a) = (side(&before), side(&after));
-        // 新的写操作清空重做列表
+        // A new write operation clears the redo list
         self.oplog.redo.clear();
         let dropped: Vec<u64> = self.oplog_file()?.entries.iter().filter(|e| e.undone).map(|e| e.id).collect();
         let f = self.oplog_file()?;
@@ -502,7 +502,7 @@ impl Session {
         let keep = self.keep(&entry);
         let f = self.oplog_file()?;
         f.entries.push(entry);
-        // 清理太旧的日志
+        // Prune old entries
         let cutoff = now() - MAX_AGE_SECS;
         let mut pruned = dropped;
         while f.entries.len() > MAX_ENTRIES || f.entries.first().is_some_and(|e| e.time < cutoff) {
@@ -519,7 +519,7 @@ impl Session {
         Ok(op)
     }
 
-    /// 留一个引用，防止快照用到的对象被垃圾回收
+    /// Keep a ref so objects used by the snapshot aren't garbage-collected
     fn keep(&self, e: &Entry) -> Result<()> {
         let repo = self.git2()?;
         let mut tb = repo.treebuilder(None).map_err(git_err("保存快照失败"))?;
@@ -548,7 +548,7 @@ impl Session {
                 HeadRef::Branch(_) => None,
             };
             let stashes: Vec<String> = s.stash.iter().flatten().map(|x| x.id.clone()).collect();
-            // 冲突现场里的状态文件提到的提交（MERGE_HEAD、变基的 onto 等）也要留住
+            // Also keep the commits named by state files in the conflict state (MERGE_HEAD, the rebase's onto, etc.)
             let mentioned = s.conflict.as_deref().map(|t| conflict_commits(&repo, t)).unwrap_or_default();
             s.refs.values().flatten().cloned().chain(head).chain(stashes).chain(mentioned)
         });
@@ -568,11 +568,11 @@ impl Session {
         Ok(())
     }
 
-    /// 最近的日志（新的在前）
+    /// Recent entries (newest first)
     pub fn oplog_list(&mut self, limit: usize) -> Result<OpList> {
         let can_redo = !self.oplog.redo.is_empty();
-        // 最近一步结束后仓库在别处被改过（命令行里提交、切换分支、改了它改过的文件）：
-        // 这一步和更早的都显示为不能撤销。只是显示，不写进日志，外部又改回去就恢复。
+        // The repository changed elsewhere after the latest step (committed or switched branches on the command line, changed files it changed):
+        // this step and earlier ones show as not undoable. Display only, not written to the log; it recovers if the external change is reverted.
         let top = self.oplog_file()?.entries.iter().rev().find(|e| !e.undone && e.kind != OpKind::Push && e.undoable).cloned();
         let stale = top.as_ref().and_then(|e| self.changed_elsewhere(e).map(|why| (e.id, why)));
         let f = self.oplog_file()?;
@@ -599,8 +599,8 @@ impl Session {
         Ok(OpList { entries, can_undo, can_redo })
     }
 
-    /// 这一步结束后，它改过的东西有没有在别处被改过。只看这一步改过的 HEAD、引用、索引条目、文件、
-    /// 贮藏和暂存架，不拍整个快照（每次刷新时间线都要调用）。改过时返回原因。
+    /// Whether anything this step changed was changed elsewhere afterwards. Only looks at the HEAD, refs, index entries, files,
+    /// stashes and shelf this step changed, without a full snapshot (called on every timeline refresh). Returns the reason when it was.
     fn changed_elsewhere(&self, e: &Entry) -> Option<String> {
         let repo = self.git2().ok()?;
         let a = &e.after;
@@ -630,7 +630,7 @@ impl Session {
         if repo.is_bare() {
             return None;
         }
-        // 中止合并之前的索引有冲突，没有对应的树，这里不逐条核对（撤销时的完整核对会比较整个索引）
+        // Before aborting a merge the index has conflicts and no matching tree, so no per-entry check here (the full check on undo compares the whole index)
         let index = if e.before.conflict.is_some() { FileSet::new() } else { changes(&repo, &e.before.index, &a.index) };
         if !index.is_empty() {
             let mut idx = repo.index().ok()?;
@@ -646,7 +646,7 @@ impl Session {
         for (p, want) in changes(&repo, &e.before.worktree, &a.worktree) {
             let full = root.join(&p);
             let now = std::fs::read(&full).ok().and_then(|b| git2::Oid::hash_object(git2::ObjectType::Blob, &b).ok());
-            // 只比内容；符号链接和文件模式交给撤销时的完整核对
+            // Content only; symlinks and file modes are left to the full check on undo
             let same = match want {
                 Some((id, mode)) if mode != 0o120000 => now == Some(id),
                 Some(_) => true,
@@ -659,8 +659,8 @@ impl Session {
         None
     }
 
-    /// 撤销。`to` 为空时撤销最近一步，否则撤销到这一条（含）为止。
-    /// 要越过已经推送的步骤时，`confirm_pushed` 为假就返回 `ALREADY_PUSHED`，前端确认后再调用。
+    /// Undo. With `to` empty undo the latest step, otherwise undo up to and including this entry.
+    /// When crossing already-pushed steps, returns `ALREADY_PUSHED` while `confirm_pushed` is false; the frontend confirms and calls again.
     pub fn oplog_undo(&mut self, to: Option<u64>, confirm_pushed: bool) -> Result<Vec<OpInfo>> {
         if self.state()?.state != RepoMode::Normal {
             return Err(CoreError::new(ErrorCode::MergeInProgress, "合并或变基还没完成，先完成或中止"));
@@ -676,7 +676,7 @@ impl Session {
                 live.iter().take_while(|e| e.id >= to).filter(|e| e.kind != OpKind::Push).map(|e| e.id).collect()
             }
         };
-        // 撤销“中止合并”后仓库回到冲突中，更早的步骤要等这次合并完成或再次中止后才能撤销：到这一条为止
+        // After undoing "abort merge" the repository is back in conflict, and earlier steps can only be undone after this merge finishes or is aborted again: stop at this entry
         let steps: Vec<u64> = match steps.iter().position(|id| live.iter().any(|e| e.id == *id && e.before.conflict.is_some())) {
             Some(i) => steps[..=i].to_vec(),
             None => steps,
@@ -707,7 +707,7 @@ impl Session {
     }
 
     fn finish_undo(&mut self, done: &[OpInfo]) -> Result<()> {
-        // 撤销了“中止合并”时仓库回到冲突中，不能重做；要再中止，在冲突解决里再点一次中止
+        // After undoing "abort merge" the repository is back in conflict and can't redo; to abort again, press abort again in conflict resolution
         let back_in_conflict = self.oplog.file.as_ref().is_some_and(|f| f.entries.iter().any(|e| done.iter().any(|o| o.id == e.id) && e.before.conflict.is_some()));
         if !done.is_empty() && !back_in_conflict {
             self.oplog.redo.push(done.iter().map(|o| o.id).collect());
@@ -715,7 +715,7 @@ impl Session {
         self.oplog_save()
     }
 
-    /// 重做最近一次撤销（一次退回多步的会一起恢复）
+    /// Redo the latest undo (several steps undone at once are restored together)
     pub fn oplog_redo(&mut self) -> Result<Vec<OpInfo>> {
         if self.state()?.state != RepoMode::Normal {
             return Err(CoreError::new(ErrorCode::MergeInProgress, "合并或变基还没完成，先完成或中止"));
@@ -728,7 +728,7 @@ impl Session {
             match self.restore(*id, false) {
                 Ok(op) => done.push(op),
                 Err(e) => {
-                    // 没重做的那几步留在重做列表里
+                    // Steps not redone stay in the redo list
                     let rest: Vec<u64> = group[..group.len() - i].to_vec();
                     self.oplog.redo.push(rest);
                     self.oplog_save()?;
@@ -740,7 +740,7 @@ impl Session {
         Ok(done)
     }
 
-    /// 把一条日志撤销（恢复到 before）或重做（恢复到 after）
+    /// Undo one entry (restore before) or redo it (restore after)
     fn restore(&mut self, id: u64, undo: bool) -> Result<OpInfo> {
         let e = self.oplog_file()?.entries.iter().find(|e| e.id == id).cloned().ok_or_else(|| CoreError::new(ErrorCode::NotFound, "这一步已经不在时间线里"))?;
         crate::console::note(&format!("{}：{}", if undo { "撤销" } else { "重做" }, e.label));
@@ -752,15 +752,15 @@ impl Session {
         let cur = self.snapshot_scoped(&scope)?;
         let repo = self.git2()?;
         let checked = check(&repo, from, to, &cur).and_then(|mut plan| {
-            // 回到冲突现场：索引整个换成当时的索引文件（含冲突的各个版本），不逐条恢复；
-            // 但索引现在必须还是中止后的样子
+            // Back to the conflict state: replace the whole index with the index file from then (including all conflict versions) rather than restoring entry by entry;
+            // but the index must still be as it was after the abort
             if to.conflict.is_some() {
                 plan.index.clear();
                 if cur.index != from.index {
                     return Err(vec!["索引".to_string()]);
                 }
             }
-            // 要移除的工作目录里不能有没提交的改动
+            // A worktree to be removed must not have uncommitted changes
             let dirty: Vec<String> = plan
                 .remove_worktrees
                 .iter()
@@ -773,7 +773,7 @@ impl Session {
             Ok(p) => p,
             Err(files) => {
                 if undo {
-                    // 这一条和更早的都不能再自动撤销
+                    // This entry and earlier ones can no longer be undone automatically
                     let why = "仓库在别处被修改过".to_string();
                     for x in self.oplog_file()?.entries.iter_mut().filter(|x| x.id <= id) {
                         x.undoable = false;
@@ -814,7 +814,7 @@ impl Session {
     }
 }
 
-/// 冲突现场要存下的东西（`.git` 下的相对路径，目录整个存）
+/// What to save from the conflict state (relative paths under `.git`; directories are saved whole)
 const CONFLICT_FILES: &[&str] = &[
     "index",
     "MERGE_HEAD",
@@ -835,7 +835,7 @@ const CONFLICT_FILES: &[&str] = &[
     "strand/unstash.json",
 ];
 
-/// 目录下所有文件
+/// All files in a directory
 fn walk(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let Ok(rd) = std::fs::read_dir(dir) else { return out };
@@ -851,7 +851,7 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// 把 (路径, 内容) 写成一棵树
+/// Write (path, content) pairs as a tree
 fn write_tree(repo: &git2::Repository, files: &[(String, Vec<u8>)]) -> Result<git2::Oid> {
     let mut dirs: BTreeMap<&str, Vec<(String, Vec<u8>)>> = BTreeMap::new();
     let mut tb = repo.treebuilder(None).map_err(git_err("保存冲突现场失败"))?;
@@ -871,7 +871,7 @@ fn write_tree(repo: &git2::Repository, files: &[(String, Vec<u8>)]) -> Result<gi
     tb.write().map_err(git_err("保存冲突现场失败"))
 }
 
-/// 树里的所有文件：(路径, 内容)
+/// All files in a tree: (path, content)
 fn read_tree(repo: &git2::Repository, tree: &git2::Tree, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
     for e in tree.iter() {
         let name = format!("{prefix}{}", e.name().unwrap_or_default());
@@ -890,7 +890,7 @@ fn read_tree(repo: &git2::Repository, tree: &git2::Tree, prefix: &str, out: &mut
     }
 }
 
-/// 写回冲突现场：状态文件放回 `.git`，标记写成 `.git/strand/marks.json`；返回当时没写成日志的那一步
+/// Write back the conflict state: state files go back into `.git`, marks are written to `.git/strand/marks.json`; returns the step that hadn't been written to the log then
 fn restore_conflict(repo: &git2::Repository, tree: &str) -> Result<Option<Pending>> {
     let t = git2::Oid::from_str(tree).and_then(|o| repo.find_tree(o)).map_err(git_err("读取冲突现场失败"))?;
     let mut files = Vec::new();
@@ -917,7 +917,7 @@ fn restore_conflict(repo: &git2::Repository, tree: &str) -> Result<Option<Pendin
     Ok(pending)
 }
 
-/// 冲突现场的状态文件里提到的提交（40 位哈希）
+/// Commits named in the conflict state's state files (40-character hashes)
 fn conflict_commits(repo: &git2::Repository, tree: &str) -> Vec<String> {
     let Ok(t) = git2::Oid::from_str(tree).and_then(|o| repo.find_tree(o)) else { return Vec::new() };
     let mut files = Vec::new();
@@ -937,8 +937,8 @@ fn conflict_commits(repo: &git2::Repository, tree: &str) -> Vec<String> {
     out
 }
 
-/// 工作区已跟踪文件的树：复制一份索引，按工作区的内容刷新后写成树（不改动真正的索引）
-/// 快照里贵的部分：索引的树和工作区的树。两者互不相干，分两个线程算（说明书 15：大仓库上写操作 500 ms 内完成）
+/// The tree for tracked worktree files: copy the index, refresh it from worktree content and write it as a tree (the real index is untouched)
+/// The expensive parts of a snapshot: the index tree and the worktree tree. They're independent, so they're computed on two threads (spec §15: writes finish within 500 ms on large repositories)
 fn snapshot_trees(git_dir: &Path, workdir: &Path, scratch: &Path, pre: Option<&str>) -> (Option<String>, Option<String>) {
     std::thread::scope(|sc| {
         let wt = sc.spawn(|| worktree_tree(git_dir, workdir, scratch, pre).ok());
@@ -949,12 +949,12 @@ fn snapshot_trees(git_dir: &Path, workdir: &Path, scratch: &Path, pre: Option<&s
     })
 }
 
-/// 工作区里已跟踪文件的样子，存成一棵树：从索引出发，换上工作区里和索引不一样的文件。
+/// The state of tracked worktree files, stored as a tree: start from the index and swap in worktree files that differ from it.
 ///
-/// 先用系统 `git status`（多线程）找出哪些已跟踪的文件和索引不一样：通常一个都没有或只有几个，
-/// 只需把这几个加进索引的副本里；不用像 libgit2 的 `update_all` 那样把全部文件检查一遍
-/// （5 万个文件约 150 ms）。有没解决的冲突或 `git status` 失败时退回 `update_all`。
-/// `pre` 是已经跑好的 `git status --porcelain=v2` 输出（没有就自己跑一次）。
+/// First use system `git status` (multi-threaded) to find tracked files that differ from the index: usually none or only a few,
+/// which are added to a copy of the index; no need to check every file like libgit2's `update_all` does
+/// (about 150 ms for 50k files). Falls back to `update_all` with unresolved conflicts or when `git status` fails.
+/// `pre` is `git status --porcelain=v2` output already run (runs it if absent).
 fn worktree_tree(git_dir: &Path, workdir: &Path, scratch: &Path, pre: Option<&str>) -> Result<git2::Oid> {
     std::fs::create_dir_all(scratch).map_err(|e| CoreError::git("拍快照失败", e))?;
     let tmp = scratch.join("snapshot-index");
@@ -992,8 +992,8 @@ fn worktree_tree(git_dir: &Path, workdir: &Path, scratch: &Path, pre: Option<&st
     t
 }
 
-/// 从 `git status --porcelain=v2 -z` 里取出工作区和索引不一样的已跟踪文件：(路径, 工作区里删掉了)。
-/// 有没解决的冲突（u 条目）时返回 `None`，交给 `update_all`。
+/// From `git status --porcelain=v2 -z`, take tracked files where the worktree differs from the index: (path, deleted in worktree).
+/// Returns `None` when there are unresolved conflicts (u entries), leaving it to `update_all`.
 fn worktree_changes(out: &str) -> Option<Vec<(String, bool)>> {
     let mut list = Vec::new();
     for e in out.split('\0').filter(|e| !e.is_empty()) {
@@ -1001,7 +1001,7 @@ fn worktree_changes(out: &str) -> Option<Vec<(String, bool)>> {
             b'1' => {
                 let mut f = e.splitn(9, ' ');
                 let xy = f.nth(1)?;
-                // 子模块（sub 字段以 S 开头）在快照里不动，和 update_all 一样
+                // Submodules (sub field starts with S) are left alone in snapshots, as update_all does
                 if f.next()?.starts_with('S') {
                     continue;
                 }
@@ -1019,19 +1019,19 @@ fn worktree_changes(out: &str) -> Option<Vec<(String, bool)>> {
     Some(list)
 }
 
-/// 要恢复的文件：路径 → 目标里的 (blob, 文件模式)，`None` 表示删除
+/// Files to restore: path → (blob, file mode) in the target, `None` means delete
 type FileSet = BTreeMap<String, Option<(git2::Oid, u32)>>;
 
 struct Plan {
     index: FileSet,
     worktree: FileSet,
-    /// 额外记下的文件（见 [`OpScope`]）
+    /// Extra recorded files (see [`OpScope`])
     files: FileSet,
     remove_worktrees: Vec<WorktreeSnap>,
     add_worktrees: Vec<WorktreeSnap>,
 }
 
-/// 树里某个路径的 (blob, 文件模式)
+/// (blob, file mode) of a path in a tree
 fn entry_in(tree: Option<&git2::Tree>, path: &str) -> Option<(git2::Oid, u32)> {
     let e = tree?.get_path(Path::new(path)).ok()?;
     Some((e.id(), e.filemode() as u32))
@@ -1058,7 +1058,7 @@ fn tree_of<'r>(repo: &'r git2::Repository, id: &Option<String>) -> Option<git2::
     id.as_deref().and_then(|s| git2::Oid::from_str(s).ok()).and_then(|o| repo.find_tree(o).ok())
 }
 
-/// 两棵树之间改过的文件，以及它们在 `b` 里的样子
+/// Files that differ between two trees, and how they look in `b`
 fn changes(repo: &git2::Repository, a: &Option<String>, b: &Option<String>) -> FileSet {
     let mut out = FileSet::new();
     let (ta, tb) = (tree_of(repo, a), tree_of(repo, b));
@@ -1081,7 +1081,7 @@ fn changes(repo: &git2::Repository, a: &Option<String>, b: &Option<String>) -> F
     out
 }
 
-/// 核对仓库现在的样子能不能从 `from` 恢复到 `to`；不能时返回有冲突的引用和文件
+/// Check whether the repository as it is now can be restored from `from` to `to`; returns conflicting refs and files when it can't
 fn check(repo: &git2::Repository, from: &Side, to: &Side, cur: &Snapshot) -> std::result::Result<Plan, Vec<String>> {
     let mut bad = Vec::new();
     if cur.head != from.head {
@@ -1100,7 +1100,7 @@ fn check(repo: &git2::Repository, from: &Side, to: &Side, cur: &Snapshot) -> std
     }
     let index = changes(repo, &from.index, &to.index);
     let mut worktree = changes(repo, &from.worktree, &to.worktree);
-    // 额外记下的文件：现在的样子必须和 from 一样；由它们决定这些路径写成什么，不再看已跟踪文件的树
+    // Extra recorded files: their current state must equal from; they decide what these paths become, the tracked-file trees aren't consulted
     let mut files = FileSet::new();
     if let (Some(ff), Some(tf)) = (&from.files, &to.files) {
         let tree = |t: &str| git2::Oid::from_str(t).ok().and_then(|o| repo.find_tree(o).ok());
@@ -1133,7 +1133,7 @@ fn check(repo: &git2::Repository, from: &Side, to: &Side, cur: &Snapshot) -> std
     for p in worktree.keys().filter(|p| user_wt.contains_key(*p)) {
         bad.push(p.clone());
     }
-    // 要写出的文件现在是未跟踪文件（不在任何一边的已跟踪文件里）且内容不同，覆盖会丢数据
+    // A file to be written is currently untracked (not tracked on either side) with different content; overwriting would lose data
     if let Some(root) = repo.workdir() {
         let tracked_now = tree_of(repo, &cur.worktree);
         for (p, target) in &worktree {
@@ -1153,10 +1153,10 @@ fn check(repo: &git2::Repository, from: &Side, to: &Side, cur: &Snapshot) -> std
     if bad.is_empty() { Ok(Plan { index, worktree, files, remove_worktrees, add_worktrees }) } else { Err(bad) }
 }
 
-/// 恢复：引用、HEAD、索引、工作区
+/// Restore: refs, HEAD, index, worktree
 fn apply(repo: &git2::Repository, to: &Side, plan: &Plan, root: &Path) -> Result<()> {
     let msg = "strand: undo/redo";
-    // 引用：先删再建，避免 a 和 a/b 这类父子名字互相挡住
+    // Refs: delete first, then create, so parent/child names like a and a/b don't block each other
     for (k, v) in &to.refs {
         if v.is_none()
             && let Ok(mut r) = repo.find_reference(k)
@@ -1194,7 +1194,7 @@ fn apply(repo: &git2::Repository, to: &Side, plan: &Plan, root: &Path) -> Result
     write_set(repo, root, &plan.files)
 }
 
-/// 把工作区里这些文件写成目标的样子（`None` 是删除）
+/// Write these worktree files as they are in the target (`None` deletes)
 fn write_set(repo: &git2::Repository, root: &Path, set: &FileSet) -> Result<()> {
     for (p, v) in set {
         let full = root.join(p);
@@ -1211,7 +1211,7 @@ fn write_set(repo: &git2::Repository, root: &Path, set: &FileSet) -> Result<()> 
                 if full.is_file() || full.is_symlink() {
                     std::fs::remove_file(&full).map_err(|e| CoreError::git("恢复文件失败", e))?;
                 }
-                // 删掉因此变空的上级目录
+                // Remove parent directories that became empty as a result
                 let mut dir = full.parent();
                 while let Some(d) = dir {
                     if d == root || std::fs::remove_dir(d).is_err() {
@@ -1225,7 +1225,7 @@ fn write_set(repo: &git2::Repository, root: &Path, set: &FileSet) -> Result<()> 
     Ok(())
 }
 
-/// 把贮藏列表恢复成 `list`（新的在前）：清空后按从旧到新的顺序重新放进去，说明保持不变
+/// Restore the stash list to `list` (newest first): clear it, then push back from oldest to newest, keeping messages
 fn rebuild_stash(root: &Path, list: &[StashRef]) -> Result<()> {
     crate::git_cli::run(root, &["stash", "clear"], None)?;
     for s in list.iter().rev() {

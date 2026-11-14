@@ -1,6 +1,6 @@
-// 新建工作目录（说明书 6.6）和克隆仓库。
-// - WorktreeDialog：选文件夹，检出已有分支或者新建分支；默认放在仓库旁边，名字是“仓库名-分支名”。
-// - CloneDialog：仓库地址、放在哪个文件夹、文件夹名（按地址自动填）；显示进度，可以取消；完成后打开它。
+// Create a worktree (spec §6.6) and clone a repository.
+// - WorktreeDialog: choose a folder, check out an existing branch or create a new one; by default next to the repository, named "repo-branch".
+// - CloneDialog: repository URL, parent folder, folder name (filled from the URL); shows progress, can be cancelled; opens it when done.
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useRef, useState } from "react";
@@ -12,7 +12,7 @@ const sep = (p: string) => (p.includes("\\") && !p.includes("/") ? "\\" : "/");
 const parentOf = (p: string) => p.replace(/[\\/][^\\/]*[\\/]?$/, "") || p;
 const baseOf = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
 const join = (dir: string, name: string) => (dir.endsWith("/") || dir.endsWith("\\") ? dir + name : dir + sep(dir) + name);
-/** 分支名里的斜杠在文件夹名里换成短横 */
+/** Slashes in branch names become hyphens in folder names */
 const slug = (s: string) => s.replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "");
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
@@ -36,13 +36,13 @@ export function WorktreeDialog({
 }: {
   repoPath: string;
   refs: RefsList | null;
-  /** 从分支上打开时预选的分支 */
+  /** The branch preselected when opened from a branch */
   branch?: string;
-  /** 完成：新建的路径和分支、是否新建了分支 */
+  /** Done: the new path and branch, and whether a branch was created */
   onDone: (path: string, branch: string, created: boolean, result: Awaited<ReturnType<typeof api.worktreeAdd>>) => void;
   onClose: () => void;
 }) {
-  // 能检出的分支：不是当前分支，也没有在别的工作目录检出
+  // Branches that can be checked out: not the current branch and not checked out in another worktree
   const free = (refs?.branches ?? []).filter((b) => !b.is_current && !b.worktree);
   const [mode, setMode] = useState<"existing" | "new">(branch || free.length ? "existing" : "new");
   const [pick, setPick] = useState(branch ?? free[0]?.name ?? "");
@@ -51,7 +51,7 @@ export function WorktreeDialog({
   const target = mode === "existing" ? pick : name.trim();
   const auto = (b: string) => join(parentOf(repoPath), `${baseOf(repoPath)}-${slug(b) || "worktree"}`);
   const [path, setPath] = useState(auto(target));
-  // 用户没改过路径时跟着分支名变
+  // Follow the branch name while the user hasn't edited the path
   const touched = useRef(false);
   useEffect(() => {
     if (!touched.current) setPath(auto(target));
@@ -166,7 +166,7 @@ export function WorktreeDialog({
   );
 }
 
-/** 按仓库地址推测文件夹名：https://host/a/b.git、git@host:a/b.git → b */
+/** Guess the folder name from the repository URL: https://host/a/b.git, git@host:a/b.git → b */
 export function cloneName(url: string) {
   const u = url.trim().replace(/[\\/]+$/, "").replace(/\.git$/, "");
   return slug(u.split(/[\\/:]/).pop() ?? "");
@@ -209,7 +209,7 @@ export function CloneDialog({ defaultDir, onDone, onClose }: { defaultDir: strin
       try {
         localStorage.setItem(CLONE_DIR, dir.trim());
       } catch {
-        /* 只在本次有效 */
+        /* Only for this session */
       }
       onDone(dest);
     } catch (e) {

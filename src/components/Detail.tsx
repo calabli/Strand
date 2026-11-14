@@ -1,9 +1,9 @@
-// 提交详情（说明书 5.5）：上半是改动文件，下半是提交信息和操作图标行（5.6）。
-// 选中两个及以上提交时改为“已选 N 个提交”和批量操作（5.4）。
-// 文件行悬停出现漏斗图标，点它把路径填进日志的路径过滤（说明书写的是单击文件，单击已经用来打开差异）。
-// 文件列表标题右边是“按目录树显示”开关，和提交面板共用一个设置（说明书 4.7、5.5）；
-// 单击文件在列表下面的框里显示这个文件的差异（可以上下滚动），双击或框上的图标在差异标签页里打开；
-// 和本地比较、创建补丁、查看这个版本时的仓库在下面的操作图标行里；文件行悬停有逐行追溯。
+// Commit details (spec §5.5): changed files on top, commit info and the operation icon row below (§5.6).
+// With two or more commits selected it becomes "N commits selected" with batch operations (§5.4).
+// Hovering a file row shows a funnel icon that puts the path into the log's path filter (the spec says click the file, but click already opens the diff).
+// The file list header has a "show as directory tree" toggle shared with the commit panel (spec §4.7, §5.5);
+// clicking a file shows its diff in a box below the list (scrollable); double-click or the icon on the box opens it in the diff tab;
+// compare with local, create patch and browse this revision are in the operation icon row below; hovering a file row offers blame.
 
 import { useEffect, useRef, useState } from "react";
 import { Splitter, sizeVars } from "./Splitter";
@@ -18,7 +18,7 @@ import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { FILTER_ICONS } from "./LogFilterBar";
 import { lazy, t, tr } from "../i18n";
 
-/** 签名状态的说明 */
+/** Descriptions of signature statuses */
 const SIG_TEXT = lazy<Record<SigStatus, string>>(() => ({
   good: t("✓ 签名有效"),
   untrusted: t("✓ 签名有效（密钥未受信任）"),
@@ -53,7 +53,7 @@ interface Props {
   commit: Commit | null;
   caps: CommitCaps | null;
   ops: CommitOps;
-  /** 当前分支名（重置对话框里显示） */
+  /** Current branch name (shown in the reset dialog) */
   branch: string | null;
   extra: {
     checkout: (c: Commit) => void;
@@ -66,31 +66,31 @@ interface Props {
     setBase: (c: Commit) => void;
     pushTo: (c: Commit) => void;
   };
-  /** 多选时的压缩、丢弃（说明书 9.3） */
+  /** Squash and drop with multi-select (spec §9.3) */
   onSquashMany: () => void;
   onDropMany: () => void;
-  /** 选中并滚动到某个提交（父提交、子提交） */
+  /** Select and scroll to a commit (parent, child) */
   onJump: (id: string) => void;
-  /** 多选的提交（两个及以上时显示批量操作） */
+  /** Multi-selected commits (batch operations shown for two or more) */
   multi: string[];
-  /** 多选的提交能不能全部拣选 */
+  /** Whether all multi-selected commits can be cherry-picked */
   multiPick: Cap | null;
   onClearMulti: () => void;
   activePath: string | null;
   onOpenDiff: (commit: Commit, path: string) => void;
-  /** 把路径填进日志的路径过滤 */
+  /** Put a path into the log's path filter */
   onFilterPath: (path: string) => void;
-  /** 逐行追溯这个提交里的文件 */
+  /** Blame a file in this commit */
   onBlame: (path: string, rev: string) => void;
-  /** 打开文件视图（内容和修改链） */
+  /** Open the file view (content and change chain) */
   onFileHistory: (path: string) => void;
-  /** 日志在按改动内容搜索：只列改动行有匹配的文件，差异里标出匹配的行 */
+  /** The log is searching by changes: list only files whose changed lines match, and mark matching lines in the diff */
   find?: { text: string; regex: boolean; caseSensitive: boolean } | null;
-  /** 仓库名：按目录树显示时作为根节点 */
+  /** Repository name: the root node in tree view */
   repoName?: string;
-  /** 日志在按说明搜索：标题和正文里标出搜索词 */
+  /** The log is searching messages: mark the search term in the title and body */
   highlight?: { text: string; regex: boolean; caseSensitive: boolean } | null;
-  /** 改动文件的右键菜单：拣选或还原部分文件、取回这个版本 */
+  /** Context menu for changed files: cherry-pick or revert some files, get this revision */
   onFileMenu?: (commit: Commit, file: FileChange, files: FileChange[], x: number, y: number) => void;
 }
 
@@ -98,15 +98,15 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const groupDir = useSettings().groupByDir;
   const [error, setError] = useState<string | null>(null);
-  /** 上下拖动的分隔线往这里写高度 */
+  /** Splitters dragged up and down write heights here */
   const host = useRef<HTMLElement>(null);
   const filesBox = useRef<HTMLDivElement>(null);
   const infoBox = useRef<HTMLDivElement>(null);
-  /** 下面差异框里显示的文件；换提交后这个文件还在就接着显示 */
+  /** The file shown in the diff box below; keeps showing it after switching commits if it still exists */
   const [shown, setShown] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null });
 
-  // 签名状态：单独查（git 验证签名要一点时间），不挡着文件列表
+  // Signature status: queried separately (git takes a moment to verify signatures) so the file list isn't held up
   const [sig, setSig] = useState<{ id: string; s: Signature } | null>(null);
   useEffect(() => {
     if (!commit) return;
@@ -140,7 +140,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   }, [commit]);
 
   const commitId = commit?.id;
-  // 按改动内容搜索时：这个提交里哪些文件的改动行有匹配
+  // When searching by changes: which files in this commit have matching changed lines
   const [matches, setMatches] = useState<ChangeMatch[] | null>(null);
   const [allFiles, setAllFiles] = useState(false);
   const findKey = find ? JSON.stringify(find) : "";
@@ -152,7 +152,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
       (m) => {
         if (!live) return;
         setMatches(m);
-        // 自动在下面的框里打开第一个匹配的文件
+        // Automatically open the first matching file in the box below
         if (m.length) setShown((p) => (p && m.some((x) => x.path === p) ? p : m[0].path));
       },
       () => live && setMatches([]),
@@ -211,9 +211,9 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
   }
 
   if (!commit) return <aside className="detail empty">{t("选择一个提交查看详情")}</aside>;
-  // 搜改动内容时默认只列匹配的文件
+  // When searching changes, list only matching files by default
   const listed = files && find && matches && !allFiles ? files.filter((f) => hitCount.has(f.path) || (f.old_path ? hitCount.has(f.old_path) : false)) : files;
-  /** 改动文件的一行；depth 是树形显示时的层级（只显示文件名） */
+  /** One changed-file row; depth is the level in tree view (only the file name is shown) */
   const fileRow = (f: FileChange, depth?: number) => (
           <div
             key={f.path}
@@ -302,7 +302,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
         {listed && (groupDir ? <FileTree items={listed} pathOf={(f) => f.path} leaf={(f, d) => fileRow(f, d)} root={repoName} /> : listed.map((f) => fileRow(f)))}
         {find && matches && matches.length === 0 && !allFiles && <p className="dim small pad">{t("这个提交的改动里没有找到“{0}”（可能是合并带进来的，或跨了多行）", find.text)}</p>}
       </div>
-      {/* 上下拖动：文件列表的高度；显示差异框时还有提交信息的高度，差异框占剩下的 */}
+      {/* Vertical splitters: the file list's height; with the diff box shown, also the commit info's height, the diff box takes the rest */}
       <Splitter
         name="detailFiles"
         host={host}
@@ -430,8 +430,8 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
 }
 
 /**
- * 作者头像（说明书 5.5）：不联网取头像（离线可用，也不把邮箱发给第三方），中文名取最后两个字，其余取前两个单词的首字母，
- * 圈的颜色按邮箱算，同一个人每次一样。
+ * Author avatars (spec §5.5): no network fetch (works offline and doesn't send emails to third parties); Chinese names use the last two characters, others the initials of the first two words,
+ * and the circle color is derived from the email so the same person always looks the same.
  */
 function Avatar({ name, email }: { name: string; email: string }) {
   const words = name.trim().split(/\s+/).filter(Boolean);

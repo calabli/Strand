@@ -1,8 +1,10 @@
-/* 层级（从低到高）：页面里的吸顶和分隔线 < 对话框 < 菜单和下拉（可能从对话框里打开）< 提示条（对话框开着也要看得见）
-   < 悬停提示和拖动时的影子。弹出来的东西都用这里的值，不要另写数字 */
+/*
+ * Stacking order (low to high): sticky elements and splitters in the page < dialogs < menus and dropdowns (may open from dialogs) < toasts (visible even with a dialog open)
+ * < tooltips and drag ghosts. Everything that pops up uses these values; don't write other numbers
+ */
 :root { --z-split: 5; --z-modal: 100; --z-pop: 200; --z-toast: 300; --z-top: 1000; }
 
-/* 应用外壳样式。颜色全部用 tokens.css 里的变量，浅色深色自动切换 */
+/* App shell styles. All colors use the variables in tokens.css, switching between light and dark automatically */
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -17,7 +19,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .err { color: var(--danger); }
 .pad { padding: 12px; margin: 0; }
 
-/* 启动页、缺少 Git、打开仓库 */
+/* Start page, missing Git, open a repository */
 .center { height: 100%; display: grid; place-items: center; padding: 16px; background: var(--desk); }
 .card { width: min(420px, 100%); padding: 24px; border-radius: 14px; background: var(--win); border: 1px solid var(--line);
   box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
@@ -26,7 +28,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .primary { align-self: flex-start; margin-top: 8px; height: 32px; padding: 0 16px; border: 0; border-radius: 8px;
   background: var(--accent); color: #fff; font-weight: 600; }
 
-/* 主窗口 */
+/* Main window */
 .window { height: 100%; display: flex; flex-direction: column; }
 .toolbar { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; flex-shrink: 0;
   background: var(--bar); border-bottom: 1px solid var(--line); }
@@ -54,7 +56,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .commit-panel { background: var(--side); border-right: 1px solid var(--line); min-width: 0; }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
-/* 日志 */
+/* Log */
 .log { flex: 1; min-height: 0; overflow: auto; position: relative; }
 .log-inner { position: relative; }
 .log-error { padding: 12px; color: var(--danger); }
@@ -65,9 +67,9 @@ button:disabled { cursor: default; opacity: 0.45; }
 .crow.sel .who, .crow.sel .when { color: #fff; }
 .crow.loading::after { content: ""; position: absolute; left: 40px; right: 40%; top: 11px; height: 6px; border-radius: 3px;
   background: var(--chip); }
-/* 竖直方向允许画到下一行，水平方向裁到图谱列宽度以内 */
+/* Allowed to draw into the next row vertically, clipped to the graph column width horizontally */
 .graph { overflow: visible; clip-path: inset(-28px 0 -28px 0); position: relative; z-index: 1; pointer-events: none; }
-/* 折叠的长连线上的箭头：可以点，跳到另一头 */
+/* Arrows on collapsed long edges: clickable, jump to the other end */
 .graph-jump { pointer-events: auto; cursor: pointer; fill: transparent; }
 .graph-jump:hover { fill: color-mix(in srgb, currentColor 18%, transparent); }
 .msg { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
@@ -83,7 +85,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .ref-current { background: var(--fg); color: var(--win); }
 .ref-more { background: var(--chip); color: var(--fg2); cursor: default; }
 
-/* 详情 */
+/* Details */
 .detail { border-left: 1px solid var(--line); overflow: hidden; min-width: 0; user-select: text; }
 .detail.empty { display: grid; place-items: center; color: var(--fg2); }
 .detail h1 { font-size: 15px; margin: 0 0 8px; }
@@ -95,7 +97,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .avatar { flex-shrink: 0; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--l0);
   background: var(--chip); color: var(--fg); font-size: 11px; font-weight: 600; }
 
-/* 标签页 */
+/* Tabs */
 .tabs { display: flex; gap: 2px; height: 32px; padding: 0 8px; align-items: flex-end; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .tabs button { height: 28px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; font-weight: 600; }
 .tabs button[aria-selected="true"] { border-bottom-color: var(--accent); }
@@ -106,7 +108,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .minus { color: var(--danger); }
 .warn { color: var(--pend-ink); font-weight: 600; }
 
-/* 文件行（提交面板、提交详情共用） */
+/* File rows (shared by the commit panel and commit details) */
 .frow { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px; border-radius: 6px; }
 .frow:hover { background: var(--hover); }
 .frow.active { background: var(--chip); }
@@ -131,7 +133,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .st-D { background: var(--del-bg); color: var(--danger); }
 .st-\? { background: var(--chip); color: var(--fg2); }
 
-/* 提交面板 */
+/* Commit panel */
 .commit-panel { display: flex; flex-direction: column; min-height: 0; }
 .cp { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .cp-empty, .cp-clean { padding: 12px; margin: 0; }
@@ -148,7 +150,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .cp-commit { align-self: stretch; margin-top: 2px; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .kbd { font-weight: 400; }
 
-/* 差异 */
+/* Diff */
 .diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .diff-bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .diff-path { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -165,12 +167,12 @@ button:disabled { cursor: default; opacity: 0.45; }
 .sign { color: var(--fg2); user-select: none; }
 .code { white-space: pre; padding-right: 12px; }
 
-/* 详情 */
+/* Details */
 .detail { display: flex; flex-direction: column; padding: 0; }
 .dfiles { height: var(--detail-files, auto); max-height: max(45%, var(--detail-files, 0px)); overflow: auto; padding: 8px 4px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .dsub { display: flex; align-items: center; gap: 4px; padding: 2px 8px 6px; font-size: 11px; font-weight: 600; }
 .dinfo { padding: 16px; overflow: auto; flex: 1 1 auto; min-height: 0; }
-/* 单击文件后：文件列表、差异框、提交信息上下排列，差异框占剩下的高度，各自滚动 */
+/* After clicking a file: file list, diff box and commit info stacked vertically, the diff box taking the remaining height, each scrolling on its own */
 .detail.with-diff .dfiles { max-height: max(30%, var(--detail-files, 0px)); }
 .ddiff { flex: 1 1 0; min-height: 160px; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
 .detail.with-diff .dinfo { flex: 0 0 auto; height: var(--detail-info, auto); max-height: max(26%, var(--detail-info, 0px)); }
@@ -178,13 +180,13 @@ button:disabled { cursor: default; opacity: 0.45; }
 .diff.compact .diff-body { padding: 8px; }
 .diff.compact .dl { grid-template-columns: 34px 34px 14px minmax(0, 1fr); }
 
-/* 底部提示 */
+/* Bottom toast */
 .toast { position: fixed; z-index: var(--z-toast); left: 50%; bottom: 48px; transform: translateX(-50%); padding: 10px 16px; border-radius: 10px;
   background: var(--fg); color: var(--win); box-shadow: var(--shadow); }
 .diff-bar > * { white-space: nowrap; flex-shrink: 0; }
 .diff-bar > .diff-path { flex-shrink: 1; }
 
-/* 通用按钮 */
+/* Common buttons */
 .btn { height: 30px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 8px; background: var(--win); font-weight: 600; }
 .btn.sm { height: 24px; padding: 0 10px; font-size: 12px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -194,7 +196,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .tb-branch { cursor: pointer; }
 .tb-branch:hover { background: var(--hover); }
 
-/* 对话框 */
+/* Dialogs */
 .modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.28); display: grid; place-items: center; z-index: var(--z-modal); padding: 16px; }
 .modal-back.top { place-items: start center; padding-top: 72px; }
 .modal { width: min(440px, 100%); background: var(--win); border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow);
@@ -208,18 +210,18 @@ button:disabled { cursor: default; opacity: 0.45; }
 .modal-err { margin: -4px 0 0; }
 .modal-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
-/* 右键菜单 */
+/* Context menus */
 .menu { position: fixed; z-index: var(--z-pop); min-width: 200px; padding: 4px; background: var(--win); border: 1px solid var(--line);
   border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; }
 .menu button { height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
 .menu button:not(:disabled):hover, .menu button:focus-visible { background: var(--accent); color: #fff; outline: none; }
 .menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
 
-/* 分支弹窗 */
+/* Branch popup */
 
-/* 分支树 */
+/* Branch tree */
 .log-split { flex-direction: row; position: relative; }
-/* 分隔线：盖在两栏交界处的一条 7 像素宽的透明条，悬停或拖动时显示强调色细线 */
+/* Splitters: a 7 px transparent strip over the boundary between two columns, showing a thin accent line on hover or drag */
 .splitter { position: absolute; top: 0; bottom: 0; width: 7px; margin-left: -3px; z-index: var(--z-split); cursor: col-resize; touch-action: none; }
 .splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background 0.1s; }
 .splitter:hover::after, .splitter:focus-visible::after, body.resizing .splitter:active::after { background: var(--accent); width: 2px; left: 2px; }
@@ -227,7 +229,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .splitter.paneLeft { left: var(--pane-left, 280px); }
 .splitter.paneRight { left: calc(100% - var(--pane-right, 340px)); }
 .splitter.paneTree { left: var(--pane-tree, 220px); }
-/* 上下的分隔线：放在两块之间，7 像素高，盖住两边的边框 */
+/* Vertical splitters: between two blocks, 7 px tall, covering the borders on both sides */
 .splitter.y { position: relative; top: auto; bottom: auto; width: auto; height: 7px; margin: -4px 0 -3px; margin-left: 0; flex-shrink: 0; cursor: row-resize; }
 .splitter.y::after { top: 3px; bottom: auto; left: 0; right: 0; width: auto; height: 1px; }
 .splitter.y:hover::after, .splitter.y:focus-visible::after, body.resizing .splitter.y:active::after { width: auto; left: 0; height: 2px; top: 2px; }
@@ -259,7 +261,7 @@ body.resizing .splitter { pointer-events: auto; }
 .ab { font-size: 11px; color: var(--fg2); }
 .ab.force { color: var(--pend-ink); font-weight: 600; }
 .tag-push { color: var(--accent-ink); }
-/* 拖拽合并（说明书 6.1） */
+/* Drag merge (spec §6.1) */
 body.dragging, body.dragging * { cursor: grabbing !important; user-select: none !important; }
 .trow.drag-src { opacity: .5; }
 .trow.drop { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
@@ -267,12 +269,12 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none 
   background: var(--accent); color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.2); white-space: nowrap; }
 .tacts { display: none; gap: 0; }
 .trow:hover .tacts, .trow:focus-within .tacts { display: flex; }
-/* 键盘到达的行：和悬停一样显示操作图标，再描一圈（说明书 12.4） */
+/* Rows reached by keyboard: show action icons like hover, plus an outline (spec §12.4) */
 .trow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 @media (hover: none) { .tacts { display: flex; } }
 .ib.sm { width: 22px; height: 22px; font-size: 12px; }
 
-/* 远程操作 */
+/* Remote operations */
 .ib.remote { position: relative; }
 .badge { position: absolute; top: 0; right: 0; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--accent);
   color: #fff; font-size: 9px; line-height: 14px; font-weight: 700; }
@@ -290,7 +292,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none 
 .push-list li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .small { font-size: 12px; margin: 0; }
 
-/* ---------- 冲突解决（样式取自原型） ---------- */
+/* ---------- Conflict resolution (styles taken from the prototype) ---------- */
 .mine-ink { color: var(--mine-ink); }
 .theirs-ink { color: var(--theirs-ink); }
 .pill { display: inline-flex; gap: 4px; align-items: center; padding: 3px 10px; border-radius: 12px; background: var(--pend-bg); color: var(--pend-ink); font-size: 12px; }
@@ -303,7 +305,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none 
 .ib-gap { width: 30px; }
 button.tb-mode { border: 0; cursor: pointer; }
 
-/* 冲突列表 */
+/* Conflict list */
 .cf-list-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--soft); padding: 16px; }
 .cf-box { max-width: 880px; margin: 12px auto; border-radius: 14px; background: var(--win); border: 1px solid var(--line); overflow: hidden; }
 .cf-head { padding: 18px 20px 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
@@ -319,7 +321,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .cf-note { flex: 1 0 100%; padding-bottom: 6px; font-size: 12px; }
 .cf-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--soft); }
 
-/* 合并窗口 */
+/* Merge window */
 .mw { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .mw-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--bar); }
 .mw-path { font-weight: 600; margin-right: 6px; }
@@ -363,7 +365,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .modal.wide { width: min(720px, 100%); }
 .edit-area { width: 100%; resize: vertical; padding: 8px; border: 1px solid var(--line2); border-radius: 8px; background: var(--win); line-height: 1.5; }
 
-/* 日志过滤栏（说明书 5.1） */
+/* Log filter bar (spec §5.1) */
 .log-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .fbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 36px; padding: 3px 8px 3px 4px; border-bottom: 1px solid var(--line); flex-shrink: 0; min-width: 0; }
 .fbar-gap { flex: 1; }
@@ -397,7 +399,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .frow:hover .frow-act, .frow-act:focus-visible { visibility: visible; }
 @media (hover: none) { .frow-act { visibility: visible; } }
 
-/* 带搜索的下拉选择 */
+/* Dropdown with search */
 .picker { position: fixed; z-index: var(--z-pop); width: 300px; display: flex; flex-direction: column; padding: 6px; background: var(--win);
   border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
 .pk-q { height: 28px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 7px; background: var(--win); outline: none; user-select: text; }
@@ -409,7 +411,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .pk-row.on:not(.hi) { font-weight: 600; }
 .pk-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pk-sub { font-size: 11px; font-variant-numeric: tabular-nums; }
-/* 作者过滤：匹配方式、规则、勾选列表 */
+/* Author filter: match mode, rule, checklist */
 .apk { width: 380px; gap: 6px; }
 .apk-kind { display: flex; }
 .apk-kind button { flex: 1; height: 24px; }
@@ -421,7 +423,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .apk-row input { margin: 0; }
 .apk-tag { padding: 0 5px; border-radius: 4px; background: var(--chip); color: var(--fg2); }
 .apk-foot { display: flex; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
-/* 自定义日期范围 */
+/* Custom date range */
 .drp { width: 260px; gap: 8px; padding: 10px; }
 .drp-title { margin: 0; font-weight: 600; }
 .drp-row { display: flex; align-items: center; gap: 8px; }
@@ -429,7 +431,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .drp-row input { flex: 1; height: 28px; padding: 0 6px; border: 1px solid var(--line2); border-radius: 7px; background: var(--win); color: var(--fg); }
 .pk-empty { margin: 6px 8px; }
 
-/* 撤销、重做和操作时间线（说明书第 11 节） */
+/* Undo, redo and the op timeline (spec §11) */
 .tb-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--line); }
 .toast-undo { display: inline-grid; place-items: center; width: 26px; height: 24px; margin: -4px -6px -4px 6px; border: 0; border-radius: 6px;
   background: transparent; color: inherit; }
@@ -448,7 +450,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .tl-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .toast { display: flex; align-items: center; gap: 4px; }
 
-/* 对话框：多行输入、单选项 */
+/* Dialogs: multi-line input, radio options */
 .modal-field textarea { min-height: 96px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 8px; background: var(--win);
   resize: vertical; user-select: text; font: inherit; color: var(--fg); }
 .modal-field textarea[aria-invalid="true"] { border-color: var(--danger); }
@@ -458,7 +460,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .modal-choice input { margin: 3px 0 0; }
 .modal-hint { display: block; margin-top: 2px; }
 
-/* 提交操作（说明书 5.4–5.6） */
+/* Commit operations (spec §5.4–5.6) */
 .unpushed { flex-shrink: 0; font-size: 11px; line-height: 16px; padding: 0 4px; border-radius: 4px; background: var(--ok-bg); color: var(--ok-ink); }
 .crow.sel .unpushed { background: color-mix(in srgb, #fff 25%, transparent); color: #fff; }
 .dacts { display: flex; flex-wrap: wrap; gap: 0; margin: -4px -4px 8px; }
@@ -472,7 +474,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .multi-box p { margin: 0; }
 .multi-btns { display: flex; gap: 8px; }
 
-/* 提交面板的标签页、暂存架、贮藏（说明书 4.9） */
+/* Commit panel tabs, shelf, stash (spec §4.9) */
 .ptabs { display: flex; gap: 2px; height: 32px; align-items: stretch; padding: 0 6px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .ptabs button { border: 0; background: transparent; padding: 0 8px; font-weight: 600; color: var(--fg2); border-bottom: 2px solid transparent; }
 .ptabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
@@ -492,7 +494,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .frow-main.static { cursor: default; }
 .cp-btns { gap: 4px; }
 .cp-btns .cp-commit { min-width: 0; white-space: nowrap; overflow: hidden; }
-/* 提交面板拖窄时（英文的按钮文字更长）：文字放不下用省略号，先藏起快捷键提示 */
+/* When the commit panel is dragged narrow (English button text is longer): truncate text with an ellipsis, hiding shortcut hints first */
 .cp-commit-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .commit-panel { container-type: inline-size; }
 @container (max-width: 270px) { .cp-commit .kbd { display: none; } }
@@ -501,7 +503,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .cp-node > .dim { flex: 1; }
 .cp-node .cp-quick { margin-left: 0; }
 
-/* 整理提交（说明书第 9 节） */
+/* Rebasing commits (spec §9) */
 .modal.rb { width: min(640px, 100%); }
 .rb-list { list-style: none; margin: 0; padding: 4px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--side); }
 .rb-row { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 6px; border-radius: 6px; }
@@ -517,14 +519,14 @@ button.tb-mode { border: 0; cursor: pointer; }
 .rb-pushed { flex-shrink: 0; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--pend-bg); color: var(--pend-ink); }
 .rb-sum { margin: 0; font-weight: 600; }
 
-/* 行级勾选（说明书 10.1） */
+/* Line checks (spec §10.1) */
 .dl.pickable { grid-template-columns: 22px 44px 44px 18px minmax(0, 1fr); }
 .dl .line-check { margin: 3px 0 0 5px; width: 13px; height: 13px; }
 .dl.off { opacity: 0.4; }
 .hunk-check { margin: 0 8px 0 -4px; vertical-align: -2px; }
 .frow-acts { display: flex; flex-shrink: 0; }
 
-/* 比较、补丁、某个版本的仓库（说明书 10.3–10.5） */
+/* Compare, patches, browsing a revision (spec §10.3–10.5) */
 .detail.cmp { display: flex; flex-direction: column; }
 .cmp-head { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .cmp-body { flex: 1; min-height: 0; overflow: auto; padding: 4px 4px 12px; }
@@ -542,7 +544,7 @@ button.tb-mode { border: 0; cursor: pointer; }
 .modal.tree-win { width: min(560px, 100%); }
 .tree-list { list-style: none; margin: 0; padding: 6px 10px; height: min(55vh, 460px); overflow: auto; background: var(--side); border-radius: 8px; font-size: 12px; line-height: 20px; user-select: text; }
 
-/* 逐行追溯（说明书 10.2） */
+/* Blame (spec §10.2) */
 .modal.blame { width: min(1100px, calc(100vw - 32px)); height: calc(100vh - 64px); max-height: none; display: flex; flex-direction: column; padding: 0; gap: 0; overflow: hidden; }
 .blame-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; min-width: 0; }
 .blame-head h2 { font-size: 14px; }
@@ -562,7 +564,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .bl-no { text-align: right; padding-right: 10px; user-select: none; }
 .bl-code { white-space: pre; padding-right: 16px; user-select: text; }
 
-/* 命令面板（说明书 12.1） */
+/* Command palette (spec §12.1) */
 .palette { width: min(600px, 100%); display: flex; flex-direction: column; background: var(--win); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: var(--shadow); overflow: hidden; }
 .pal-q { height: 44px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; font-size: 15px; outline: none; color: var(--fg); user-select: text; }
@@ -590,7 +592,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .menu button:not(:disabled):hover .menu-hint, .menu button:focus-visible .menu-hint,
 .menu button:not(:disabled):hover .menu-more, .menu button:focus-visible .menu-more { color: inherit; }
 
-/* 仓库列表和设置 */
+/* Repository list and settings */
 .tb-repo { display: inline-flex; align-items: center; gap: 4px; }
 .repo-pop { width: 420px; }
 .repo-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -619,7 +621,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .switch.on span { left: 16px; }
 @media (prefers-reduced-motion: reduce) { .switch span { transition: none; } }
 
-/* 提交说明辅助和修订（说明书 4.5、4.6） */
+/* Commit message helpers and amend (spec §4.5, §4.6) */
 .cp-count { display: flex; align-items: center; gap: 6px; }
 .cp-count > span:first-child { flex: 1; }
 .cp-tools { display: flex; }
@@ -631,7 +633,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .cp-target { flex: 1; min-width: 0; height: 26px; border: 1px solid var(--line2); border-radius: 6px; background: var(--win); color: var(--fg); font-size: 12px; }
 .cp-note { margin: 2px 0 4px; }
 
-/* 差异：左右对比、忽略空白 */
+/* Diff: side by side, ignore whitespace */
 .diff-seg button { height: 22px; padding: 0 7px; display: inline-flex; align-items: center; }
 .hunk.split { min-width: 0; }
 .sl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); font-family: var(--mono); font-size: 12px; line-height: 20px; }
@@ -643,7 +645,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .sl-side.off { opacity: 0.4; }
 .sl-empty { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--chip) 5px 6px); }
 
-/* 提交选项和提交前检查 */
+/* Commit options and pre-commit checks */
 .ib { position: relative; }
 .ib-dot { position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .cp-options { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 8px; background: var(--win); font-size: 12px; }
@@ -667,7 +669,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .ck-out pre { max-height: 220px; overflow: auto; margin: 6px 0 0; padding: 8px; border-radius: 6px; background: var(--side); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ck-out summary { cursor: default; }
 
-/* 工作目录和克隆 */
+/* Worktrees and cloning */
 .tgroup-row { display: flex; align-items: center; padding-right: 4px; }
 .tgroup-row .tgroup { flex: 1; min-width: 0; }
 .tgroup-row .ib { opacity: 0; }
@@ -689,7 +691,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .clone-progress .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .welcome-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
-/* 面板（命令面板和分支弹窗共用） */
+/* Palette (shared by the command palette and branch popup) */
 .pal-row .menu-icon { color: var(--fg2); }
 .pal-row.hi .menu-icon, .pal-row.hi .pal-more { color: #fff; }
 .pal-row.off { cursor: default; }
@@ -697,7 +699,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .pal-detail { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .pal-more { font-size: 14px; line-height: 1; }
 
-/* 控制台（说明书 5.8） */
+/* Console (spec §5.8) */
 .console-bar { display: flex; align-items: center; gap: 4px; height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .console-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 0 12px; line-height: 18px; user-select: text; }
 .console-list:focus-visible { outline-offset: -2px; }
@@ -714,7 +716,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .con-out { padding-left: 76px; white-space: pre-wrap; word-break: break-all; opacity: 0.78; }
 .con-entry.failed .con-out { color: var(--danger); opacity: 1; }
 
-/* 拉取摘要面板（说明书 7.2） */
+/* Pull summary panel (spec §7.2) */
 .pull-panel { width: 520px; }
 .pull-panel .pp-sub { margin: -6px 0 0; }
 .pull-panel .pp-mode { align-self: flex-start; }
@@ -726,11 +728,11 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .pp-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pp-list li > .small { flex-shrink: 0; }
 
-/* 日志过滤结果还在追加（说明书 15） */
+/* Log filter results still being appended (spec §15) */
 .log-partial-wrap { position: sticky; top: 0; height: 0; z-index: 3; }
 .log-partial { position: absolute; right: 10px; top: 6px; padding: 2px 8px; border-radius: 10px; background: var(--chip); box-shadow: 0 1px 3px rgba(0,0,0,0.15); white-space: nowrap; }
 
-/* 合并窗口的视图（说明书 8.4）：只看两边对比隐藏中间的结果栏；只看结果隐藏两边 */
+/* Merge window views (spec §8.4): both sides only hides the middle result pane; result only hides both sides */
 .mw-view button { display: grid; place-items: center; padding: 0 7px; }
 .mw.view-sides .tri { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .mw.view-sides .tri > :nth-child(2) { display: none; }
@@ -741,12 +743,12 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .mw.view-result .tri-ln { grid-template-columns: 44px minmax(0, 1fr); }
 .mw.view-result .tri-ln > :nth-child(1), .mw.view-result .tri-ln > :nth-child(2), .mw.view-result .tri-ln > :nth-child(5), .mw.view-result .tri-ln > :nth-child(6) { display: none; }
 
-/* 悬停提示（Tooltip.tsx）：深色小气泡，跟随主题 */
+/* Tooltips (Tooltip.tsx): small dark bubbles following the theme */
 .tooltip { position: fixed; z-index: var(--z-top); max-width: 320px; padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--win);
   font-size: 12px; line-height: 1.45; white-space: pre-line; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
 .tb-lang { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; min-width: 28px; }
 
-/* 项目文件（左侧面板的“文件”标签） */
+/* Project files (the "Files" tab in the left panel) */
 .pfiles { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pf-bar { display: flex; align-items: center; gap: 4px; padding: 8px 8px 4px; }
 .pf-bar .pk-q { flex: 1; min-width: 0; }
@@ -756,7 +758,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .prow .frow-main { gap: 6px; }
 .prow .st { margin-left: auto; }
 
-/* 文件视图：左边修改链，右边内容或差异 */
+/* File view: change chain on the left, content or diff on the right */
 .fview { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .fv-bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .fv-path { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -768,7 +770,7 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .fv-row:hover { background: var(--hover); }
 .fv-row.on { background: var(--chip); }
 .fv-dot { width: 26px; flex-shrink: 0; position: relative; }
-/* 时间线：竖线串起各个版本，圆点是一个版本；最上面一个不往上画、最下面一个不往下画 */
+/* Timeline: a vertical line connects the versions, each dot is a version; the first doesn't draw upward, the last doesn't draw downward */
 .fv-dot::before { content: ""; position: absolute; left: 12px; top: 0; bottom: -6px; width: 2px; background: var(--line2); }
 .fv-row.first .fv-dot::before { top: 12px; }
 .fv-row.last .fv-dot::before { bottom: calc(100% - 12px); }
@@ -791,16 +793,16 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 .tv-line:hover { background: var(--hover); }
 .tv-line .code { white-space: pre; padding-right: 16px; }
 
-/* 日志搜索框：搜说明还是改动内容 */
+/* Log search box: search messages or changes */
 .fs-mode { width: auto !important; padding: 0 5px; font-size: 11px; font-family: inherit; flex-shrink: 0; }
 .fsearch.in-changes { border-color: color-mix(in srgb, var(--accent) 55%, var(--line2)); }
-/* 按改动内容搜索：匹配的改动行左边加一条强调色竖线 */
+/* Searching by changes: an accent bar to the left of matching changed lines */
 .dl.found, .sl-side.found { box-shadow: inset 3px 0 0 var(--accent); }
 .dl.found .code, .sl-side.found .code { font-weight: 600; }
 .find-n { min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; text-align: center; line-height: 16px; align-self: center; }
 .find-toggle { font-size: 11px; font-weight: 600; margin-left: 6px; }
 
-/* 文件标签：文件名搜索 / 内容搜索 */
+/* Files tab: file name search / content search */
 .pf-mode { padding: 8px 8px 0; }
 .pf-mode .seg { display: flex; }
 .pf-mode .seg button { flex: 1; }
@@ -817,15 +819,15 @@ button.bl-who.gone { cursor: default; opacity: 0.6; }
 
 .pf-more { margin: 2px 0 4px 30px; }
 .tv-line.focus { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
-/* 搜索词高亮（搜索结果、差异、文件全文）：明黄底深色字，和差异的红绿、行内加深都能区分开，深浅色主题一样 */
+/* Search term highlight (search results, diffs, full file text): bright yellow background with dark text, distinct from the diff's red/green and inline emphasis, the same in light and dark themes */
 mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0; box-shadow: 0 0 0 1px rgba(160, 120, 0, 0.35); }
 .dl-add mark mark.find, .dl-del mark mark.find { background: #FFD84D; }
 .in-body { flex-shrink: 0; margin-left: 2px; padding: 0 5px; border-radius: 4px; background: var(--chip); color: var(--fg2); font-size: 10px; font-weight: 600; vertical-align: 1px; }
 .crow.sel .in-body { background: color-mix(in srgb, #fff 25%, transparent); color: inherit; }
-/* 提交说明里也用搜索词的明黄色，和日志标题、差异一致 */
+/* Commit messages use the same bright yellow for search terms, matching log titles and diffs */
 .crow .title mark { background: #FFD84D; color: #1A1A1A; border-radius: 3px; }
 
-/* 分支树行首的类型图标 */
+/* Type icons at the start of branch tree rows */
 .tkind { flex-shrink: 0; color: var(--fg2); }
 .tkind.cur { color: #D9A21B; }
 .tremote { width: 100%; border: 0; background: transparent; text-align: left; padding-left: 14px; color: var(--fg); font: inherit; }
@@ -836,7 +838,7 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .crow.sel .folded-tag { color: inherit; border-color: color-mix(in srgb, #fff 50%, transparent); }
 .menu-heading { padding: 6px 10px 2px; font-size: 11px; font-weight: 600; color: var(--fg2); }
 
-/* 文件目录树：文件名按状态着色，文件类型图标，目录显示文件数，根节点 */
+/* File directory tree: file names colored by status, file type icons, file counts on directories, root node */
 .fpath.sn-M, .fpath.sn-T { color: var(--accent-ink); }
 .fpath.sn-A { color: var(--ok-ink); }
 .fpath.sn-D { color: var(--danger); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--danger) 50%, transparent); }
@@ -847,7 +849,7 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .fdir-count { font-family: var(--sans, inherit); font-size: 11px; }
 .fdir.froot { color: var(--fg); font-weight: 600; }
 
-/* ---------- 差异（DiffView）：整个文件、折叠没改的部分、左右对照的色带、右边的改动位置标记 ---------- */
+/* ---------- Diff (DiffView): whole file, folded unchanged parts, side-by-side ribbons, change position markers on the right ---------- */
 .diff-main { flex: 1; min-height: 0; display: flex; position: relative; }
 .diff-main .diff-body { padding: 0 12px 0 0; outline: none; }
 .dfile { font-family: var(--mono); font-size: 12px; line-height: 20px; min-width: max-content; padding-bottom: 24px; }
@@ -859,7 +861,7 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .dl-fold:hover { color: var(--accent-ink); background: var(--hover); }
 .dl-gap { padding: 3px 10px; margin-top: 8px; background: var(--side); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--fg2); }
 .dl-gap:first-child { margin-top: 0; }
-/* 左右对照：左边旧、中间一条窄栏、右边新 */
+/* Side by side: old on the left, a narrow strip in the middle, new on the right */
 .srow, .sseg.chg { display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); }
 .sl-line { display: grid; grid-template-columns: 44px 18px minmax(0, 1fr); min-width: 0; }
 .sl-line.pickable { grid-template-columns: 22px 44px 18px minmax(0, 1fr); }
@@ -875,7 +877,7 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .ribbon.mod path { fill: color-mix(in srgb, var(--accent) 35%, var(--side)); }
 .sl-line.found { box-shadow: inset 3px 0 0 var(--accent); }
 .sl-line.found .code { font-weight: 600; }
-/* 右边的改动位置标记 */
+/* Change position markers on the right */
 .diff-ruler { position: absolute; top: 0; right: 0; bottom: 0; width: 10px; background: var(--side); border-left: 1px solid var(--line); }
 .rmark { position: absolute; left: 2px; right: 2px; border-radius: 1px; cursor: pointer; }
 .rmark.add { background: #2DA44E; }
@@ -886,7 +888,7 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .diff-lock { display: inline-grid; place-items: center; }
 .diff.compact .dl-fold { padding-left: 70px; }
 
-/* 差异的行改用 flex：逐行追溯、行号、勾选框这几列可以单独显示或隐藏 */
+/* Diff rows use flex: the blame, line number and checkbox columns can be shown or hidden individually */
 .dfile .dl, .dfile .sl-line { display: flex; align-items: flex-start; }
 .dfile .ln { width: 44px; flex-shrink: 0; }
 .diff.compact .dfile .ln { width: 34px; }
@@ -895,11 +897,11 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .dfile .code { flex: 1; min-width: 0; }
 .dfile .line-check, .dfile .ck-pad { flex-shrink: 0; width: 13px; margin: 3px 4px 0 5px; }
 .dfile.no-ln .ln { display: none; }
-/* 自动换行：两种视图都折行；关掉时合并视图横向滚动，左右对照截断（悬停看整行） */
+/* Word wrap: both views wrap; when off, the unified view scrolls horizontally and side by side truncates (hover to see the whole line) */
 .dfile.wrap .code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dfile:not(.wrap):not(.split) .code { flex: 1 0 auto; }
 .dfile.split:not(.wrap) .code { white-space: pre; overflow: hidden; }
-/* 左右对照两边各自横向滚动：代码往左挪（参考线跟着挪），底下各一条滚动条 */
+/* Side by side, each side scrolls horizontally: code shifts left (guides follow), with a scrollbar under each */
 .dfile.split:not(.wrap) .code > .sx { display: inline-block; }
 .dfile.split:not(.wrap) .s0 .code > .sx { transform: translateX(calc(-1 * var(--sx0, 0px))); }
 .dfile.split:not(.wrap) .s1 .code > .sx { transform: translateX(calc(-1 * var(--sx1, 0px))); }
@@ -911,11 +913,11 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .sx-bar::-webkit-scrollbar { height: 8px; }
 .sx-bar::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 4px; }
 .sx-bar::-webkit-scrollbar-thumb:hover { background: var(--fg2); }
-/* 显示空白字符：空格和制表符原样留着（复制出来不变），上面叠一个灰色的点或箭头 */
+/* Showing whitespace: spaces and tabs stay as they are (copying is unchanged), with a grey dot or arrow drawn over them */
 .wsd { position: relative; }
 .wsd::before { content: attr(data-ch); position: absolute; left: 0; right: 0; text-align: center; color: var(--fg2); opacity: 0.55; pointer-events: none; }
 .wsd.tab::before { text-align: left; }
-/* 逐行追溯的标注：日期和作者，越新底色越深（5 档），还没提交的用强调色 */
+/* Blame annotations: date and author, darker background when newer (5 levels), accent color for uncommitted */
 .ann { width: 150px; flex-shrink: 0; padding: 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--sans, inherit); font-size: 11px; color: var(--fg2);
   border-right: 1px solid var(--line); background: var(--side); user-select: none; }
 .ann.link { cursor: pointer; }
@@ -930,7 +932,7 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .dfile.with-ann .dl-fold { padding-left: 246px; }
 .dfile.split.with-ann .dl-fold { padding-left: 182px; }
 
-/* 语法高亮的颜色（highlight.js 的种类 → 主题变量） */
+/* Syntax highlighting colors (highlight.js kinds → theme variables) */
 .tk-keyword, .tk-selector-tag, .tk-literal, .tk-built_in.tk-keyword, .tk-doctag { color: var(--sx-kw); }
 .tk-string, .tk-regexp, .tk-template-string, .tk-subst, .tk-char { color: var(--sx-str); }
 .tk-comment, .tk-quote { color: var(--sx-com); font-style: italic; }
@@ -943,27 +945,27 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .tk-strong { font-weight: 700; }
 .tk-addition { color: var(--ok-ink); }
 .tk-deletion { color: var(--danger); }
-/* 搜索词里的着色不要盖掉黄底深字 */
+/* Syntax colors inside search terms must not override the yellow background with dark text */
 mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .fv-chain { display: inline-flex; align-items: center; gap: 5px; }
 .fv-chain.pressed { background: var(--chip); border-color: var(--accent); color: var(--accent-ink); }
-/* 整个文件显示、逐行勾选时每处改动上面的一条 */
+/* The strip above each change in whole-file display with line checks */
 .chg-pick { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; background: var(--side); border-top: 1px solid var(--line); font-size: 11px; font-family: var(--sans, inherit); }
 .chg-pick .hunk-check { margin: 0; }
 
-/* 缩进参考线：代码格子带着 --ig（缩进宽度）和 --igu（每级宽度），在缩进范围里每级画一条细竖线 */
+/* Indent guides: code cells carry --ig (indent width) and --igu (width per level); a thin vertical line is drawn per level within the indentation */
 .dfile .code, .tv .code { position: relative; }
 .dfile .code[style*="--ig"]::before, .tv .code[style*="--ig"]::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--ig); pointer-events: none;
   background: repeating-linear-gradient(to right, var(--line2) 0 1px, transparent 1px var(--igu));
   opacity: 0.55;
 }
-/* 提交面板目录行：最前面是勾选整个目录的勾选框 */
+/* Commit panel directory rows: a checkbox at the very start checks the whole directory */
 .fdir-row { display: flex; align-items: center; gap: 4px; }
 .fdir-row > input { margin: 0; flex-shrink: 0; }
 .fdir-row > .fdir { padding-left: 2px; }
 
-/* 在差异里编辑工作区文件 */
+/* Editing worktree files in the diff */
 .modal.editf { width: min(1000px, calc(100vw - 32px)); }
 .editf-dirty { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-ink); }
 .editf-ask { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); background: var(--side); }
@@ -972,7 +974,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .editf-body textarea { flex: 1; min-width: 0; margin: 0; padding: 8px 12px; border: 0; outline: none; resize: none; background: var(--win); color: var(--fg);
   font: inherit; line-height: 20px; white-space: pre; overflow: auto; tab-size: 4; user-select: text; }
 
-/* 面包屑：文件 › 外层 › 里层 */
+/* Breadcrumbs: file › outer › inner */
 .crumbs { display: flex; align-items: center; gap: 2px; height: 24px; padding: 0 10px; flex-shrink: 0; overflow: hidden; white-space: nowrap; font-size: 11px;
   border-bottom: 1px solid var(--line); background: var(--side); color: var(--fg2); }
 .crumb-wrap { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
@@ -981,7 +983,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .crumb:hover { background: var(--hover); color: var(--fg); }
 .crumb-wrap:last-child .crumb { color: var(--fg); }
 
-/* 应用补丁 */
+/* Applying patches */
 .modal.apply-patch { width: min(640px, 100%); max-height: calc(100vh - 64px); display: flex; flex-direction: column; }
 .ap-src { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ap-text { min-height: 110px; height: 140px; flex-shrink: 0; resize: vertical; }
@@ -1001,7 +1003,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .ap-mode label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .ap-mode p { margin: 0 0 0 22px; }
 
-/* 操作记录（reflog） */
+/* Reflog */
 .modal.reflog { width: min(980px, calc(100vw - 32px)); }
 .rl-ref { height: 26px; border: 1px solid var(--line2); border-radius: 6px; background: var(--win); color: var(--fg); padding: 0 6px; font-size: 12px; }
 .rl-q { width: 220px; height: 26px; }
@@ -1018,14 +1020,14 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .rl-row:hover .rl-acts, .rl-row:focus-within .rl-acts { visibility: visible; }
 .tl-more { margin-left: 4px; color: var(--fg2); white-space: nowrap; }
 
-/* 签名状态 */
+/* Signature status */
 .sig { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--chip); }
 .sig-good, .sig-untrusted { background: color-mix(in srgb, #2DA44E 18%, transparent); }
 .sig-bad, .sig-revoked { background: color-mix(in srgb, var(--danger) 18%, transparent); }
 .sig-expired, .sig-expired_key { background: color-mix(in srgb, #D4A72C 22%, transparent); }
 .tag-note { font-size: 11px; margin-left: 2px; }
 
-/* 管理远程 */
+/* Managing remotes */
 .modal.remotes { width: min(720px, 100%); }
 .rm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow: auto; }
 .rm-row, .rm-add { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
@@ -1037,7 +1039,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .rm-push { font-size: 11px; }
 .push-remote select { height: 30px; border: 1px solid var(--line2); border-radius: 8px; background: var(--win); color: var(--fg); padding: 0 8px; }
 
-/* 二分查找 */
+/* Bisect */
 .bisect-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 10%, var(--side)); font-size: 12px; flex-shrink: 0; flex-wrap: wrap; }
 .bisect-bar.found { background: color-mix(in srgb, #2DA44E 14%, var(--side)); }
 .bisect-tag { font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 11px; }
@@ -1046,7 +1048,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .bisect-good { border-color: #2DA44E; }
 .bisect-bad { border-color: var(--danger); }
 
-/* 作者和共同作者、说明历史搜索 */
+/* Author and co-authors, message history search */
 .cpo-input { width: 100%; height: 26px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 6px; background: var(--side); color: var(--fg); font-size: 12px; margin-top: -2px; }
 .cp-authors .cpo-cmd { flex-wrap: nowrap; margin: -2px 0 0; }
 .cp-authors .cpo-cmd input { flex: 1; width: auto; min-width: 0; }
@@ -1055,7 +1057,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .ib.xs { width: 18px; height: 18px; font-size: 13px; line-height: 1; padding: 0; }
 .cp-hist-q { margin: 0 0 4px; flex-shrink: 0; height: 26px; }
 
-/* 变更列表 */
+/* Changelists */
 .cl-group + .cl-group { margin-top: 2px; }
 .cl-node .cp-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .cl-node.active .cp-node-name { color: var(--fg); }
@@ -1066,7 +1068,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .cl-name-in { flex: 1; min-width: 0; height: 22px; padding: 0 6px; border: 1px solid var(--accent); border-radius: 5px; background: var(--side); color: var(--fg); font: inherit; font-weight: 600; }
 .cl-node.naming { padding-left: 32px; }
 
-/* 只拣选或还原部分文件 */
+/* Cherry-pick or revert selected files */
 .modal.pick-files { width: min(560px, 100%); }
 .pkf-mode { margin: 4px 0 10px; }
 .pkf-all { margin: 0 0 4px 6px; font-size: 12px; }
@@ -1075,7 +1077,7 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .pkf-row:hover { background: var(--hover); }
 .pkf-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 图片对比 */
+/* Image diff */
 .imd { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 16px; min-height: 0; }
 .imd-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; }
 .imd-meta { display: inline-flex; gap: 6px; align-items: baseline; }

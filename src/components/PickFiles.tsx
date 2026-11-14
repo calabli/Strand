@@ -1,6 +1,6 @@
-// 只拣选或只还原一个提交里的部分文件（对照 JetBrains 的 Apply / Revert Selected Changes）：
-// 勾选文件，把它们在这个提交里的改动应用到工作区（还原是反着应用），不生成提交，检查后自己提交。
-// 和现在的代码对不上时按三方合并，有冲突进入冲突解决。
+// Cherry-pick or revert only some files of a commit (like JetBrains' Apply / Revert Selected Changes):
+// check files and apply their changes from this commit to the worktree (in reverse for revert), without creating a commit; review, then commit yourself.
+// When they don't match the current code, apply three-way, entering conflict resolution on conflicts.
 
 import { useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -13,7 +13,7 @@ import { t, tr } from "../i18n";
 interface Props {
   commit: Commit;
   files: FileChange[];
-  /** 一开始勾选的文件；空表示全部 */
+  /** Files checked initially; empty means all */
   initial: string[];
   revert: boolean;
   onClose: () => void;
@@ -34,7 +34,7 @@ export function PickFiles({ commit, files, initial, revert: revert0, onClose, do
     if (!picked.length || busy) return;
     setBusy(true);
     setError(null);
-    // 改名的文件连旧路径一起
+    // Renamed files go together with their old paths
     const paths = picked.flatMap((f) => (f.old_path ? [f.path, f.old_path] : [f.path]));
     try {
       const w = await api.commitFilesApply(commit.id, paths, revert);

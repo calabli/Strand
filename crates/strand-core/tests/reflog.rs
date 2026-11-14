@@ -1,4 +1,4 @@
-//! 操作记录：HEAD 和分支的记录从新到旧；被重置掉、不在日志里的提交也列出来，还能找回。
+//! Reflog: HEAD and branch records newest first; commits reset away and no longer in the log are listed too and can be recovered.
 
 use std::path::Path;
 use std::process::Command;
@@ -44,7 +44,7 @@ fn reflog_lists_steps_newest_first_including_lost_commits() {
     assert_eq!(h[0].action, "checkout");
     assert_eq!(h[0].message, "moving from main to dev");
     assert_eq!(h[1].action, "reset");
-    // 被重置掉的提交：还在仓库里，但不在日志里
+    // A commit reset away: still in the repository, but not in the log
     let e = h.iter().find(|e| e.id == lost).unwrap();
     assert!(e.exists && !e.in_log);
     assert_eq!(e.title, "第二个");

@@ -1,4 +1,4 @@
-//! 分支、标签和合并。
+//! Branches, tags and merging.
 
 use std::path::Path;
 use std::process::Command;
@@ -22,8 +22,8 @@ fn write(dir: &Path, f: &str, s: &str) {
     std::fs::write(dir.join(f), s).unwrap();
 }
 
-/// main：初始提交 → main 2；feature：从初始提交分出，改了 f.txt；
-/// 另有一个裸仓库作为 origin，推送了 main，并有一个只在远程的分支 remote-only。
+/// main: initial commit → main 2; feature: branches from the initial commit and changes f.txt;
+/// plus a bare repository as origin with main pushed and a remote-only branch remote-only.
 fn repo() -> (tempfile::TempDir, tempfile::TempDir) {
     let d = tempfile::tempdir().unwrap();
     let origin = tempfile::tempdir().unwrap();
@@ -81,7 +81,7 @@ fn create_switch_rename_delete() {
     assert_eq!(s.branch_create("feature", None, false).unwrap_err().code, ErrorCode::InvalidName);
     assert_eq!(s.branch_create("a..b", None, false).unwrap_err().code, ErrorCode::InvalidName);
 
-    // 已有 feature 分支时不能再建 feature/x（Git 引用是文件路径，会冲突）
+    // With a feature branch, feature/x can't be created (Git refs are file paths and would conflict)
     assert_eq!(s.branch_create("feature/x", None, false).unwrap_err().code, ErrorCode::InvalidName);
 
     s.branch_create("topic/x", None, true).unwrap();
@@ -91,7 +91,7 @@ fn create_switch_rename_delete() {
     s.branch_rename("topic/x", "topic/y").unwrap();
     assert!(s.refs_list().unwrap().branches.iter().any(|b| b.name == "topic/y"));
 
-    // 已合并的分支直接删除；未合并的需要 force；当前分支不能删
+    // Merged branches are deleted directly; unmerged ones need force; the current branch can't be deleted
     s.branch_delete("topic/y", false).unwrap();
     let e = s.branch_delete("feature", false).unwrap_err();
     assert_eq!(e.detail.unwrap()["unmerged"], true);
@@ -104,7 +104,7 @@ fn create_switch_rename_delete() {
 fn switch_with_conflicting_changes() {
     let (d, _o) = repo();
     let p = d.path();
-    // feature 上没有 a.txt 的第二行；在 main 上改 a.txt，切过去会覆盖
+    // feature lacks the second line of a.txt; changing a.txt on main and switching would overwrite it
     write(p, "a.txt", "本地改动\n");
     let s = Session::open(p).unwrap();
     let e = s.branch_switch("feature", false).unwrap_err();
@@ -116,7 +116,7 @@ fn switch_with_conflicting_changes() {
     assert_eq!(git(p, &["branch", "--show-current"]), "feature");
     assert!(git(p, &["stash", "list"]).contains("Strand"));
 
-    // 不冲突的改动（这里是新文件）会带到新分支
+    // Non-conflicting changes (here a new file) carry over to the new branch
     write(p, "n.txt", "新文件\n");
     s.branch_switch("main", false).unwrap();
     assert_eq!(std::fs::read_to_string(p.join("n.txt")).unwrap(), "新文件\n");
@@ -127,13 +127,13 @@ fn merge_results() {
     let (d, _o) = repo();
     let p = d.path();
     let s = Session::open(p).unwrap();
-    // main 已包含初始提交
+    // main already contains the initial commit
     assert_eq!(s.branch_merge("main~1").unwrap(), MergeResult::UpToDate);
-    // 新分支落后 main 一个提交：快进
+    // The new branch is one commit behind main: fast-forward
     git(p, &["branch", "behind", "main~1"]);
     s.branch_switch("behind", false).unwrap();
     assert_eq!(s.branch_merge("main").unwrap(), MergeResult::FastForward);
-    // main 和 feature 分叉：生成合并提交
+    // main and feature diverged: a merge commit is created
     s.branch_switch("main", false).unwrap();
     assert_eq!(s.branch_merge("feature").unwrap(), MergeResult::Merged);
     assert_eq!(git(p, &["log", "-1", "--format=%p"]).split(' ').count(), 2);
@@ -164,7 +164,7 @@ fn remote_checkout_detached_and_tags() {
     let s = Session::open(p).unwrap();
     assert_eq!(s.branch_checkout_remote("origin/remote-only").unwrap(), "remote-only");
     assert_eq!(git(p, &["rev-parse", "--abbrev-ref", "remote-only@{upstream}"]), "origin/remote-only");
-    // 同名本地分支已存在：直接切换
+    // A same-named local branch exists: switch to it directly
     assert_eq!(s.branch_checkout_remote("origin/main").unwrap(), "main");
     assert_eq!(git(p, &["branch", "--show-current"]), "main");
 
@@ -178,14 +178,14 @@ fn remote_checkout_detached_and_tags() {
     assert!(s.refs_list().unwrap().tags.is_empty());
 }
 
-/// 拖拽合并：把一个分支合并到另一个分支，目标不是当前分支时先切换过去；整个是一步，可以撤销（说明书 6.1）
+/// Drag merge: merge one branch into another, switching first when the target isn't current; it's one step and can be undone (spec §6.1)
 #[test]
 fn merge_into_other_branch() {
     let (d, _o) = repo();
     let p = d.path();
     let mut s = Session::open(p).unwrap();
     let main_before = git(p, &["rev-parse", "main"]);
-    // 当前在 main：把 main 合并到 feature
+    // Currently on main: merge main into feature
     let (r, _) = s
         .run_op("把 main 合并到 feature", strand_core::oplog::OpKind::Merge, |s| s.branch_merge_into("main", "feature"))
         .unwrap();
@@ -193,18 +193,18 @@ fn merge_into_other_branch() {
     assert_eq!(git(p, &["branch", "--show-current"]), "feature");
     assert_eq!(git(p, &["rev-parse", "main"]), main_before, "main 不变");
     assert!(git(p, &["log", "--format=%s", "-1"]).contains("Merge"));
-    // 撤销：回到 main，feature 回到合并前
+    // Undo: back to main, feature back to before the merge
     s.oplog_undo(None, false).unwrap();
     assert_eq!(git(p, &["branch", "--show-current"]), "main");
     assert_eq!(git(p, &["log", "--format=%s", "-1", "feature"]), "功能");
 
-    // 目标就是当前分支：直接合并；远程分支也能拖
+    // The target is the current branch: merge directly; remote branches can be dragged too
     assert_eq!(s.branch_merge_into("origin/remote-only", "main").unwrap(), MergeResult::Merged);
-    // 不能合并到自己、目标不存在
+    // Can't merge into itself or a nonexistent target
     assert_eq!(s.branch_merge_into("main", "main").unwrap_err().code, ErrorCode::InvalidRange);
     assert_eq!(s.branch_merge_into("main", "nope").unwrap_err().code, ErrorCode::NotFound);
 
-    // 工作区的改动会被目标分支覆盖：切换不过去，什么都不改
+    // Worktree changes would be overwritten by the target branch: the switch fails and nothing changes
     git(p, &["switch", "-q", "-c", "other"]);
     write(p, "g.txt", "other 的\n");
     git(p, &["add", "."]);
@@ -218,7 +218,7 @@ fn merge_into_other_branch() {
     let _ = RepoMode::Normal;
 }
 
-/// 收藏存进仓库（说明书 6.1、6.3）：工作目录之间共用；重命名跟着走；删除后撤销仍是收藏
+/// Favorites are stored in the repository (spec §6.1, §6.3): shared between worktrees; follow renames; still a favorite after undoing a delete
 #[test]
 fn favorites_live_in_repo() {
     let (d, _o) = repo();
@@ -232,7 +232,7 @@ fn favorites_live_in_repo() {
     assert_eq!(s.favorites(), vec!["feature"], "重复收藏只记一次");
     assert_eq!(s.set_favorite("nope", true).unwrap_err().code, ErrorCode::NotFound);
 
-    // 重新打开、另一个工作目录里都还在
+    // Still there after reopening and in another worktree
     assert_eq!(fav(&Session::open(p).unwrap(), "feature"), Some(true));
     let wt = tempfile::tempdir().unwrap();
     let wt_path = wt.path().join("wt");
@@ -242,14 +242,14 @@ fn favorites_live_in_repo() {
     w.set_favorite("other", true).unwrap();
     assert_eq!(fav(&s, "other"), Some(true));
 
-    // 重命名：新名字是收藏
+    // Rename: the new name is a favorite
     s.run_op("重命名", strand_core::oplog::OpKind::Branch, |s| s.branch_rename("feature", "feature2")).unwrap();
     assert_eq!(fav(&s, "feature2"), Some(true));
-    // 撤销重命名：旧名字仍是收藏
+    // Undo the rename: the old name is still a favorite
     s.oplog_undo(None, false).unwrap();
     assert_eq!(fav(&s, "feature"), Some(true));
 
-    // 删除后撤销：仍是收藏
+    // Undo after delete: still a favorite
     s.run_op("删除", strand_core::oplog::OpKind::Branch, |s| s.branch_delete("feature", true)).unwrap();
     assert_eq!(fav(&s, "feature"), None);
     s.oplog_undo(None, false).unwrap();

@@ -1,5 +1,5 @@
-// 管理远程：列出这个仓库的远程（名字和地址），可以添加、改地址、重命名、删除。
-// 抓取会抓全部远程；拉取跟着当前分支的跟踪分支；还没有跟踪分支的新分支推送时可以选推送到哪个远程。
+// Manage remotes: list this repository's remotes (name and URL); add, change URL, rename, remove.
+// Fetch fetches all remotes; pull follows the current branch's upstream; a new branch without an upstream can choose which remote to push to.
 
 import { useCallback, useEffect, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -10,7 +10,7 @@ import { t, tr } from "../i18n";
 interface Props {
   onClose: () => void;
   done: (st: RepoState, message: string, op?: OpInfo) => void;
-  /** 删除前确认 */
+  /** Confirm before removing */
   confirmRemove: (name: string, go: () => void) => void;
 }
 
@@ -18,7 +18,7 @@ export function RemotesWindow({ onClose, done, confirmRemove }: Props) {
   useReturnFocus();
   const [list, setList] = useState<RemoteInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** 正在编辑的一行：原名字 → 新名字和地址 */
+  /** The row being edited: original name → new name and URL */
   const [edit, setEdit] = useState<{ name: string; newName: string; url: string } | null>(null);
   const [add, setAdd] = useState({ name: "", url: "" });
   const [busy, setBusy] = useState(false);

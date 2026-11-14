@@ -1,4 +1,4 @@
-// 浏览器预览用的示例数据。只在不经过 Tauri 运行时使用。
+// Sample data for the browser preview. Only used when running without Tauri.
 
 import { authorRule } from "./authorRule";
 import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState } from "./types";
@@ -7,7 +7,7 @@ const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(v), 60));
 
 export const gitCheck = () => delay<GitInfo>({ found: true, version: "2.55.0", ok: true, min_version: "2.30" });
 
-/** 浏览器预览时在地址后面加 ?conflict 可以看冲突解决界面 */
+/** Add ?conflict to the URL in the browser preview to see the conflict resolution view */
 const conflictDemo = typeof location !== "undefined" && location.search.includes("conflict");
 
 const state: RepoState = {
@@ -56,8 +56,8 @@ function commitAt(i: number): Commit {
   };
 }
 
-// 两条泳道交替的简单图形：每 10 行里第 3、4 行在泳道 1。
-// 另外每 40 行在泳道 2 有一条折叠的长连线：第 5 行出发，第 9 行收住，第 30 行接回，第 34 行汇入泳道 0
+// A simple graph alternating two lanes: rows 3 and 4 of every 10 are in lane 1.
+// Also, every 40 rows there's a collapsed long edge in lane 2: starts at row 5, capped at row 9, rejoins at row 30, merges into lane 0 at row 34
 function graphAt(i: number): GraphRow {
   const g = baseGraph(i);
   const k = i % 40;
@@ -82,7 +82,7 @@ function baseGraph(i: number): GraphRow {
 const isEmpty = (f: LogFilter) => !f.text && !f.branch && !f.author && !f.authors?.length && !f.author_match?.text.trim() && f.since == null && f.until == null && !f.path && !f.first_parent && !f.no_merges;
 
 
-/** 示例数据上的过滤：分支按“从这一行往下”近似，路径按每 3 个提交改一次近似 */
+/** Filtering on sample data: branches approximated as "from this row down", paths as changed every 3 commits */
 function filtered(f: LogFilter, sort: LogSort): number[] | null {
   if (isEmpty(f) && sort === "topo") return null;
   let re: RegExp | null = null;
@@ -107,7 +107,7 @@ function filtered(f: LogFilter, sort: LogSort): number[] | null {
     if (f.first_parent && i % 10 >= 3 && i % 10 <= 4) continue;
     if (f.until != null && c.time >= f.until) continue;
     if (f.path && i % 3 !== 0) continue;
-    // 示例数据没有文件内容：搜改动内容时当作每 6 个提交有一个改过这段文字
+    // Sample data has no file contents: when searching changes, pretend every 6th commit changed the text
     if (re && f.search_in === "changes") {
       if (i % 6 !== 0) continue;
     } else if (re && !re.test(c.title) && !(f.text!.length >= 4 && !f.regex && c.id.startsWith(f.text!.toLowerCase()))) continue;
@@ -132,10 +132,10 @@ export function logQuery(offset: number, limit: number, filter: LogFilter = {}, 
   if (!rows) {
     const end = Math.min(TOTAL, offset + Math.min(limit, 500));
     const idx = Array.from({ length: Math.max(0, end - offset) }, (_, j) => offset + j);
-    // 折叠线性分支：示例里每 10 个提交的第 3 个下面算折叠了 2 个
+    // Collapsing linear branches: in the sample, 2 commits are folded under the 3rd of every 10
     return delay({ offset, rows: idx.map(commitAt), graph: idx.map(graphAt), total: TOTAL, lanes: 3, folded: filter.collapse_linear ? idx.map((i) => (i % 10 === 2 ? 2 : 0)) : undefined });
   }
-  // 路径过滤在真实仓库上由后台的 git rev-list 边跑边给结果（说明书 15）：示例里头 3 秒只给一部分，标记 partial
+  // On a real repository path filtering is fed by a background git rev-list as it runs (spec §15): the sample returns only part for the first 3 seconds, marked partial
   let partial = false;
   if (filter.path) {
     const key = `${filter.path}|${filter.case_sensitive ?? false}`;
@@ -155,7 +155,7 @@ let pathStarted = { key: "", at: 0 };
 export const logAuthors = () =>
   delay<LogAuthor[]>(authors.map((name, i) => ({ name, email: emails[i], count: Math.ceil((TOTAL - i) / 3) })));
 
-// ---------- 工作区和差异的示例数据 ----------
+// ---------- Sample data for the worktree and diffs ----------
 
 import type { BlamePage, CommitCaps, CommitCreated, CommitDetail, FileChange, FileDiff, RebaseRange, RebaseResult, RebaseStep, Selection, ShelfEntry, StashEntry, WorktreeStatus } from "./types";
 
@@ -216,7 +216,7 @@ export function commitCreate(_message: string, sel: Selection): Promise<CommitCr
   return delay({ id: "f".repeat(40), state, op: record(`提交“${title}”`, "commit") });
 }
 
-/** 示例数据的可用条件：前 3 个提交未推送，第 0 个是最新提交；第 5 个算作不在当前分支的历史里 */
+/** Sample availability: the first 3 commits are unpushed, number 0 is the latest; number 5 counts as not in the current branch's history */
 function capsAt(i: number): CommitCaps {
   const y = { ok: true };
   const no = (why: string) => ({ ok: false, why });
@@ -256,7 +256,7 @@ export function commitDetail(id: string): Promise<CommitDetail> {
   }));
 }
 
-// ---------- 分支和标签的示例数据 ----------
+// ---------- Sample data for branches and tags ----------
 
 import type { RefsList, Written } from "./types";
 
@@ -291,7 +291,7 @@ export function worktreeAdd(path: string, branch: string, created: boolean) {
   return ok(null, `新建工作目录 ${path.split("/").pop()}（${branch}）`);
 }
 export function worktreeRemove(path: string, force: boolean) {
-  // 示例：spike/gpui 的工作目录里有改动
+  // Sample: the spike/gpui worktree has changes
   if (!force && path.endsWith("spike-gpui"))
     return Promise.reject({ code: "WORKTREE_CONFLICT", message: "这个工作目录里还有 3 个文件的改动没有提交，移除后会丢失", detail: { files: 3 } });
   refs = { ...refs, worktrees: refs.worktrees.filter((w) => w.path !== path), branches: refs.branches.map((b) => (b.worktree === path ? { ...b, worktree: undefined } : b)) };
@@ -301,7 +301,7 @@ export function worktreeRemove(path: string, force: boolean) {
 export const ok = <T,>(result: T, label?: string, kind: OpKind = "branch") =>
   delay<Written<T>>({ result, state: { ...state, head: refs.head }, op: label ? record(label, kind) : undefined });
 
-// ---------- 操作日志的示例数据：只记录，撤销和重做不真的改示例数据 ----------
+// ---------- Sample op log data: only recorded; undo and redo don't really change the sample data ----------
 
 let opSeq = 4;
 let ops: OpInfo[] = [
@@ -403,18 +403,18 @@ export function tagDelete(name: string) {
   return ok(null, `删除标签 ${name}`, "tag");
 }
 
-// ---------- 远程操作的示例数据 ----------
+// ---------- Sample data for remote operations ----------
 
 import type { PushPreview } from "./types";
 
-/** 模拟一个要等一会儿的网络操作 */
+/** Simulate a network operation that takes a while */
 export const slow = <T,>(result: T) =>
   new Promise<Written<T>>((r) => setTimeout(() => r({ result, state: { ...state, head: refs.head } }), 1200));
 
 export const pushPreview = (to: string | null = null, remote: string | null = null) =>
   delay<PushPreview>({
     branch: "feature/commit-graph",
-    // 示例：有两个以上远程时当作还没推送过的新分支，可以选推送到哪个远程
+    // Sample: with two or more remotes, treat it as a new branch never pushed, so a remote can be chosen
     target: `${remote ?? "origin"}/feature/commit-graph`,
     new_branch: mockRemotes.length > 1,
     remote: remote ?? "origin",
@@ -433,7 +433,7 @@ export const tagPush = (name: string) => {
   return slow(null);
 };
 
-// ---------- 冲突解决的示例数据 ----------
+// ---------- Sample data for conflict resolution ----------
 
 import type { ChangeMark, ConflictFile, FinishResult, MergeSession } from "./types";
 
@@ -505,7 +505,7 @@ export function mergeFinish() {
   return ok<FinishResult>({ done: true });
 }
 
-// ---------- 贮藏和暂存架的示例数据 ----------
+// ---------- Sample data for stash and shelf ----------
 
 let stashes: StashEntry[] = [
   { index: 0, id: "c".repeat(40), message: "WIP on feature/commit-graph: a41f9c2 图谱：泳道计算移到后台线程", time: now - 1800 },
@@ -572,7 +572,7 @@ export function shelfRename(id: number, name: string) {
   return delay(null);
 }
 
-// ---------- 整理提交的示例数据：前 6 个提交可以整理，后 3 个已推送 ----------
+// ---------- Sample data for rebasing: the first 6 commits can be rebased, the last 3 are pushed ----------
 
 export function rebaseRange(from: string | null) {
   const n = from ? rowOf(from) + 1 : 6;
@@ -588,7 +588,7 @@ export function rebaseApply(steps: RebaseStep[]) {
   return ok<RebaseResult>({ before: steps.length, after }, `整理 ${steps.length} 个提交`, "commit");
 }
 
-// ---------- 丢弃改动、未跟踪的文件 ----------
+// ---------- Discarding changes, untracked files ----------
 
 export function changesDiscard(paths: string[]) {
   mockStatus = { ...mockStatus, changes: mockStatus.changes.filter((c) => !paths.includes(c.path)) };
@@ -605,7 +605,7 @@ export function untracked(kind: "add" | "ignore" | "delete", path: string) {
   return ok(null);
 }
 
-// ---------- 比较、补丁、某个版本的文件 ----------
+// ---------- Compare, patches, files at a revision ----------
 
 export function compare(from: string, to: string) {
   const a = rowOf(from);
@@ -633,7 +633,7 @@ export const patchWorktree = (sel: Selection) =>
   delay(sel.files.map((f) => `diff --git a/${f.path} b/${f.path}\n--- a/${f.path}\n+++ b/${f.path}\n@@ -1,2 +1,2 @@\n-旧的一行\n+新的一行\n 不变的一行\n`).join(""));
 export const commitTree = () => delay(["Cargo.toml", "README.md", "src/graph/cache.rs", "src/graph/layout.rs", "src/graph/mod.rs", "src/lib.rs", "src/main.rs", "src/ui/graph_view.rs"]);
 
-// ---------- 逐行追溯的示例数据：200 行，每 7 行换一个提交 ----------
+// ---------- Sample blame data: 200 lines, a new commit every 7 lines ----------
 
 export function blameFile(_path: string, offset: number, limit: number) {
   const total = 200;
@@ -656,7 +656,7 @@ export function commitAmend(message: string | null): Promise<CommitCreated> {
   return delay({ id: "f".repeat(40), state, op: record(`修订“${message?.split("\n")[0] || "图谱：泳道计算移到后台线程"}”`, "commit") });
 }
 
-// ---------- 提交前检查：示例仓库配置了检查命令，src/ui/graph_view.rs 会报两个问题 ----------
+// ---------- Pre-commit checks: the sample repository has a check command configured, and src/ui/graph_view.rs reports two issues ----------
 let mockChecks: ChecksInfo = {
   format_command: "",
   check_command: "cargo clippy --quiet",
@@ -700,11 +700,11 @@ export function checksRun(kind: CheckKind, files: string[]): Promise<CheckRun> {
   );
 }
 
-/** 示例：spike/gpui 里有合并提交；已推送的只有当前分支跟踪的部分 */
+/** Sample: spike/gpui contains a merge commit; only the part the current branch tracks is pushed */
 export const rebasePlan = (onto: string) =>
   delay<RebasePlan>({ branch: state.head.branch ?? "", onto, own: 2, pushed: onto === "main" ? 0 : 1, incoming: 3, has_merge: false });
 
-// ---------- 控制台（说明书 5.8） ----------
+// ---------- Console (spec §5.8) ----------
 
 const t0 = Date.now() - 5 * 60_000;
 let consoleLog: import("./types").ConsoleEntry[] = [
@@ -723,7 +723,7 @@ export const consoleClear = async () => {
 };
 export function onConsoleLine(cb: (e: import("./types").ConsoleEntry) => void) {
   consoleSubs.add(cb);
-  // 开发时可以在浏览器控制台用 __strandConsole("文字") 模拟一条
+  // During development, simulate an entry from the browser console with __strandConsole("text")
   if (import.meta.env.DEV)
     (window as unknown as { __strandConsole?: (text: string, ok?: boolean) => void }).__strandConsole = (text, ok = true) => {
       const e = { seq: (consoleLog[consoleLog.length - 1]?.seq ?? 0) + 1, time: Date.now(), kind: "command" as const, text, output: ok ? [] : ["fatal: 模拟的错误"], ok, ms: 12 };
@@ -735,7 +735,7 @@ export function onConsoleLine(cb: (e: import("./types").ConsoleEntry) => void) {
   };
 }
 
-// ---------- 拉取摘要面板（说明书 7.2） ----------
+// ---------- Pull summary panel (spec §7.2) ----------
 
 export const pullPreview = (mode: import("./types").PullMode) =>
   delay<import("./types").PullPreview>({
@@ -764,7 +764,7 @@ export const setFavorite = (name: string, favorite: boolean) => {
   return delay(null);
 };
 
-// ---------- 项目文件和文件修改链 ----------
+// ---------- Project files and file change chains ----------
 
 const PROJECT = [
   ".gitignore", "Cargo.lock", "Cargo.toml", "README.md",
@@ -793,7 +793,7 @@ export function saveWorktreeFile(path: string, text: string, _expected: string) 
 }
 
 export function fileHistory(path: string) {
-  // 每隔几个提交改一次；中间改过一次名（layout.rs 以前叫 lanes.rs）
+  // Changed every few commits; renamed once in between (layout.rs used to be lanes.rs)
   const versions = Array.from({ length: 14 }, (_, k) => {
     const c = commitAt(k * 7 + 1);
     const last = k === 13;
@@ -814,7 +814,7 @@ export function fileHistory(path: string) {
 
 export const fileDiffVersions = (_from: string | null, _fromPath: string, _to: string | null, toPath: string) => diffFile(toPath);
 
-// ---------- 按内容搜索 ----------
+// ---------- Searching by content ----------
 
 export const commitChangeMatches = () => delay([{ path: "src/graph/layout.rs", lines: 3 }, { path: "src/ui/graph_view.rs", lines: 1 }]);
 
@@ -825,7 +825,7 @@ export function projectSearch(text: string, regex: boolean, caseSensitive: boole
   } catch {
     return Promise.reject({ code: "INVALID_REGEX", message: "正则表达式写得不对" });
   }
-  // 示例：每个文本文件里有几行“含有”搜索的文字
+  // Sample: each text file has a few lines "containing" the search text
   const files = PROJECT.filter((p) => !p.endsWith(".png") && !p.endsWith(".lock")).slice(0, rev ? 5 : 8).map((path, k) => ({
     path,
     hits: Array.from({ length: (k % 3) + 1 }, (_, j) => ({ line: 4 + j * 9 + k, text: `    let value = ${text}(state, ${j}); // ${re.source.slice(0, 20)}` })),
@@ -834,7 +834,7 @@ export function projectSearch(text: string, regex: boolean, caseSensitive: boole
   return delay({ files, total: files.reduce((n, f) => n + f.hits.length, 0), truncated: false });
 }
 
-/** 整个文件的示例差异：120 行，第 42–44 行改成 4 行、第 89 行后加一行、第 110 行删掉 */
+/** Sample whole-file diff: 120 lines, lines 42–44 become 4 lines, one line added after line 89, line 110 deleted */
 function fullDiff(path: string): FileDiff {
   const lines: FileDiff["hunks"][number]["lines"] = [];
   let o = 1;
@@ -861,7 +861,7 @@ function fullDiff(path: string): FileDiff {
   return { path, binary: false, truncated: false, hunks: [{ title: "第 1 行起", old_start: 1, new_start: 1, lines }] };
 }
 
-// ---------- 应用补丁的示例数据 ----------
+// ---------- Sample data for applying patches ----------
 import type { PatchPreview } from "./types";
 
 export const SAMPLE_PATCH = `From 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b Mon Sep 17 00:00:00 2001
@@ -893,7 +893,7 @@ export function patchPreview(text: string): Promise<PatchPreview> {
 
 export const patchApply = (_text: string, commit: boolean) => ok(commit ? 1 : 0, commit ? "应用补丁（1 个提交）" : "应用补丁到工作区", commit ? "commit" : "other");
 
-// ---------- 操作记录的示例数据 ----------
+// ---------- Sample reflog data ----------
 import type { ReflogEntry } from "./types";
 
 export function reflog(name: string): Promise<ReflogEntry[]> {
@@ -929,7 +929,7 @@ export function reflog(name: string): Promise<ReflogEntry[]> {
   });
 }
 
-// ---------- 签名的示例数据 ----------
+// ---------- Sample signing data ----------
 import type { Signature, SigningConfig } from "./types";
 
 export const signing: SigningConfig = { commit: false, tag: false, key: "~/.ssh/id_ed25519.pub", format: "ssh" };
@@ -938,7 +938,7 @@ export function commitSignature(id: string): Promise<Signature> {
   return delay(n === 0 ? { status: "good", signer: "lin@example.com", key: "SHA256:k3J…" } : n === 1 ? { status: "unknown", signer: "", key: "4F2A9C1E" } : { status: "none", signer: "", key: "" });
 }
 
-// ---------- 远程的示例数据 ----------
+// ---------- Sample remote data ----------
 import type { RemoteInfo } from "./types";
 
 let mockRemotes: RemoteInfo[] = [{ name: "origin", url: "git@github.com:example/strand-app.git" }];
@@ -966,7 +966,7 @@ export const remoteSetUrlMock = (name: string, url: string) => {
   mockRemotes = mockRemotes.map((r) => (r.name === name ? { ...r, url } : r));
 };
 
-// ---------- 二分查找的示例数据：在示例日志的前 16 个提交里找，第 5 个是第一个坏的 ----------
+// ---------- Sample bisect data: search the first 16 commits of the sample log; number 5 is the first bad one ----------
 import type { BisectMark, BisectStatus } from "./types";
 
 let bis: { bad: number | null; good: number[]; skip: number[]; cur: number | null } | null = null;
@@ -998,7 +998,7 @@ export function bisectMark(mark: BisectMark, rev: string | null): Promise<Writte
   if (mark === "skip") bis.skip.push(i);
   const st0 = bisectNow();
   if (bis.bad !== null && bis.good.length && !st0.first_bad) bis.cur = Math.floor((bis.bad + Math.min(...bis.good)) / 2);
-  // 示例：第 5 个以前（更新的）是坏的
+  // Sample: number 5 and earlier (newer) are bad
   return delay({ result: bisectNow(), state: { ...state, head: refs.head, bisecting: true } });
 }
 export function bisectReset(): Promise<Written<null>> {
@@ -1006,7 +1006,7 @@ export function bisectReset(): Promise<Written<null>> {
   return delay({ result: null, state: { ...state, head: refs.head, bisecting: false } });
 }
 
-// ---------- 写说明和变更列表 ----------
+// ---------- Writing messages and changelists ----------
 import type { Changelists, ComposeInfo } from "./types";
 export function composeInfo(): Promise<ComposeInfo> {
   return delay({
@@ -1026,7 +1026,7 @@ export function changelistsSet(c: Changelists): Promise<Changelists> {
   return delay(structuredClone(mockLists));
 }
 
-/** 示例图片：旧版本是蓝色圆，新版本（工作区或提交）是橙色方块，大小也不同；“^” 结尾的父版本里新增的图片不存在 */
+/** Sample images: the old version is a blue circle, the new one (worktree or commit) an orange square of a different size; in a parent revision ending with "^" an added image doesn't exist */
 export async function fileBytes(path: string, rev: string | null): Promise<ArrayBuffer> {
   const old = !!rev && (rev === "HEAD" || rev.endsWith("^"));
   if (old && path.includes("new")) throw { code: "NOT_FOUND", message: `这个版本里没有 ${path}` };
@@ -1045,7 +1045,7 @@ export async function fileBytes(path: string, rev: string | null): Promise<Array
   return blob.arrayBuffer();
 }
 
-/** 示例：逐行比较（只够预览用：按行号对齐，不找最长公共子序列） */
+/** Sample: line-by-line comparison (only good enough for the preview: aligned by line number, no longest common subsequence) */
 export function textDiff(left: string, right: string, name: string): Promise<FileDiff> {
   const a = left.split("\n");
   const b = right.split("\n");

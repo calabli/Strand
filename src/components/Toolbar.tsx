@@ -1,4 +1,4 @@
-// 顶部工具栏（说明书 3.2）：仓库、分支按钮、进行中状态、抓取、拉取（可选方式）、推送、刷新。
+// Top toolbar (spec §3.2): repository, branch button, in-progress status, fetch, pull (with mode choice), push, refresh.
 
 import type { RepoState } from "../api/types";
 import type { RemoteKind, RemoteOps } from "./remoteOps";
@@ -34,32 +34,32 @@ const MODE_LABEL: Record<RepoState["state"], string | null> = lazy(() => ({
 
 interface Props {
   repo: RepoState;
-  /** 打开仓库列表 */
+  /** Open the repository list */
   onRepos: (x: number, y: number) => void;
   onReload: () => void;
-  /** 打开分支弹窗（说明书 6.2） */
+  /** Open the branch popup (spec §6.2) */
   onBranch: () => void;
   onAbortMerge: () => void;
-  /** 冲突界面被“稍后继续”隐藏时，点这里回去 */
+  /** When the conflict view was hidden by "continue later", click here to go back */
   onShowConflicts?: () => void;
-  /** 冲突还有几处待处理；不知道时为空（说明书 3.3） */
+  /** How many conflicts remain; empty when unknown (spec §3.3) */
   conflictLeft?: number | null;
   busy: boolean;
   remote: RemoteOps;
-  /** 当前分支相对跟踪分支的领先、落后数 */
+  /** Commits ahead of and behind the upstream for the current branch */
   ahead: number;
   behind: number;
-  /** 当前分支改写了已推送的提交，推送需要强制推送 */
+  /** The current branch rewrote pushed commits; pushing needs a force push */
   needsForce: boolean;
   hasUpstream: boolean;
   onPullMenu: (x: number, y: number) => void;
-  /** 打开命令面板（说明书 12.1） */
+  /** Open the command palette (spec §12.1) */
   onPalette: () => void;
-  /** 语言菜单 */
+  /** Language menu */
   onSettings: () => void;
-  /** 提交面板开关（说明书 3.2）：显示或隐藏提交面板，角标是有改动的文件数 */
+  /** Commit panel toggle (spec §3.2): show or hide the commit panel; the badge is the number of changed files */
   panel: { open: boolean; count: number; onToggle: () => void };
-  /** 撤销、重做（说明书 11.1） */
+  /** Undo, redo (spec §11.1) */
   undo: { can: boolean; canRedo: boolean; undoTip: string; redoTip: string; onUndo: () => void; onRedo: () => void };
 }
 
@@ -72,7 +72,7 @@ export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onSho
   const run = remote.running;
   const normal = repo.state === "normal";
   const onBranchHead = h.kind === "branch";
-  // 进行中的按钮再点一次是取消（说明书 7.5）
+  // Clicking a running button again cancels it (spec §7.5)
   const tip = (kind: RemoteKind, label: string) =>
     run?.kind === kind ? t("{0}中{1}（点击取消）", label, run.text ? `：${run.text}` : "…") : label;
   const btn = (kind: RemoteKind, label: string, icon: string, can: boolean, why: string, go: () => void, badge?: number, warn?: boolean) => (
@@ -185,7 +185,7 @@ export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onSho
           <Icon d={ICONS.panel} />
           {panel.count > 0 && <span className="badge">{panel.count}</span>}
         </button>
-        {/* 中英文切换（说明书 15 语言）：就地切换，界面整个重画，不重新加载窗口 */}
+        {/* Chinese/English switch (spec §15 language): switches in place, re-drawing the whole UI without reloading the window */}
         <button
           type="button"
           className="ib tb-lang"

@@ -1,4 +1,4 @@
-// 文件行：状态字母、路径、新增和删除行数（说明书 4.2）。提交面板和提交详情共用。
+// File row: status letter, path, added and deleted line counts (spec §4.2). Shared by the commit panel and commit details.
 
 import { useState, type ReactNode } from "react";
 import type { FileChange } from "../api/types";
@@ -25,13 +25,13 @@ interface Props {
   f: FileChange;
   active?: boolean;
   onOpen: () => void;
-  /** 行首的控件，如勾选框 */
+  /** The control at the start of the row, e.g. a checkbox */
   lead?: ReactNode;
-  /** 行尾悬停时出现的图标 */
+  /** Icons shown at the end of the row on hover */
   trail?: ReactNode;
-  /** 树形显示时的层级：只显示文件名，按层级往右缩进（悬停仍显示完整路径） */
+  /** Level in tree view: only the file name, indented by level (hover still shows the full path) */
   depth?: number;
-  /** 双击（如在标签页里打开差异） */
+  /** Double-click (e.g. open the diff in a tab) */
   onDouble?: () => void;
 }
 
@@ -43,7 +43,7 @@ export function FileRow({ f, active, onOpen, lead, trail, depth, onDouble }: Pro
     <div className={"frow" + (active ? " active" : "") + (inDir ? " in-dir" : "")} style={inDir ? { paddingLeft: indentOf(depth) } : undefined}>
       {lead}
       <button type="button" className="frow-main" onClick={onOpen} onDoubleClick={onDouble} title={name}>
-        {/* 树形显示：文件类型图标，文件名按状态着色（修改蓝、新增绿、删除红）；列表显示：状态字母 */}
+        {/* Tree view: file type icon, file name colored by status (modified blue, added green, deleted red); list view: status letter */}
         {inDir ? <TypeIcon path={f.path} /> : <StatusBadge s={f.status} />}
         <span className={"fpath mono" + (inDir ? ` sn-${f.status}` : "")} title={inDir ? `${STATUS_LABEL[f.status]}：${name}` : undefined}>
           {label}
@@ -69,7 +69,7 @@ export function FileRow({ f, active, onOpen, lead, trail, depth, onDouble }: Pro
 export const dirOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/") + 1) : "");
 const baseOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
-/** 文件类型图标：按扩展名显示一两个字母的圆形徽标（颜色按语言），认不出的显示普通文件图标 */
+/** File type icon: a round badge with one or two letters by extension (colored by language); unknown types show a plain file icon */
 const TYPES: Record<string, [string, string]> = {
   java: ["J", "#E76F00"], kt: ["K", "#7F52FF"], scala: ["S", "#DC322F"], groovy: ["G", "#4298B8"],
   ts: ["TS", "#3178C6"], tsx: ["TS", "#3178C6"], js: ["JS", "#C9A400"], jsx: ["JS", "#C9A400"], mjs: ["JS", "#C9A400"], vue: ["V", "#41B883"], svelte: ["S", "#FF3E00"],
@@ -97,21 +97,21 @@ export function TypeIcon({ path }: { path: string }) {
   );
 }
 
-/** 树形显示时每一层缩进的像素 */
+/** Indent in pixels per level in tree view */
 const indentOf = (depth: number) => 8 + depth * 14;
 
-/** 目录树的一个目录：只有一个子目录、没有文件的目录和子目录合成一行（如 src/components） */
+/** A directory in the tree: a directory with a single subdirectory and no files is merged with it into one row (e.g. src/components) */
 export interface TreeDir<T> {
   name: string;
-  /** 完整路径，以 / 结尾；根目录是 "" */
+  /** Full path ending with /; the root is "" */
   path: string;
   dirs: TreeDir<T>[];
   files: T[];
-  /** 下面所有文件的个数 */
+  /** Number of files under it */
   count: number;
 }
 
-/** 按路径建目录树：目录在前、文件在后，都按名字排 */
+/** Build a directory tree from paths: directories first, then files, each sorted by name */
 export function buildTree<T>(items: T[], pathOf: (x: T) => string): TreeDir<T> {
   const root: TreeDir<T> = { name: "", path: "", dirs: [], files: [], count: 0 };
   for (const x of items) {
@@ -141,12 +141,12 @@ export function buildTree<T>(items: T[], pathOf: (x: T) => string): TreeDir<T> {
   return tidy(root);
 }
 
-/** 目录下（含子目录）的全部文件 */
+/** All files under a directory (including subdirectories) */
 function filesUnder<T>(d: TreeDir<T>): T[] {
   return [...d.files, ...d.dirs.flatMap(filesUnder)];
 }
 
-/** 按树形显示的顺序排好的文件（“查看差异”取第一个用） */
+/** Files sorted in tree display order (the first is taken by "view diff") */
 export function treeOrder<T>(items: T[], pathOf: (x: T) => string): T[] {
   const out: T[] = [];
   const walk = (d: TreeDir<T>) => {
@@ -160,8 +160,8 @@ export function treeOrder<T>(items: T[], pathOf: (x: T) => string): T[] {
 const FOLDER = "M1.5 3.5h4l1.5 1.5h5.5v6.5h-11z";
 
 /**
- * 文件的目录树（说明书 4.7、5.5 的“按目录分组”改为树形）：目录行可以折叠，折叠状态在这个列表里记着，换内容时保留。
- * leaf 画一个文件行，depth 传给 FileRow。
+ * Directory tree of files ("group by directory" in spec §4.7, §5.5 became a tree): directory rows can be collapsed; collapse state is kept in this list and survives content changes.
+ * leaf draws a file row and passes depth to FileRow.
  */
 export function FileTree<T>({
   items,
@@ -175,16 +175,16 @@ export function FileTree<T>({
   items: T[];
   pathOf: (x: T) => string;
   leaf: (x: T, depth: number) => ReactNode;
-  /** 目录一开始都折叠（项目文件树：文件多） */
+  /** All directories start collapsed (project file tree: many files) */
   startClosed?: boolean;
-  /** 全部展开（搜索时） */
+  /** Expand everything (when searching) */
   forceOpen?: boolean;
-  /** 给出时最上面加一个根节点（如仓库名），显示文件总数 */
+  /** When given, add a root node at the top (e.g. the repository name) showing the total file count */
   root?: string;
-  /** 目录行最前面的控件（提交面板：勾选整个目录），参数是这个目录下的全部文件 */
+  /** The control at the very start of a directory row (commit panel: check the whole directory); the argument is all files under it */
   dirLead?: (items: T[]) => ReactNode;
 }) {
-  // 记的是和默认状态相反的目录：默认展开时记折叠的，默认折叠时记展开的
+  // Records directories in the opposite of the default state: collapsed ones when expanded by default, expanded ones when collapsed by default
   const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
   const isOpen = (path: string) => forceOpen || flipped.has(path) === !!startClosed;
   const toggle = (path: string) =>
@@ -211,7 +211,7 @@ export function FileTree<T>({
           </span>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden="true">
             <path d={FOLDER} />
-            {/* 根节点（仓库）：文件夹右下角一个小方块，和普通目录区分 */}
+            {/* Root node (repository): a small square at the folder's lower right to tell it apart from normal directories */}
             {isRoot && <rect x="8" y="8" width="5" height="5" rx="1.2" fill="var(--accent)" stroke="var(--win)" strokeWidth="1" />}
           </svg>
           <span className="fdir-name">{d.name}</span>
@@ -240,6 +240,6 @@ export function FileTree<T>({
   );
   const tree = buildTree(items, pathOf);
   if (root === undefined) return <>{body(tree, 0)}</>;
-  // 根节点：用 "" 以外的键记折叠状态
+  // Root node: track its collapse state under a key other than ""
   return dir({ ...tree, name: root, path: "\u0000root/" }, 0);
 }

@@ -1,4 +1,4 @@
-//! 部分克隆（git clone --filter=blob:none）：文件内容不在本地时先一次下载；下载不了时列表照常、行数标成不可用。
+//! Partial clone (git clone --filter=blob:none): when file contents aren't local, download them in one go first; when that fails the list still works and line counts are marked unavailable.
 
 use std::path::Path;
 use std::process::Command;
@@ -11,7 +11,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim_end().to_string()
 }
 
-/// 源仓库两个提交；部分克隆只检出最新的，第一个提交里的旧内容不在本地
+/// The source repository has two commits; the partial clone only checks out the latest, so old content from the first commit isn't local
 fn setup() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let d = tempfile::tempdir().unwrap();
     let src = d.path().join("src");
@@ -54,7 +54,7 @@ fn downloads_missing_contents_once() {
 fn offline_keeps_the_list() {
     let (d, src, id) = setup();
     let part = d.path().join("part");
-    // 远程没了：下载失败
+    // The remote is gone: the download fails
     std::fs::remove_dir_all(&src).unwrap();
     let s = Session::open(&part).unwrap();
     let det = s.commit_detail(&id).unwrap();

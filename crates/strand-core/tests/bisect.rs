@@ -1,4 +1,4 @@
-//! 二分查找：标坏和好后逐步缩小，找到第一个坏提交；结束后回到原来的分支。
+//! Bisect: after marking bad and good it narrows step by step and finds the first bad commit; ending returns to the original branch.
 
 use std::path::Path;
 use std::process::Command;
@@ -29,7 +29,7 @@ fn bisect_finds_first_bad_commit_and_resets() {
     git(p, &["init", "-q", "-b", "main"]);
     let mut ids = Vec::new();
     for i in 0..12 {
-        // 第 7 个提交开始出问题
+        // The problem starts at the 7th commit
         std::fs::write(p.join("state.txt"), if i >= 7 { "bug\n" } else { "ok\n" }).unwrap();
         std::fs::write(p.join("n.txt"), format!("{i}\n")).unwrap();
         git(p, &["add", "."]);
@@ -41,7 +41,7 @@ fn bisect_finds_first_bad_commit_and_resets() {
     assert!(!s.state().unwrap().bisecting);
     assert!(s.bisect_mark(BisectMark::Skip, None).is_err());
 
-    // 标坏（现在的）和好（第一个）：开始，检出中间的
+    // Mark bad (current) and good (first): starts and checks out one in the middle
     s.bisect_mark(BisectMark::Bad, None).unwrap();
     let mut st = s.bisect_mark(BisectMark::Good, Some(&ids[0])).unwrap();
     s.reload().unwrap();

@@ -1,4 +1,4 @@
-//! 应用补丁：看补丁内容和能不能应用；应用到工作区（含冲突）；按邮件格式生成提交；对不上时整个退回。
+//! Applying patches: inspect a patch and whether it applies; apply to the worktree (including conflicts); create commits from mailbox format; roll back entirely when it doesn't match.
 
 use std::path::Path;
 use std::process::Command;
@@ -29,7 +29,7 @@ fn write(dir: &Path, f: &str, s: &str) {
     std::fs::write(p, s).unwrap();
 }
 
-/// 两个提交的仓库；返回（仓库，第二个提交的 format-patch，第二个提交的普通 diff），仓库退回到第一个提交
+/// A repository with two commits; returns (repository, format-patch of the second commit, plain diff of the second commit), with the repository reset to the first commit
 fn repo() -> (tempfile::TempDir, String, String) {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -64,11 +64,11 @@ fn preview_lists_files_commits_and_fit() {
     assert!(matches!(st("a.txt"), Some((FileStatus::M, 1, 1))));
     assert!(matches!(st("new/b.txt"), Some((FileStatus::A, 1, 0))));
     assert!(matches!(st("gone.txt"), Some((FileStatus::D, 0, 1))));
-    // 普通 diff 没有提交
+    // A plain diff has no commits
     assert!(s.patch_preview(&plain).unwrap().commits.is_empty());
-    // 不是补丁
+    // Not a patch
     assert!(matches!(s.patch_preview("随便一段文字").unwrap_err().code, ErrorCode::InvalidRange));
-    // 本地改过同一行：只能按三方合并（会冲突）
+    // The same line changed locally: only a three-way apply is possible (it will conflict)
     write(d.path(), "a.txt", "一\n二（本地）\n三\n");
     git(d.path(), &["commit", "-qam", "本地改"]);
     assert_ne!(s.patch_preview(&plain).unwrap().fit, PatchFit::Clean);
@@ -88,7 +88,7 @@ fn apply_as_commit_and_to_worktree() {
     assert_eq!(s2.patch_apply(&plain2, false).unwrap(), 0);
     assert_eq!(std::fs::read_to_string(d2.path().join("a.txt")).unwrap(), "一\n二（改）\n三\n");
     assert!(d2.path().join("new/b.txt").exists() && !d2.path().join("gone.txt").exists());
-    // 普通 diff 不能生成提交
+    // A plain diff can't create commits
     let (d3, _, _) = repo();
     assert!(Session::open(d3.path()).unwrap().patch_apply(&plain, true).is_err());
 }
@@ -101,11 +101,11 @@ fn conflicts_enter_resolution_and_failed_am_rolls_back() {
     git(p, &["commit", "-qam", "本地改"]);
     let head = git(p, &["rev-parse", "HEAD"]);
     let s = Session::open(p).unwrap();
-    // 生成提交失败：整个退回，没有停在 am 里
+    // Creating commits failed: rolled back entirely, not left inside am
     assert!(matches!(s.patch_apply(&mail, true).unwrap_err().code, ErrorCode::GitFailed));
     assert_eq!(git(p, &["rev-parse", "HEAD"]), head);
     assert!(!p.join(".git/rebase-apply").exists());
-    // 应用到工作区：冲突，进入取回的冲突解决
+    // Apply to the worktree: conflicts, entering restore conflict resolution
     assert!(matches!(s.patch_apply(&plain, false).unwrap_err().code, ErrorCode::Conflicts));
     let u = s.unstash().expect("进入取回进行中");
     assert_eq!(u.label, "补丁");

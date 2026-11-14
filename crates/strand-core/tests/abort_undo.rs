@@ -1,4 +1,4 @@
-//! 中止后撤销（说明书 8.9）：中止合并或变基写成一条日志，撤销它回到中止前的冲突、已解决的文件和标记。
+//! Undo after abort (spec §8.9): aborting a merge or rebase is one log entry, and undoing it returns to the conflicts, resolved files and marks from before the abort.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -35,7 +35,7 @@ fn read(dir: &Path, f: &str) -> String {
     std::fs::read_to_string(dir.join(f)).unwrap_or_default()
 }
 
-/// main 和 feature 都改了 a.txt 和 b.txt 的同一行；feature 另外加了 new.txt
+/// main and feature both changed the same line of a.txt and b.txt; feature also added new.txt
 fn repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -73,7 +73,7 @@ fn undo_abort_restores_merge_conflicts_and_marks() {
     assert!(s.run_op("合并 feature", OpKind::Merge, |s| s.branch_merge("feature")).is_err());
     assert_eq!(s.state().unwrap().state, RepoMode::Merging);
 
-    // 解决了 a.txt，b.txt 还没解决
+    // a.txt resolved, b.txt not yet
     let mut marks = HashMap::new();
     marks.insert("c1".to_string(), ChangeMark { mine: Mark::Accept, theirs: Mark::Accept, custom: None });
     s.merge_apply_file("a.txt", &marks).unwrap();
@@ -92,7 +92,7 @@ fn undo_abort_restores_merge_conflicts_and_marks() {
     assert!(!p.join("new.txt").exists());
     assert!(s.merge_session().unwrap().is_none());
 
-    // 撤销中止：回到冲突中，已解决的 a.txt、没解决的 b.txt、标记都回来
+    // Undo the abort: back in conflict, with the resolved a.txt, unresolved b.txt and marks restored
     let done = s.oplog_undo(None, false).unwrap();
     assert_eq!(done.len(), 1);
     assert_eq!(s.state().unwrap().state, RepoMode::Merging);
@@ -104,16 +104,16 @@ fn undo_abort_restores_merge_conflicts_and_marks() {
     assert_eq!(ms.saved_marks, Some(front));
     assert_eq!(unresolved(&s), ["b.txt"]);
     assert!(ms.files.iter().any(|f| f.path == "a.txt" && f.resolved));
-    // 回到冲突中不能重做；时间线上这一步显示为已撤销
+    // Back in conflict, redo isn't possible; this step shows as undone on the timeline
     assert!(!s.oplog_list(10).unwrap().can_redo);
 
-    // 接着完成：整个合并写成一条日志（开始前的快照也回来了），撤销它回到合并前
+    // Then finish: the whole merge is one entry (the before snapshot is back too), and undoing it returns to before the merge
     s.merge_take_file("b.txt", Side::Theirs).unwrap();
     assert!(s.merge_finish().unwrap().done);
     let fin = s.op_finish_pending().unwrap().expect("合并写成日志");
     assert_eq!(fin.label, "合并 feature");
     assert_eq!(ok(p, &["log", "-1", "--format=%p"]).split(' ').count(), 2);
-    // 完成后标记文件清掉
+    // The marks file is cleared after finishing
     assert!(!p.join(".git/strand/marks.json").exists());
     s.oplog_undo(None, false).unwrap();
     assert_eq!(ok(p, &["rev-parse", "HEAD"]), main);
@@ -146,7 +146,7 @@ fn undo_abort_restores_rebase_in_progress() {
     assert_eq!(ms.step.unwrap().index, 1);
     assert!(ms.saved_marks.is_none());
 
-    // 再中止一次，仍然回到变基之前；git 自己也认这个变基
+    // Abort once more, still back to before the rebase; git itself recognizes the rebase too
     let (_, op) = s.merge_abort_logged("中止变基", None).unwrap();
     assert!(op.is_some());
     assert_eq!(ok(p, &["rev-parse", "HEAD"]), main);
@@ -159,19 +159,19 @@ fn undo_stops_at_abort_and_refuses_when_changed_after() {
     let d = repo();
     let p = d.path();
     let mut s = Session::open(p).unwrap();
-    // 先有一步普通的操作，再合并、中止
+    // First an ordinary step, then merge and abort
     s.run_op("新建分支 x", OpKind::Branch, |s| s.branch_create("x", None, false)).unwrap();
     assert!(s.run_op("合并 feature", OpKind::Merge, |s| s.branch_merge("feature")).is_err());
     s.merge_abort_logged("中止合并", None).unwrap();
     let first = s.oplog_list(10).unwrap().entries.last().unwrap().id;
-    // 一次退回多步时停在“中止合并”：回到冲突中，更早的“新建分支”不动
+    // Undoing several steps at once stops at "abort merge": back in conflict, the earlier "create branch" untouched
     let done = s.oplog_undo(Some(first), false).unwrap();
     assert_eq!(done.len(), 1);
     assert_eq!(s.state().unwrap().state, RepoMode::Merging);
     assert!(ok(p, &["branch", "--list", "x"]).contains('x'));
     s.merge_abort_logged("中止合并", None).unwrap();
 
-    // 中止后又改了冲突涉及的文件：不能撤销中止
+    // The conflicted files changed after the abort: the abort can't be undone
     write(p, "a.txt", "中止后改的\n");
     assert!(s.oplog_undo(None, false).is_err());
     assert_eq!(s.state().unwrap().state, RepoMode::Normal);

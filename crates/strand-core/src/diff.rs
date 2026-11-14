@@ -1,12 +1,12 @@
-//! 把 git2 的差异转换成说明书第 13 节的 `Hunk` 和 `FileChange`。
+//! Convert git2 diffs into the `Hunk` and `FileChange` of spec §13.
 
 use crate::error::{CoreError, ErrorCode, Result};
 use crate::model::{DiffLine, FileChange, FileDiff, FileStatus, Hunk, LineKind};
 
-/// 单个文件最多返回的差异行数，超出部分截断（说明书 15 节：2000 行改动 200 ms 内打开）。
+/// Maximum diff lines returned for one file; the rest is truncated (spec §15: open a 2000-line change within 200 ms).
 pub const MAX_LINES: usize = 20_000;
 
-/// 列文件时最多为了行数下载这么多个缺的文件内容（部分克隆）
+/// When listing files, download at most this many missing file contents for line counts (partial clones)
 pub const PREFETCH_LIMIT: usize = 1000;
 
 pub fn file_status(d: git2::Delta) -> Option<FileStatus> {
@@ -24,21 +24,21 @@ fn path_str(p: Option<&std::path::Path>) -> String {
     p.map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default()
 }
 
-/// 对象不在本地（部分克隆里还没下载的文件内容）
+/// The object isn't local (file contents not yet downloaded in a partial clone)
 fn is_missing(e: &git2::Error) -> bool {
     e.code() == git2::ErrorCode::NotFound && e.class() == git2::ErrorClass::Odb
 }
 
-/// 部分克隆（`git clone --filter=blob:none`）：差异涉及的文件内容不在本地时，一次从 promisor 远程下载，
-/// 和 git 自己按需下载用的是同一条命令。没有缺的、不是部分克隆、或者下载失败（比如没联网）都返回 false，
-/// 之后照常计算，缺的文件没有行数（见 [`files`]）。缺的超过 `limit` 个时也不下载，免得为了行数下载太多。
+/// Partial clones (`git clone --filter=blob:none`): when file contents in a diff aren't local, download them from the promisor remote in one go,
+/// using the same command git uses for on-demand downloads. Returns false when nothing is missing, it isn't a partial clone, or the download fails (e.g. offline);
+/// the computation then continues as usual and missing files have no line counts (see [`files`]). Nothing is downloaded when more than `limit` are missing, so we don't download too much just for line counts.
 pub fn prefetch(repo: &git2::Repository, diff: &git2::Diff<'_>, limit: usize) -> bool {
     let Ok(odb) = repo.odb() else { return false };
     let mut missing: Vec<String> = Vec::new();
     for d in diff.deltas() {
         for f in [d.old_file(), d.new_file()] {
             let id = f.id();
-            // 子模块（FileMode::Commit）指向别的仓库，不下载
+            // Submodules (FileMode::Commit) point at another repository; don't download
             if !id.is_zero() && f.mode() != git2::FileMode::Commit && !odb.exists(id) {
                 missing.push(id.to_string());
             }
@@ -65,7 +65,7 @@ pub fn prefetch(repo: &git2::Repository, diff: &git2::Diff<'_>, limit: usize) ->
     ok
 }
 
-/// 部分克隆的远程：`extensions.partialClone`，没有则找 `remote.<名字>.promisor = true` 的
+/// The partial clone's remote: `extensions.partialClone`, otherwise the one with `remote.<name>.promisor = true`
 fn promisor_remote(repo: &git2::Repository) -> Option<String> {
     let cfg = repo.config().ok()?.snapshot().ok()?;
     if let Ok(r) = cfg.get_string("extensions.partialclone") {
@@ -81,8 +81,8 @@ fn promisor_remote(repo: &git2::Repository) -> Option<String> {
     None
 }
 
-/// 列出差异里的文件和行数统计。未跟踪的文件放进 `untracked`。
-/// 文件内容不在本地（部分克隆、没能下载）时不报错，这个文件标成 `no_stats`。
+/// List the files in a diff with line stats. Untracked files go into `untracked`.
+/// When file contents aren't local (partial clone, couldn't download) it doesn't fail; the file is marked `no_stats`.
 pub fn files(diff: &git2::Diff<'_>, untracked: &mut Vec<String>) -> Result<Vec<FileChange>> {
     let mut out = Vec::new();
     for (i, delta) in diff.deltas().enumerate() {
@@ -125,7 +125,7 @@ fn is_binary_path(delta: &git2::DiffDelta<'_>) -> bool {
     delta.new_file().is_binary() || delta.old_file().is_binary()
 }
 
-/// 差异里第一个文件的全部修改块。差异应当已经用 pathspec 限定到一个文件。
+/// All change blocks of the first file in a diff. The diff should already be limited to one file by pathspec.
 pub fn first_file(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
     let Some(idx) = diff.deltas().position(|d| d.status() != git2::Delta::Unmodified) else {
         return Ok(FileDiff { path: path.to_string(), binary: false, hunks: Vec::new(), truncated: false });
@@ -133,8 +133,8 @@ pub fn first_file(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
     file_at(diff, idx, path)
 }
 
-/// 差异里某个文件（新路径或旧路径是 `path`）的全部修改块；没有这个文件时返回 `None`。
-/// 用于从补丁文本解析出来的差异（暂存架），不能用 pathspec 限定。
+/// All change blocks of one file in a diff (whose new or old path is `path`); `None` when the file isn't there.
+/// Used for diffs parsed from patch text (shelf), which can't be limited by pathspec.
 pub fn file_named(diff: &git2::Diff<'_>, path: &str) -> Result<Option<FileDiff>> {
     let hit = diff.deltas().position(|d| {
         d.new_file().path().is_some_and(|p| p.to_string_lossy() == path) || d.old_file().path().is_some_and(|p| p.to_string_lossy() == path)
@@ -153,7 +153,7 @@ fn file_at(diff: &git2::Diff<'_>, idx: usize, path: &str) -> Result<FileDiff> {
             CoreError::git("读取差异失败", e)
         }
     })?;
-    // 工作区的文件读了内容才知道是不是二进制：生成补丁后再看一次
+    // Whether a worktree file is binary is only known after reading its content: check again after building the patch
     let binary = binary || patch.as_ref().is_some_and(|p| p.delta().flags().is_binary() || is_binary_path(&p.delta()));
     let (hunks, truncated) = match (patch, binary) {
         (Some(p), false) => patch_hunks(&p)?,
@@ -162,7 +162,7 @@ fn file_at(diff: &git2::Diff<'_>, idx: usize, path: &str) -> Result<FileDiff> {
     Ok(FileDiff { path: path.to_string(), binary, hunks, truncated })
 }
 
-/// 一个补丁的全部修改块（最多 `MAX_LINES` 行，超过时截断）
+/// All change blocks of a patch (at most `MAX_LINES` lines, truncated beyond that)
 fn patch_hunks(p: &git2::Patch<'_>) -> Result<(Vec<Hunk>, bool)> {
     let mut hunks = Vec::new();
     let mut total = 0usize;
@@ -183,7 +183,7 @@ fn patch_hunks(p: &git2::Patch<'_>) -> Result<(Vec<Hunk>, bool)> {
                 '+' => LineKind::Add,
                 '-' => LineKind::Del,
                 ' ' => LineKind::Context,
-                _ => continue, // 文件末尾没有换行之类的提示行
+                _ => continue, // Notice lines such as "no newline at end of file"
             };
             let mut text = String::from_utf8_lossy(line.content()).into_owned();
             if text.ends_with('\n') {
@@ -200,7 +200,7 @@ fn patch_hunks(p: &git2::Patch<'_>) -> Result<(Vec<Hunk>, bool)> {
     Ok((hunks, truncated))
 }
 
-/// 两段内容之间的差异（不经过仓库）：任意两个文件对比、和剪贴板对比、暂存架看整个文件
+/// Diff between two contents (outside the repository): compare any two files, compare with clipboard, whole-file shelf diffs
 pub fn buffers_diff(old: &[u8], new: &[u8], path: &str, context: u32) -> Result<FileDiff> {
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(context);
@@ -213,7 +213,7 @@ pub fn buffers_diff(old: &[u8], new: &[u8], path: &str, context: u32) -> Result<
 
 fn make_hunk(h: &git2::DiffHunk<'_>, lines: Vec<DiffLine>) -> Hunk {
     let header = String::from_utf8_lossy(h.header());
-    // "@@ -41,6 +41,9 @@ impl LaneLayout {" → 取 @@ 之后的部分
+    // "@@ -41,6 +41,9 @@ impl LaneLayout {" → take the part after @@
     let ctx = header.splitn(3, "@@").nth(2).map(|s| s.trim()).unwrap_or("");
     let start = h.new_start();
     let title = if ctx.is_empty() { format!("第 {start} 行起") } else { format!("{ctx} · 第 {start} 行起") };

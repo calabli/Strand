@@ -1,5 +1,5 @@
-//! 控制台（说明书 5.8）：记下改动仓库和访问网络的 git 命令、客户端自己的操作；查询类命令不记；凭据打码。
-//! 控制台是整个进程共用的，同一个测试程序里的测试会并行写入，所以只检查“有没有”，不检查确切内容。
+//! Console (spec §5.8): records git commands that change the repository or use the network, plus the client's own operations; queries aren't recorded; credentials are masked.
+//! The console is shared by the whole process and tests in one test binary write in parallel, so only presence is checked, not exact content.
 
 use std::path::Path;
 use std::process::Command;
@@ -32,14 +32,14 @@ fn records_commands_notes_and_masks() {
     let cmd = tail.iter().find(|e| e.kind == EntryKind::Command && e.text.contains("stash push") && e.text.contains("控制台测试")).expect("记下了 git stash push");
     assert!(cmd.ok && cmd.ms.is_some());
     assert!(cmd.text.starts_with("git "), "{}", cmd.text);
-    // 查询类命令不记
+    // Queries aren't recorded
     assert!(!tail.iter().any(|e| e.text.starts_with("git rev-parse") || e.text.starts_with("git cherry")));
 
-    // 撤销记成“# 撤销：…”
+    // Undo is recorded as "# 撤销：…"
     s.oplog_undo(None, false).unwrap();
     assert!(console::tail(300).iter().any(|e| e.kind == EntryKind::Note && e.text == "撤销：贮藏 控制台测试"));
 
-    // 失败的命令：记下错误输出，ok 为假
+    // Failed command: error output recorded, ok false
     let url = "https://linxia:s3cret@127.0.0.1:9/nope.git";
     let _ = strand_core::git_cli::run(p, &["remote", "add", "origin", url], None);
     let _ = strand_core::git_cli::run(p, &["remote", "add", "origin", url], None);

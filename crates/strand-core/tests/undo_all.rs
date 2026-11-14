@@ -1,7 +1,7 @@
-//! 说明书第 16 节“撤销和重做”验收：11.2 列为可撤销的每个操作，撤销后仓库和操作前一致，重做后和操作后一致。
+//! Acceptance for spec §16 "undo and redo": for every operation listed as undoable in §11.2, after undo the repository equals the state before, after redo the state after.
 //!
-//! 比较的是：HEAD、本地分支和标签、索引、贮藏列表、暂存架，加上工作区里每个文件（含未跟踪文件）的内容，
-//! 以及链接的工作目录列表。
+//! Compared: HEAD, local branches and tags, index, stash list, shelf, plus the content of every worktree file (including untracked ones),
+//! and the list of linked worktrees.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -80,12 +80,12 @@ fn state(s: &Session) -> State {
         stash: snap.stash.into_iter().map(|x| x.id).collect(),
         shelf: snap.shelf,
         files: f,
-        // 链接的工作目录：路径和检出的分支
+        // Linked worktrees: path and checked-out branch
         worktrees: s.worktree_list().unwrap().into_iter().filter(|w| !w.is_main).map(|w| format!("{} {:?}", w.path, w.branch)).collect(),
     }
 }
 
-/// 做一步（必须记入日志），撤销后和之前一样，重做后和之后一样
+/// Do one step (must be logged); after undo equal to before, after redo equal to after
 fn check(s: &mut Session, name: &str, f: impl FnOnce(&mut Session) -> Result<Option<strand_core::oplog::OpInfo>>) {
     let before = state(s);
     let op = f(s).unwrap_or_else(|e| panic!("{name}：{e:?}"));
@@ -112,7 +112,7 @@ fn scoped<T>(s: &mut Session, label: &str, kind: OpKind, scope: OpScope, f: impl
 
 #[test]
 fn every_undoable_operation_round_trips() {
-    // 远程 origin（裸仓库）和本地克隆 me
+    // Remote origin (bare repository) and local clone me
     let origin = tempfile::tempdir().unwrap();
     git(origin.path(), &["init", "-q", "--bare", "-b", "main"]);
     let me = tempfile::tempdir().unwrap();
@@ -131,7 +131,7 @@ fn every_undoable_operation_round_trips() {
     let wt_root = tempfile::tempdir().unwrap();
     let mut s = Session::open(p).unwrap();
 
-    // ---------- 提交类 ----------
+    // ---------- Commits ----------
     write(p, "a.txt", "a2\n");
     check(&mut s, "提交", |s| op(s, "提交", OpKind::Commit, |s| s.commit_create("A2", &sel(&["a.txt"]), false, None)));
     write(p, "b.txt", "b2\n");
@@ -145,19 +145,19 @@ fn every_undoable_operation_round_trips() {
     let base = git(p, &["rev-parse", "origin/main"]);
     for mode in [ResetMode::Soft, ResetMode::Mixed, ResetMode::Hard] {
         check(&mut s, &format!("重置 {mode:?}"), |s| op(s, "重置", OpKind::Commit, |s| s.commit_reset(&base, mode)));
-        // 退回重置之前，好试下一种方式
+        // Back to before the reset so the next mode can be tried
         s.oplog_undo(None, false).unwrap();
         s.reload().unwrap();
     }
     check(&mut s, "撤销提交", |s| op(s, "撤销提交", OpKind::Commit, |s| s.commit_undo()));
-    // 从远程的位置重新开始，好数清楚未推送段
+    // Start again from the remote's position so the unpushed run is easy to count
     git(p, &["reset", "-q", "--hard", "origin/main"]);
     let c1 = commit(p, "c.txt", "c1\n", "C1");
     let d1 = commit(p, "d.txt", "d1\n", "D1");
     let e1 = commit(p, "e.txt", "e1\n", "E1");
     s.reload().unwrap();
     check(&mut s, "丢弃提交", |s| op(s, "丢弃提交", OpKind::Commit, |s| s.commit_drop(&d1)));
-    // 丢弃后 E1 换了哈希
+    // E1's hash changes after the drop
     git(p, &["reset", "-q", "--hard", &e1]);
     s.reload().unwrap();
     write(p, "c.txt", "c2\n");
@@ -170,7 +170,7 @@ fn every_undoable_operation_round_trips() {
     s.reload().unwrap();
     check(&mut s, "整理提交", |s| op(s, "整理提交", OpKind::Commit, |s| s.rebase_apply(&[st(2, StepAction::Pick), st(0, StepAction::Pick), st(1, StepAction::Drop)])));
 
-    // ---------- 分支类 ----------
+    // ---------- Branches ----------
     check(&mut s, "新建分支", |s| op(s, "新建分支", OpKind::Branch, |s| s.branch_create("topic", None, true)));
     check(&mut s, "切换", |s| op(s, "切换", OpKind::Switch, |s| s.branch_switch("main", false)));
     check(&mut s, "重命名", |s| op(s, "重命名", OpKind::Branch, |s| s.branch_rename("topic", "topic2")));
@@ -190,7 +190,7 @@ fn every_undoable_operation_round_trips() {
     git(p, &["checkout", "-q", "main"]);
     s.reload().unwrap();
 
-    // ---------- 标签和工作目录 ----------
+    // ---------- Tags and worktrees ----------
     check(&mut s, "新建标签", |s| op(s, "新建标签", OpKind::Tag, |s| s.tag_create("v1", "HEAD", None, false)));
     git(p, &["tag", "v2"]);
     s.reload().unwrap();
@@ -202,7 +202,7 @@ fn every_undoable_operation_round_trips() {
     let wt2 = wt_root.path().join("wt2").to_string_lossy().into_owned();
     check(&mut s, "新建工作目录（已有分支）", |s| scoped(s, "新建工作目录", OpKind::Branch, wt_scope(), |s| s.worktree_add(&wt2, "side", false, None)));
 
-    // ---------- 工作区类 ----------
+    // ---------- Worktree ----------
     write(p, "a.txt", "a 未提交\n");
     write(p, "b.txt", "b 未提交\n");
     check(&mut s, "丢弃改动", |s| op(s, "丢弃改动", OpKind::Other, |s| s.changes_discard(&["a.txt".into()])));
@@ -228,7 +228,7 @@ fn every_undoable_operation_round_trips() {
     write(p, "tmp/scratch.txt", "临时\n");
     check(&mut s, "删除未跟踪文件", |s| scoped(s, "删除未跟踪文件", OpKind::Other, files(&["tmp/scratch.txt"]), |s| s.untracked_delete("tmp/scratch.txt")));
 
-    // ---------- 拉取 ----------
+    // ---------- Pull ----------
     git(p, &["add", "-A"]);
     git(p, &["commit", "-q", "-m", "收拾"]);
     let other = tempfile::tempdir().unwrap();

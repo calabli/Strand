@@ -1,5 +1,5 @@
-// 整理提交（说明书第 9 节）：整理窗口和快捷整理操作（压缩、丢弃多个、Fixup、Squash Into）。
-// 窗口里最早的提交在最上面；每行可以上移、下移，选保留、并入上一个、丢弃。
+// Rebasing commits (spec §9): the rebase window and quick rebase actions (squash, drop several, Fixup, Squash Into).
+// The window lists the oldest commit at the top; each row can move up or down and choose keep, squash into previous, or drop.
 
 import { useReturnFocus } from "./focus";
 import { useCallback, useState } from "react";
@@ -43,7 +43,7 @@ export function useRebase({ ask, done, failed, say }: Deps) {
   const resultText = (r: { before: number; after: number }) =>
     r.after === 0 ? t("{0} 个提交都丢弃了", r.before) : t("{0} 个提交整理成了 {1} 个", r.before, r.after);
 
-  /** 打开整理窗口；from 为空时是全部可整理的提交 */
+  /** Open the rebase window; with from empty, all rebaseable commits */
   const open = useCallback(
     async (from: string | null = null) => {
       try {
@@ -67,7 +67,7 @@ export function useRebase({ ask, done, failed, say }: Deps) {
     [run],
   );
 
-  /** 多选的提交：除最早的一个外都并入上一个（说明书 9.3） */
+  /** Multi-selected commits: squash all but the oldest into the previous (spec §9.3) */
   const squashMany = useCallback(
     async (ids: string[]) => {
       try {
@@ -105,10 +105,10 @@ export function useRebase({ ask, done, failed, say }: Deps) {
     [ask, run],
   );
 
-  /** Fixup：勾选的改动并入这个提交，说明不变 */
+  /** Fixup: fold the checked changes into this commit, message unchanged */
   const fixup = useCallback((c: Commit, sel: Selection) => run(api.commitFixup(c.id, sel), () => t("已把 {0} 个文件的改动并入“{1}”", sel.files.length, c.title)), [run]);
 
-  /** Squash Into：并入并修改说明 */
+  /** Squash Into: fold in and edit the message */
   const squashInto = useCallback(
     (c: Commit, sel: Selection) =>
       ask({
@@ -149,7 +149,7 @@ const ACTIONS: { a: Row["action"]; label: string; icon: string }[] = lazy(() => 
   { a: "drop" as const, label: t("丢弃"), icon: I.drop },
 ]);
 
-/** 整理后剩下几个提交：第一个不是丢弃的“并入”按保留算 */
+/** Commits left after rebasing: a squash that isn't preceded by a non-dropped commit counts as keep */
 function countAfter(rows: Row[]) {
   let n = 0;
   for (const r of rows) {
@@ -170,7 +170,7 @@ function RebaseWindow({ rows, orig, hasPushed, onChange, onApply, onClose }: { r
   const set = (i: number, action: Row["action"]) => onChange((rs) => rs && rs.map((r, k) => (k === i ? { ...r, action } : r)));
   const after = countAfter(rows);
   const changed = rows.some((r, k) => r.action !== "pick" || r.id !== orig[k]);
-  // 每行前面最近一个会保留的提交（用来判断“并入”是否有目标）
+  // The nearest kept commit before each row (to tell whether a squash has a target)
   let keptAbove = false;
   const effective = rows.map((r) => {
     const eff = r.action === "squash" && !keptAbove ? "pick" : r.action;

@@ -1,4 +1,4 @@
-//! 带说明的标签、签名标签和签名提交（用临时生成的 SSH 密钥签名，本机能验证）。
+//! Annotated tags, signed tags and signed commits (signed with a temporary SSH key so this machine can verify).
 
 use std::path::Path;
 use std::process::Command;
@@ -64,7 +64,7 @@ fn ssh_signed_commits_and_tags_verify() {
     let unsigned = git(p, &["rev-parse", "HEAD"]);
     assert_eq!(s.commit_signature(&unsigned).unwrap().status, SigStatus::None);
 
-    // 打开这个仓库的提交签名后，git commit 自动签名
+    // With commit signing on for this repository, git commit signs automatically
     let cfg = s.signing_set(true).unwrap();
     assert!(cfg.commit && cfg.format == "ssh" && cfg.key.is_some());
     std::fs::write(p.join("a.txt"), "2\n").unwrap();

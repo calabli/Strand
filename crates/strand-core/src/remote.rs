@@ -1,8 +1,8 @@
-//! 远程操作：抓取、拉取、推送（说明书第 7 节）。
+//! Remote operations: fetch, pull, push (spec §7).
 //!
-//! 全部调用系统 git，认证交给用户已有的 SSH 密钥、凭据助手和系统钥匙串。
-//! 这些函数只需要仓库路径，不持有 `Session`，所以网络操作进行时界面仍然可以读日志、看差异。
-//! 支持多个远程：默认用当前分支跟踪的远程，没有时用 origin，再没有就用第一个；抓取时抓全部远程。
+//! Everything calls system git; authentication is left to the user's existing SSH keys, credential helpers and system keychain.
+//! These functions only need the repository path and don't hold a `Session`, so the UI can still read the log and view diffs during network operations.
+//! Multiple remotes are supported: by default the current branch's upstream remote, otherwise origin, otherwise the first one; fetch fetches all remotes.
 
 use std::io::Read;
 use std::path::Path;
@@ -18,11 +18,11 @@ use crate::git_cli;
 
 pub const REMOTE: &str = "origin";
 
-/// 网络操作多久没有任何输出就算超时（说明书 7.5：默认 60 秒）。
-/// 按“没有输出”计时而不是总时长，大仓库的正常下载不会被误判。
+/// How long a network operation may go without any output before it times out (spec §7.5: 60 seconds by default).
+/// Timed on "no output" rather than total duration, so normal downloads of large repositories aren't misjudged.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// 取消令牌。前端调用 `task_cancel` 时置位，正在运行的 git 进程会被结束。
+/// Cancellation token. Set when the frontend calls `task_cancel`; the running git process is ended.
 #[derive(Clone, Default)]
 pub struct Cancel(Arc<AtomicBool>);
 
@@ -35,7 +35,7 @@ impl Cancel {
     }
 }
 
-/// 进度：git 输出的一行（如“Receiving objects:  45% (450/1000)”）和解析出的百分比。
+/// Progress: a line of git output (e.g. "Receiving objects:  45% (450/1000)") and the parsed percentage.
 #[derive(Debug, Clone, Serialize)]
 pub struct Progress {
     pub text: String,
@@ -52,19 +52,19 @@ pub enum PullMode {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FetchResult {
-    /// 抓取后当前分支落后跟踪分支的提交数；没有跟踪分支时为 0
-    /// 本地改写了已推送的提交（需要强制推送）时为 0
+    /// After fetching, how many commits the current branch is behind its upstream; 0 without an upstream
+    /// 0 when local history rewrote pushed commits (needs a force push)
     pub behind: u32,
-    /// 这次抓取新到的、当前分支还没有的提交数（抓取前后落后数之差）
+    /// Commits newly arrived in this fetch that the current branch doesn't have (difference in behind count before and after)
     pub incoming: u32,
-    /// 抓取改动了引用（远程分支、标签）：界面据此决定要不要重新读取日志
+    /// The fetch changed refs (remote branches, tags): the UI uses this to decide whether to re-read the log
     pub refs_changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PullOutcome {
-    /// 远程没有新提交
+    /// No new commits on the remote
     UpToDate,
     FastForward,
     Merged,
@@ -74,7 +74,7 @@ pub enum PullOutcome {
 #[derive(Debug, Clone, Serialize)]
 pub struct PullResult {
     pub outcome: PullOutcome,
-    /// 拉下来的提交数
+    /// Number of commits pulled
     pub incoming: u32,
 }
 
@@ -87,28 +87,28 @@ pub struct PushCommit {
 #[derive(Debug, Clone, Serialize)]
 pub struct PushPreview {
     pub branch: String,
-    /// 推送目标，如 `origin/main`；还没有跟踪分支时是将要新建的远程分支
+    /// Push target, e.g. `origin/main`; when there's no upstream yet, the remote branch about to be created
     pub target: String,
-    /// 远程还没有这个分支，推送时会新建并设为跟踪分支
+    /// The remote doesn't have this branch yet; pushing creates it and sets it as upstream
     pub new_branch: bool,
-    /// 要推送的提交，最新的在前
+    /// Commits to push, newest first
     pub commits: Vec<PushCommit>,
-    /// 远程有、本地没有的提交数（按上次抓取的结果）
+    /// Commits on the remote that we don't have (as of the last fetch)
     pub behind: u32,
-    /// 远程那些提交在本地都有内容相同的版本：本地改写了已推送的历史，需要强制推送
+    /// All those remote commits have same-content versions locally: local history rewrote pushed commits and needs a force push
     pub needs_force: bool,
-    /// 推送到哪个远程（已有跟踪分支时是它的远程，否则是选的或默认的）
+    /// Which remote to push to (the upstream's remote when there is one, otherwise the chosen or default one)
     pub remote: String,
-    /// 仓库里所有的远程（多个时还没有跟踪分支的分支可以选推送到哪个）
+    /// All remotes in the repository (with several, a branch without an upstream can choose where to push)
     pub remotes: Vec<String>,
-    /// 只推送到这个提交为止（说明书 5.6），`commits` 只含它和它之前的；它之后的提交仍为未推送
+    /// Push only up to this commit (spec §5.6); `commits` contains only it and those before it; commits after it stay unpushed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
-    /// 推送到某个提交为止时，它之后留在本地的提交数
+    /// When pushing up to a commit, the number of commits after it that stay local
     pub left: u32,
-    /// 还没推送到 origin 的本地标签（按上次抓取时记下的远程标签判断）
+    /// Local tags not yet pushed to origin (based on the remote tags recorded at the last fetch)
     pub unpushed_tags: Vec<String>,
-    /// 还没记下过远程有哪些标签（从没抓取过）：这时不知道哪些标签已经推送，`unpushed_tags` 为空
+    /// Remote tags were never recorded (never fetched): we don't know which tags are pushed, so `unpushed_tags` is empty
     pub tags_unknown: bool,
 }
 
@@ -118,15 +118,15 @@ pub struct PushOptions {
     pub force: bool,
     #[serde(default)]
     pub tags: bool,
-    /// 只推送到这个提交为止（完整哈希或能解析的版本号）
+    /// Push only up to this commit (full hash or a resolvable revision)
     #[serde(default)]
     pub to: Option<String>,
-    /// 还没有跟踪分支时推送到哪个远程；空着用默认的（origin，没有 origin 时第一个）
+    /// Which remote to push to when there's no upstream yet; empty uses the default (origin, or the first one without origin)
     #[serde(default)]
     pub remote: Option<String>,
 }
 
-/// 抓取全部远程（只有一个时就抓它）。
+/// Fetch all remotes (just the one if there's only one).
 pub fn fetch(dir: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<FetchResult> {
     let main = default_remote(dir)?;
     let before = behind_upstream(dir);
@@ -137,7 +137,7 @@ pub fn fetch(dir: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result
         run_net(dir, &["fetch", "--progress", &main], cancel, progress)?;
     }
     let refs_changed = ref_list(dir) != refs_before;
-    // 顺便记下远程有哪些标签（说明书 6.5：未推送的标签要标出来）；失败不影响抓取结果
+    // Also record which tags the remote has (spec §6.5: unpushed tags are marked); failure doesn't affect the fetch result
     if let Ok(out) = run_net(dir, &["ls-remote", "--tags", "--refs", &main], cancel, progress) {
         let tags = out
             .lines()
@@ -146,19 +146,19 @@ pub fn fetch(dir: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result
             .collect();
         save_remote_tags(dir, &tags);
     }
-    // 本地改写了已推送的提交时，远程那些旧版本不算“可以拉取的新提交”（说明书 6.3：落后数显示为 0）
+    // When local history rewrote pushed commits, the old remote versions don't count as "new commits to pull" (spec §6.3: behind count shows 0)
     let after = behind_upstream(dir);
     let after = if after > 0 && rewritten(dir, "HEAD", "@{upstream}") { 0 } else { after };
     Ok(FetchResult { behind: after, incoming: after.saturating_sub(before), refs_changed })
 }
 
-/// 所有引用和它们指向的提交（比较抓取前后有没有变化用）
+/// All refs and the commits they point to (to compare before and after fetching)
 fn ref_list(dir: &Path) -> String {
     git_cli::run(dir, &["for-each-ref", "--format=%(objectname) %(refname)"], None).unwrap_or_default()
 }
 
-/// 克隆远程仓库到 `dest`（说明书第 17 节原先列为 1.0 不做，现在补上）。
-/// `dest` 不存在或者是空文件夹；它的上级文件夹必须存在。失败或取消时删掉克隆了一半的内容。
+/// Clone a remote repository into `dest` (listed as out of scope for 1.0 in spec §17 originally, now added).
+/// `dest` doesn't exist or is an empty folder; its parent folder must exist. Half-cloned content is deleted on failure or cancel.
 pub fn clone(url: &str, dest: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
     let url = url.trim();
     if url.is_empty() || url.starts_with('-') || url.contains('\n') {
@@ -186,7 +186,7 @@ pub fn clone(url: &str, dest: &Path, cancel: &Cancel, progress: &dyn Fn(Progress
             let _ = std::fs::remove_dir_all(dest);
         }
     } else if let Ok(out) = git_cli::run(dest, &["for-each-ref", "--format=%(refname:strip=2)%00%(objectname)", "refs/tags"], None) {
-        // 刚克隆下来的标签都在远程上
+        // Tags just cloned are all on the remote
         save_remote_tags(dest, &out.lines().filter_map(|l| l.split_once('\0')).map(|(n, id)| (n.to_string(), id.to_string())).collect());
     }
     r.map(|_| ()).map_err(|e| {
@@ -199,15 +199,15 @@ pub fn clone(url: &str, dest: &Path, cancel: &Cancel, progress: &dyn Fn(Progress
     })
 }
 
-/// 拉取当前分支的跟踪分支。先抓取；远程没有新提交时不做别的。
-/// 界面调用前先用 `Session::pull_shelve` 把工作区改动搁置到暂存架（说明书 7.2），结束后 `pull_unshelve` 放回；
-/// 直接调用时工作区若还有改动，用 git 的 `--autostash` 兜底。
-/// 有冲突时返回 `CONFLICTS`，仓库停在合并或变基状态，`detail.files` 是冲突文件。
+/// Pull the current branch's upstream. Fetch first; do nothing else when the remote has no new commits.
+/// Before calling, the UI shelves worktree changes with `Session::pull_shelve` (spec §7.2) and restores them with `pull_unshelve` afterwards;
+/// when called directly with worktree changes, git's `--autostash` is the fallback.
+/// On conflicts returns `CONFLICTS`, the repository stays in the merge or rebase state, and `detail.files` lists the conflicted files.
 pub fn pull(dir: &Path, mode: PullMode, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<PullResult> {
     pull_with(dir, mode, true, cancel, progress)
 }
 
-/// 同 [`pull`]；`fetch` 为假时不再抓取，直接合并或变基到上次抓取的跟踪分支（拉取摘要面板确认之后，说明书 7.2）
+/// Same as [`pull`]; with `fetch` false, skip fetching and merge or rebase onto the upstream as of the last fetch (after confirming in the pull summary panel, spec §7.2)
 pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<PullResult> {
     default_remote(dir)?;
     require_normal(dir)?;
@@ -226,8 +226,8 @@ pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progr
         return Ok(PullResult { outcome: PullOutcome::UpToDate, incoming: 0 });
     }
     let ahead = ahead_upstream(dir);
-    // 已经抓取过了，这里的 merge/rebase 是本地操作。用跟踪分支的名字（如 origin/main），
-    // 不用 @{upstream}：否则合并说明和冲突里“对方的”会写成 origin/HEAD
+    // Already fetched, so merge/rebase here is local. Use the upstream's name (e.g. origin/main),
+    // not @{upstream}: otherwise the merge message and "theirs" in conflicts would say origin/HEAD
     let up_name = upstream(dir).unwrap_or_else(|| "@{upstream}".to_string());
     let upstream_ref = up_name.as_str();
     let args: Vec<&str> = match mode {
@@ -257,37 +257,37 @@ pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progr
     }
 }
 
-/// 拉取摘要面板里的一个冲突文件（说明书 7.2）
+/// One conflicted file in the pull summary panel (spec §7.2)
 #[derive(Debug, Clone, Serialize)]
 pub struct PreviewConflict {
     pub path: String,
     pub kind: crate::conflict::FileKind,
-    /// 文本文件里两边改了同一段的处数；其他类型为 0
+    /// Number of places in a text file where both sides changed the same section; 0 for other kinds
     pub blocks: u32,
-    /// 变基方式：第一次冲突出现在哪个本地提交（标题）
+    /// Rebase mode: which local commit (title) the first conflict appears in
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
 }
 
-/// 拉取的预演（说明书 7.2）：按上次抓取的结果在内存里合并或变基一遍，不改动仓库。
+/// A pull dry run (spec §7.2): merge or rebase in memory using the last fetch's result, without changing the repository.
 #[derive(Debug, Clone, Serialize)]
 pub struct PullPreview {
     pub branch: String,
-    /// 跟踪的远程分支，如 `origin/main`
+    /// The tracked remote branch, e.g. `origin/main`
     pub upstream: String,
     pub mode: PullMode,
-    /// 要拉下来的提交数
+    /// Number of commits to pull
     pub incoming: u32,
-    /// 本地独有的提交数；为 0 时是快进，不会有冲突
+    /// Number of local-only commits; 0 means a fast-forward with no conflicts
     pub ahead: u32,
-    /// 两边都改了、能自动合并的文件数
+    /// Files changed on both sides that merge automatically
     pub auto_merged: u32,
     pub conflicts: Vec<PreviewConflict>,
-    /// 工作区里已跟踪文件的改动数（会先搁置到暂存架）；由调用方填
+    /// Number of changes to tracked worktree files (shelved first); filled in by the caller
     pub dirty: u32,
 }
 
-/// 预演拉取：只读本地数据，不连网、不改仓库。远程状态按上次抓取的结果（界面先抓取再调用）。
+/// Dry-run a pull: reads local data only, no network, no repository changes. Remote state is as of the last fetch (the UI fetches first, then calls this).
 pub fn pull_preview(dir: &Path, mode: PullMode) -> Result<PullPreview> {
     default_remote(dir)?;
     require_normal(dir)?;
@@ -310,7 +310,7 @@ pub fn pull_preview(dir: &Path, mode: PullMode) -> Result<PullPreview> {
             collect_conflicts(&repo, &idx, None, &mut p.conflicts);
         }
         PullMode::Rebase => {
-            // 和 git rebase 一样：跳过合并提交和远程已经有同样改动的提交，按顺序接到远程提交之后
+            // Same as git rebase: skip merge commits and commits whose changes the remote already has, attaching the rest after the remote commits in order
             let list = git_cli::run(dir, &["rev-list", "--reverse", "--no-merges", "--right-only", "--cherry-pick", &format!("{up}...HEAD")], None)?;
             let mut cur = theirs.tree().map_err(g)?;
             for id in list.lines() {
@@ -326,7 +326,7 @@ pub fn pull_preview(dir: &Path, mode: PullMode) -> Result<PullPreview> {
             }
         }
     }
-    // 两边都改了、又没冲突的文件
+    // Files changed on both sides without conflicts
     let changed = |to: &git2::Commit| -> std::collections::HashSet<String> {
         let (Ok(a), Ok(b)) = (base.tree(), to.tree()) else { return Default::default() };
         repo.diff_tree_to_tree(Some(&a), Some(&b), None)
@@ -339,7 +339,7 @@ pub fn pull_preview(dir: &Path, mode: PullMode) -> Result<PullPreview> {
     Ok(p)
 }
 
-/// 记下内存合并结果里的冲突文件（同一个文件只记第一次）
+/// Record conflicted files from the in-memory merge result (only the first time for each file)
 fn collect_conflicts(repo: &git2::Repository, idx: &git2::Index, commit: Option<&str>, out: &mut Vec<PreviewConflict>) {
     let Ok(cs) = idx.conflicts() else { return };
     let blob = |e: &Option<git2::IndexEntry>| e.as_ref().and_then(|e| repo.find_blob(e.id).ok()).map(|b| b.content().to_vec());
@@ -354,27 +354,27 @@ fn collect_conflicts(repo: &git2::Repository, idx: &git2::Index, commit: Option<
     }
 }
 
-/// 预演变基时继续往下走：冲突的文件先按本地提交的版本处理（只为了算后面的提交）
+/// Keep going in the rebase dry run: resolve conflicted files with the local commit's version (only to compute later commits)
 fn take_theirs(idx: &mut git2::Index) -> std::result::Result<(), git2::Error> {
     let cs: Vec<git2::IndexConflict> = idx.conflicts()?.flatten().collect();
     for c in cs {
         let Some(path) = [&c.our, &c.their, &c.ancestor].iter().find_map(|e| e.as_ref()).map(|e| e.path.clone()) else { continue };
         idx.conflict_remove(std::path::Path::new(&*String::from_utf8_lossy(&path)))?;
         if let Some(mut t) = c.their {
-            t.flags &= !0x3000; // 去掉冲突阶段标记
+            t.flags &= !0x3000; // Strip conflict stage markers
             idx.add(&t)?;
         }
     }
     Ok(())
 }
 
-/// 推送对话框需要的信息。只读本地数据（远程状态按上次抓取的结果），不连网。
-/// `to` 不为空时是“推送到这里为止”：只列出它和它之前要推送的提交；它必须是还没推送的提交。
+/// What the push dialog needs. Reads local data only (remote state as of the last fetch), no network.
+/// With `to` set it's "push up to here": only it and the commits before it that need pushing are listed; it must be an unpushed commit.
 pub fn push_preview(dir: &Path, to: Option<&str>) -> Result<PushPreview> {
     push_preview_on(dir, to, None)
 }
 
-/// 同 [`push_preview`]；`remote` 是还没有跟踪分支时要推送到的远程（空着用默认的）
+/// Same as [`push_preview`]; `remote` is where to push when there's no upstream yet (empty uses the default)
 pub fn push_preview_on(dir: &Path, to: Option<&str>, remote: Option<&str>) -> Result<PushPreview> {
     let mut p = push_preview_all(dir, remote)?;
     let Some(to) = to else { return Ok(p) };
@@ -382,13 +382,13 @@ pub fn push_preview_on(dir: &Path, to: Option<&str>, remote: Option<&str>) -> Re
         .map_err(|_| CoreError::new(ErrorCode::NotFound, format!("找不到 {to}")))?
         .trim()
         .to_string();
-    // 要推送的提交（最新的在前）里，从它开始往后的才推送
+    // Of the commits to push (newest first), only those from it onward are pushed
     let k = p
         .commits
         .iter()
         .position(|c| c.id == full)
         .ok_or_else(|| CoreError::new(ErrorCode::InvalidRange, "这个提交已经推送，或者不在当前分支上"))?;
-    // 列表按时间排，不一定只含它的祖先：再用祖先关系筛一遍
+    // The list is time-ordered and may contain more than its ancestors: filter again by ancestry
     let ancestors: std::collections::HashSet<String> =
         git_cli::run(dir, &["rev-list", &full], None)?.lines().map(str::to_string).collect();
     let total = p.commits.len();
@@ -415,7 +415,7 @@ fn push_preview_all(dir: &Path, want: Option<&str>) -> Result<PushPreview> {
         None => (format!("{remote}/{branch}"), true, String::new()),
     };
     let log_args: Vec<&str> = if new_branch {
-        // 远程还没有这个分支：要推送的是所有远程分支上都没有的提交
+        // The remote doesn't have this branch yet: push the commits not on any remote branch
         vec!["log", "--format=%H%x00%s", "HEAD", "--not", "--remotes"]
     } else {
         vec!["log", "--format=%H%x00%s", &range]
@@ -427,7 +427,7 @@ fn push_preview_all(dir: &Path, want: Option<&str>) -> Result<PushPreview> {
         .map(|(id, t)| PushCommit { id: id.to_string(), title: t.to_string() })
         .collect();
     let behind = if new_branch { 0 } else { behind_upstream(dir) };
-    // 远程独有的提交在本地都有等价版本（git cherry 标 “-”）：说明本地改写了这些提交
+    // Every remote-only commit has an equivalent local version (git cherry marks "-"): local history rewrote these commits
     let needs_force = behind > 0 && rewritten(dir, "HEAD", "@{upstream}");
     let (unpushed_tags, tags_unknown) = match unpushed_tags(dir) {
         Some(v) => (v, false),
@@ -436,9 +436,9 @@ fn push_preview_all(dir: &Path, want: Option<&str>) -> Result<PushPreview> {
     Ok(PushPreview { branch, target, new_branch, commits, behind, needs_force, remote, remotes: all, to: None, left: 0, unpushed_tags, tags_unknown })
 }
 
-/// 推送当前分支。强制推送一律用 `--force-with-lease`（说明书 7.3）。
-/// 被拒绝时返回 `PUSH_REJECTED`，`detail.reason` 为 `behind`、`needs_force`、`lease_stale`、`protected` 或 `tag_exists`。
-/// `to` 不为空时只推送到这个提交为止（说明书 5.6）：不能和强制推送一起用，远程有新提交时也不行。
+/// Push the current branch. Force pushes always use `--force-with-lease` (spec §7.3).
+/// When rejected returns `PUSH_REJECTED` with `detail.reason` set to `behind`, `needs_force`, `lease_stale`, `protected` or `tag_exists`.
+/// With `to` set, push only up to this commit (spec §5.6): can't be combined with a force push, nor used when the remote has new commits.
 pub fn push(dir: &Path, opts: &PushOptions, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
     if let Some(to) = opts.to.as_deref() {
         return push_to(dir, to, opts.remote.as_deref(), cancel, progress);
@@ -460,14 +460,14 @@ pub fn push(dir: &Path, opts: &PushOptions, cancel: &Cancel, progress: &dyn Fn(P
     args.push(&refspec);
     run_net(dir, &args, cancel, progress).map_err(classify_push_error)?;
     if opts.tags {
-        // 只推送还没推送的标签；不知道远程有哪些时推送全部（说明书 7.3）
+        // Push only tags not yet pushed; push all when we don't know which the remote has (spec §7.3)
         let names: Vec<String> = if p.tags_unknown { local_tags(dir).into_keys().collect() } else { p.unpushed_tags.clone() };
         push_tags(dir, &names, cancel, progress)?;
     }
     Ok(())
 }
 
-/// 推送一个标签（说明书 6.5、7.4）。远程已经有同名标签而且指向别处时返回 `PUSH_REJECTED`（reason `tag_exists`）。
+/// Push one tag (spec §6.5, §7.4). Returns `PUSH_REJECTED` (reason `tag_exists`) when the remote already has a same-named tag pointing elsewhere.
 pub fn tag_push(dir: &Path, name: &str, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
     default_remote(dir)?;
     if !local_tags(dir).contains_key(name) {
@@ -491,11 +491,11 @@ fn push_tags(dir: &Path, names: &[String], cancel: &Cancel, progress: &dyn Fn(Pr
             classify_push_error(e)
         }
     })?;
-    // 推送成功的记为已在远程上
+    // Record successfully pushed ones as on the remote
     let local = local_tags(dir);
     let mut known = match remote_tags(dir) {
         Some(k) => k,
-        // 还不知道远程有哪些标签：只有全部推送了才能确定，否则先不记
+        // We don't know the remote's tags yet: only certain once everything was pushed, so don't record otherwise
         None if names.len() == local.len() => Default::default(),
         None => return Ok(()),
     };
@@ -508,7 +508,7 @@ fn push_tags(dir: &Path, names: &[String], cancel: &Cancel, progress: &dyn Fn(Pr
     Ok(())
 }
 
-/// 还没推送的本地标签（按名字比较），按名字排序；从没记下过远程标签时返回 `None`。
+/// Local tags not yet pushed (compared by name), sorted by name; `None` when remote tags were never recorded.
 pub fn unpushed_tags(dir: &Path) -> Option<Vec<String>> {
     let known = remote_tags(dir)?;
     let mut v: Vec<String> = local_tags(dir).into_keys().filter(|n| !known.contains_key(n)).collect();
@@ -516,7 +516,7 @@ pub fn unpushed_tags(dir: &Path) -> Option<Vec<String>> {
     Some(v)
 }
 
-/// 本地标签：名字 → 标签对象（或提交）的编号
+/// Local tags: name → id of the tag object (or commit)
 fn local_tags(dir: &Path) -> std::collections::HashMap<String, String> {
     git_cli::run(dir, &["for-each-ref", "--format=%(refname:strip=2)%00%(objectname)", "refs/tags"], None)
         .unwrap_or_default()
@@ -526,8 +526,8 @@ fn local_tags(dir: &Path) -> std::collections::HashMap<String, String> {
         .collect()
 }
 
-/// 上次抓取时记下的远程标签，存在 `<共用的 .git>/strand/remote-tags`（一行一个“编号 名字”），
-/// 工作目录之间共用。没有这个文件说明还没抓取过。
+/// Remote tags recorded at the last fetch, stored in `<common .git>/strand/remote-tags` (one "id name" per line),
+/// shared between worktrees. No such file means never fetched.
 fn remote_tags_file(dir: &Path) -> Option<std::path::PathBuf> {
     let common = git_cli::run(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"], None).ok()?;
     Some(Path::new(common.trim()).join("strand").join("remote-tags"))
@@ -558,18 +558,18 @@ fn push_to(dir: &Path, to: &str, remote: Option<&str>, cancel: &Cancel, progress
     let refspec = format!("{id}:refs/heads/{remote_branch}");
     run_net(dir, &["push", "--progress", "--porcelain", &p.remote, &refspec], cancel, progress).map_err(classify_push_error)?;
     if p.new_branch {
-        // 用提交号推送不会设跟踪分支，推送成功后补上（远程跟踪分支 push 时已经更新）
+        // Pushing by commit id doesn't set an upstream, so add it after a successful push (the remote-tracking branch is already updated by push)
         let _ = git_cli::run(dir, &["branch", "--set-upstream-to", &format!("{}/{remote_branch}", p.remote), &p.branch], None);
     }
     Ok(())
 }
 
-// ---------- 内部 ----------
+// ---------- Internal ----------
 
-/// 远程独有的提交是不是都被本地改写过（本地有内容相同的版本，`git cherry` 标 “-”）。
-/// 空提交没有内容可比，任何两个空提交都会被认为“相同”，所以远程独有提交里有空提交时
-/// 一律按“远程有新提交”处理：宁可提示先拉取，也不误导用户强制推送覆盖别人的提交。
-/// `local`、`up` 是本地分支和它跟踪的远程分支（也可以是 `HEAD`、`@{upstream}`）。
+/// Whether every remote-only commit was rewritten locally (a same-content version exists locally; `git cherry` marks "-").
+/// Empty commits have no content to compare and any two would count as "the same", so when remote-only commits include an empty one
+/// it's always treated as "the remote has new commits": better to suggest pulling first than mislead the user into force-pushing over others' commits.
+/// `local` and `up` are the local branch and its upstream (or `HEAD`, `@{upstream}`).
 pub(crate) fn rewritten(dir: &Path, local: &str, up: &str) -> bool {
     let cherry = git_cli::run(dir, &["cherry", local, up], None).unwrap_or_default();
     let lines: Vec<&str> = cherry.lines().collect();
@@ -615,7 +615,7 @@ fn detail_text(e: &CoreError) -> String {
     format!("{}\n{}\n{}", e.message, s("stderr"), s("stdout"))
 }
 
-/// 认证失败、网络不通这两类错误单独给错误码，前端据此给出对应提示。
+/// Authentication failures and network failures get their own error codes so the frontend can show matching notices.
 fn classify_net_error(e: CoreError) -> CoreError {
     if e.code != ErrorCode::GitFailed {
         return e;
@@ -632,13 +632,13 @@ fn classify_net_error(e: CoreError) -> CoreError {
     }
 }
 
-/// 运行一个网络相关的 git 命令：读取进度、支持取消、按无输出时长判断超时。
+/// Run a network-related git command: read progress, support cancel, time out on no-output duration.
 fn run_net(dir: &Path, args: &[&str], cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<String> {
     run_git_net(dir, args, None, &[], cancel, progress)
 }
 
-/// 测试用：经同一条路径运行 `git credential fill`，检查需要输入时会不会向用户要（说明书 7.5）。
-/// 不读全局和系统配置（不碰本机的凭据助手）。返回 git 的输出（含 username=、password=）。
+/// For tests: run `git credential fill` through the same path to check that the user is asked when input is needed (spec §7.5).
+/// Doesn't read global or system config (doesn't touch this machine's credential helpers). Returns git's output (including username=, password=).
 #[doc(hidden)]
 pub fn credential_probe(dir: &Path, url: &str, cancel: &Cancel) -> Result<String> {
     let input = format!("url={url}\n\n");
@@ -652,7 +652,7 @@ fn run_git_net(dir: &Path, args: &[&str], input: Option<&str>, envs: &[(&str, &s
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // 不在终端里问；需要输入时走 askpass（界面弹窗），没设置时直接失败
+        // Don't ask in a terminal; when input is needed go through askpass (UI dialog), failing directly when unset
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("LC_ALL", "C");
     for (k, v) in envs {
@@ -670,7 +670,7 @@ fn run_git_net(dir: &Path, args: &[&str], input: Option<&str>, envs: &[(&str, &s
         let _ = stdin.write_all(text.as_bytes());
     }
 
-    // 标准错误在单独的线程里按 \r 和 \n 切成行，作为进度和错误信息
+    // stderr is split into lines on \r and \n on a separate thread, as progress and error messages
     let lines: Arc<Mutex<Vec<String>>> = Arc::default();
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let mut stderr = child.stderr.take().expect("已设置为 piped");
@@ -716,7 +716,7 @@ fn run_git_net(dir: &Path, args: &[&str], input: Option<&str>, envs: &[(&str, &s
             timer.done(args, "", &(lines.lock().unwrap().join("\n") + "\n（已取消）"), false);
             return Err(CoreError::new(ErrorCode::Cancelled, "已取消"));
         }
-        // 等用户输入密码时不算超时
+        // Waiting for the user's password doesn't count toward the timeout
         let asking = ask.as_ref().is_some_and(|a| a.waiting.load(Ordering::SeqCst));
         if !asking && last.lock().unwrap().elapsed() > IDLE_TIMEOUT {
             let _ = child.kill();
@@ -739,7 +739,7 @@ fn run_git_net(dir: &Path, args: &[&str], input: Option<&str>, envs: &[(&str, &s
     if status.success() {
         return Ok(stdout);
     }
-    // 用户在输入框里点了取消：按取消处理，不报认证失败
+    // The user clicked cancel in the input box: treat as cancelled, not an authentication failure
     if ask.as_ref().is_some_and(|a| a.refused.load(Ordering::SeqCst)) {
         return Err(CoreError::new(ErrorCode::Cancelled, "已取消"));
     }
@@ -765,18 +765,18 @@ fn parse_progress(line: &str) -> Progress {
     Progress { text, percent }
 }
 
-/// 仓库里的远程，按 git remote 的顺序
+/// The repository's remotes, in git remote order
 pub fn remotes(dir: &Path) -> Vec<String> {
     git_cli::run(dir, &["remote"], None).map(|o| o.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
 }
 
-/// 当前分支跟踪的远程
+/// The remote the current branch tracks
 fn upstream_remote(dir: &Path) -> Option<String> {
     let b = current_branch(dir).ok().flatten()?;
     git_cli::run(dir, &["config", "--get", &format!("branch.{b}.remote")], None).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s != ".")
 }
 
-/// 默认的远程：当前分支跟踪的远程，否则 origin，再没有就第一个；一个远程都没有时返回 NOT_FOUND
+/// The default remote: the current branch's upstream remote, otherwise origin, otherwise the first; NOT_FOUND when there are no remotes
 pub fn default_remote(dir: &Path) -> Result<String> {
     let all = remotes(dir);
     if let Some(u) = upstream_remote(dir).filter(|u| all.contains(u)) {
@@ -795,7 +795,7 @@ fn require_normal(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 仓库处在合并、变基、拣选或还原的过程中。
+/// The repository is in the middle of a merge, rebase, cherry-pick or revert.
 fn in_progress(dir: &Path) -> bool {
     let Ok(git_dir) = git_cli::run(dir, &["rev-parse", "--absolute-git-dir"], None) else { return false };
     let g = Path::new(git_dir.trim());
@@ -842,14 +842,14 @@ fn conflicted_files(dir: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-// ---------- 管理远程 ----------
+// ---------- Managing remotes ----------
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteInfo {
     pub name: String,
-    /// 抓取地址
+    /// Fetch URL
     pub url: String,
-    /// 单独设置的推送地址
+    /// Separately configured push URL
     #[serde(skip_serializing_if = "Option::is_none")]
     pub push_url: Option<String>,
 }
@@ -892,7 +892,7 @@ fn require_remote(dir: &Path, name: &str) -> Result<()> {
     }
 }
 
-/// 添加远程（不自动抓取）
+/// Add a remote (no automatic fetch)
 pub fn remote_add(dir: &Path, name: &str, url: &str) -> Result<()> {
     let name = name.trim();
     check_remote_name(dir, name)?;
@@ -900,13 +900,13 @@ pub fn remote_add(dir: &Path, name: &str, url: &str) -> Result<()> {
     git_cli::run(dir, &["remote", "add", name, url.trim()], None).map(|_| ())
 }
 
-/// 删除远程：它的远程分支一起从本地删掉，跟踪它的本地分支不再有跟踪分支
+/// Remove a remote: its remote branches are removed locally too, and local branches tracking it lose their upstream
 pub fn remote_remove(dir: &Path, name: &str) -> Result<()> {
     require_remote(dir, name)?;
     git_cli::run(dir, &["remote", "remove", name], None).map(|_| ())
 }
 
-/// 重命名远程：远程分支和跟踪关系跟着改名
+/// Rename a remote: remote branches and tracking follow the new name
 pub fn remote_rename(dir: &Path, old: &str, new: &str) -> Result<()> {
     require_remote(dir, old)?;
     let new = new.trim();
@@ -917,7 +917,7 @@ pub fn remote_rename(dir: &Path, old: &str, new: &str) -> Result<()> {
     git_cli::run(dir, &["remote", "rename", old, new], None).map(|_| ())
 }
 
-/// 改远程的地址（抓取和推送都用它；单独设过的推送地址一起换掉）
+/// Change a remote's URL (used for fetch and push; a separately set push URL is replaced too)
 pub fn remote_set_url(dir: &Path, name: &str, url: &str) -> Result<()> {
     require_remote(dir, name)?;
     check_url(url)?;

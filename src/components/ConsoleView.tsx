@@ -1,8 +1,8 @@
-// 控制台（说明书 5.8）：按时间顺序显示核心层执行过的 Git 命令。
-// - `$` 一条是命令，下面是它的输出；`#` 一条是客户端自己的操作（如搁置、撤销）。
-// - 失败的命令变红；右边是用时。查询类命令核心层不记。
-// - 停在底部时新内容自动滚进来；往上翻着看时不打扰。
-// - 顶部右边：复制全部、清空。内容在核心层里，切走再回来还在；不随撤销回退。
+// Console (spec §5.8): Git commands run by the core layer, in order.
+// - A `$` entry is a command with its output below; a `#` entry is the client's own operation (e.g. shelve, undo).
+// - Failed commands turn red; the duration is on the right. The core layer doesn't record queries.
+// - When parked at the bottom new content scrolls in; when scrolled up to read, it doesn't interrupt.
+// - Top right: copy all, clear. The content lives in the core layer, so it's still there after switching away and back; undo doesn't roll it back.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, onConsoleLine } from "../api/commands";
@@ -19,7 +19,7 @@ const clock = (ms: number) => {
   return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
 };
 
-/** 一条换成纯文本（复制用） */
+/** Turn one entry into plain text (for copying) */
 const asText = (e: ConsoleEntry) =>
   [`${clock(e.time)} ${e.kind === "command" ? "$" : "#"} ${e.kind === "note" ? tr(e.text, true) : e.text}`, ...e.output.map((l) => "    " + l), ...(e.more ? ["    " + t("…还有 {0} 行", e.more)] : [])].join("\n");
 
@@ -32,7 +32,7 @@ export function ConsoleView({ onToast }: { onToast: (text: string) => void }) {
     let alive = true;
     let ready = false;
     const pending: ConsoleEntry[] = [];
-    // 先订阅再取：取的过程中到的新条目先存着，取回后按 seq 去重接上
+    // Subscribe before fetching: new entries arriving during the fetch are held, then appended after it with seq deduplication
     const off = onConsoleLine((e) => {
       if (!alive) return;
       if (!ready) pending.push(e);
@@ -51,7 +51,7 @@ export function ConsoleView({ onToast }: { onToast: (text: string) => void }) {
     };
   }, []);
 
-  // 停在底部时跟着滚
+  // Follow along when parked at the bottom
   useLayoutEffect(() => {
     const b = box.current;
     if (b && stick.current) b.scrollTop = b.scrollHeight;
@@ -95,7 +95,7 @@ export function ConsoleView({ onToast }: { onToast: (text: string) => void }) {
             <div className="con-head">
               <span className="dim con-time">{clock(e.time)}</span>
               <span className="con-sigil">{e.kind === "command" ? "$" : "#"}</span>
-              {/* 客户端自己的操作是核心层的中文说明（和时间线一样），按界面语言翻译；命令和输出保持原样 */}
+              {/* The client's own operations are Chinese descriptions from the core layer (same as the timeline), translated to the UI language; commands and output stay as they are */}
               <span className="con-text">{e.kind === "note" ? tr(e.text, true) : e.text}</span>
               {!e.ok && <span className="con-bad">{t("失败")}</span>}
               {e.ms !== undefined && <span className="dim con-ms">{e.ms} ms</span>}

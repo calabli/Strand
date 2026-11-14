@@ -1,4 +1,4 @@
-//! 在真实仓库上试跑打开和读日志，并打印各阶段耗时。用于对照说明书第 15 节的性能目标。
+//! Try opening and reading the log on a real repository, printing the time of each stage. Used to check the performance targets in spec §15.
 //!
 //! cargo run --release -p strand-core --example log -- /path/to/repo
 
@@ -39,7 +39,7 @@ fn main() {
         println!("{:>2}  {}  {}  {:?}", g.lane, &c.id[..7], c.title, refs);
     }
 
-    // 过滤（说明书 5.1、15 节：首批结果 300 ms 内）
+    // Filtering (spec §5.1, §15: first results within 300 ms)
     let mut s = s;
     use strand_core::log_filter::{LogFilter, LogSort};
     let cases: Vec<(&str, LogFilter, LogSort)> = vec![

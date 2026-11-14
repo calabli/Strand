@@ -1,6 +1,6 @@
-// 仓库列表和设置。
-// - 仓库列表：工具栏的仓库名打开，列出最近打开的仓库（固定的在前），可以搜索、切换、固定、从列表移除、打开其他文件夹。
-// - 设置：工具栏的齿轮图标或 ⌘, 打开，改动立即生效（语言也是就地切换，不重新加载窗口）。
+// Repository list and settings.
+// - Repository list: opened from the repository name in the toolbar; lists recently opened repositories (pinned first), with search, switch, pin, remove from list, open another folder.
+// - Settings: opened from the toolbar's gear icon or ⌘,; changes apply immediately (language too switches in place without reloading the window).
 
 import { useReturnFocus } from "./focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import { lang, langSetting, setLang, t, tr, type LangSetting } from "../i18n";
 import { forgetRepo, setSettings, togglePin, useRecentRepos, useSettings, type RecentRepo, type Settings } from "../settings";
 import { formatTime } from "./format";
 
-/** 最近打开的仓库列表（工具栏弹出和“打开一个仓库”页共用） */
+/** Recently opened repositories (shared by the toolbar popup and the "open a repository" page) */
 export function RepoList({ current, onOpen, onClose, autoFocus = true }: { current: string | null; onOpen: (path: string) => void; onClose?: () => void; autoFocus?: boolean }) {
   const repos = useRecentRepos();
   const [q, setQ] = useState("");
@@ -72,7 +72,7 @@ export function RepoList({ current, onOpen, onClose, autoFocus = true }: { curre
   );
 }
 
-/** 工具栏仓库名下面弹出的仓库列表 */
+/** The repository list popping up under the repository name in the toolbar */
 export function RepoPopup({ x, y, current, onOpen, onBrowse, onClone, onClose }: { x: number; y: number; current: string | null; onOpen: (path: string) => void; onBrowse: () => void; onClone: () => void; onClose: () => void }) {
   useReturnFocus();
   const box = useRef<HTMLDivElement>(null);
@@ -135,11 +135,11 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   );
 }
 
-/** 设置窗口 */
+/** Settings window */
 export function SettingsWindow({ git, onClose, repoOpen, onRemotes }: { git: GitInfo | null; onClose: () => void; repoOpen?: boolean; onRemotes?: () => void }) {
   useReturnFocus();
   const s = useSettings();
-  // 这个仓库的提交签名（git config --local commit.gpgSign）；没打开仓库时不显示
+  // Commit signing for this repository (git config --local commit.gpgSign); hidden when no repository is open
   const [signing, setSigning] = useState<SigningConfig | null>(null);
   const [signErr, setSignErr] = useState<string | null>(null);
   useEffect(() => {

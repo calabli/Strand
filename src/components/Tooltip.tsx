@@ -1,22 +1,22 @@
-// 悬停提示（说明书 12.4）：鼠标停在按钮上 350 ms 后在旁边显示按钮名称；刚看过一个提示时，移到下一个按钮立刻显示。
-// 键盘把焦点移到按钮上时也显示。
+// Tooltips (spec §12.4): show a button's name next to it after the mouse rests on it for 350 ms; right after one tooltip, moving to the next button shows it immediately.
+// Also shown when keyboard focus moves to a button.
 //
-// 不用给每个按钮单独写：全局监听，取元素的 title（没有 title 的图标按钮取 aria-label）。显示时先把 title 拿掉、
-// 离开时放回去，免得系统自己的提示再冒出来一个（桌面应用里系统提示要等一两秒，有时根本不出）。
-// title 被拿掉期间，没有 aria-label 的元素临时补上 aria-label，读屏软件读到的名字不变。
+// No per-button code: a global listener takes the element's title (aria-label for icon buttons without a title). While showing, the title is removed
+// and restored on leave, so the system's own tooltip doesn't pop up as well (in the desktop app the system tooltip takes a second or two, and sometimes never appears).
+// While the title is removed, elements without an aria-label temporarily get one so screen readers read the same name.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const DELAY = 350;
-/** 上一个提示消失后这么久内移到下一个按钮，不再等 */
+/** Moving to the next button within this long after the previous tooltip disappears shows it without waiting */
 const WARM = 600;
 
 type Tip = { text: string; rect: DOMRect };
 
-/** 图标按钮：没有可见文字（或只有一两个符号，如 ↑ ×） */
+/** Icon buttons: no visible text (or only one or two symbols, like ↑ ×) */
 const iconOnly = (el: Element) => (el.textContent ?? "").replace(/\s/g, "").length <= 2;
 
-/** 往上找第一个有提示的元素，返回元素和文字 */
+/** Find the nearest ancestor with a tooltip; returns the element and text */
 function tipOf(start: EventTarget | null): { el: HTMLElement; text: string } | null {
   let el = start instanceof Element ? (start as HTMLElement) : null;
   while (el && el !== document.body) {
@@ -43,10 +43,10 @@ export function TooltipLayer() {
     let visible = false;
     let addedLabel = false;
     let watch: MutationObserver | null = null;
-    /** 显示期间检查元素还在不在（对话框被代码关掉、按钮被换掉时，提示跟着消失） */
+    /** While showing, check the element still exists (the tooltip disappears when a dialog is closed by code or the button is replaced) */
     let alive = 0;
 
-    /** 把 title 拿掉（放到 data-tip-title），离开时再放回 */
+    /** Remove the title (stash it in data-tip-title) and restore it on leave */
     const stash = (el: HTMLElement) => {
       const t = el.getAttribute("title");
       if (!t) return;
@@ -84,7 +84,7 @@ export function TooltipLayer() {
       alive = window.setInterval(() => {
         if (!el.isConnected) hide();
       }, 250);
-      // 显示期间界面又把 title 写回来（比如按钮状态变了）：换成新文字，再拿掉
+      // The UI wrote the title back while showing (e.g. the button state changed): switch to the new text, then remove it again
       watch = new MutationObserver(() => {
         const t = el.getAttribute("title");
         if (t) {
@@ -141,7 +141,7 @@ export function TooltipLayer() {
     };
   }, []);
 
-  // 默认放在元素下面、水平居中；下面放不下就放上面，左右不出窗口
+  // Placed below the element, horizontally centered by default; above when there's no room below, never outside the window horizontally
   useLayoutEffect(() => {
     const el = box.current;
     if (!tip || !el) return setPos(null);

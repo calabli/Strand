@@ -1,6 +1,6 @@
-// 右键菜单（说明书 3.4、12.2）。每项由图标、文字和可选的快捷键提示组成；组间用分隔线。
-// 有 sub 的项是子菜单：悬停、点击、→ 打开，← 或 Esc 回到上一级。
-// ↑ ↓ 在可用项之间移动，回车执行。点外面、Esc、窗口失去焦点时关闭；不可用的项置灰并在悬停时说明原因。
+// Context menu (spec §3.4, §12.2). Each item has an icon, text and an optional shortcut hint; groups are separated by dividers.
+// Items with sub are submenus: open on hover, click or →; ← or Esc goes back a level.
+// ↑ ↓ move between enabled items, Enter runs one. Closes on clicking outside, Esc, or the window losing focus; disabled items are greyed out and explain why on hover.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { tr } from "../i18n";
@@ -10,18 +10,18 @@ export interface MenuItem {
   label: string;
   run?: () => void;
   disabled?: boolean;
-  /** 不可用的原因，悬停时显示 */
+  /** Why it's unavailable, shown on hover */
   why?: string;
   danger?: boolean;
-  /** 快捷键提示，显示在右边 */
+  /** Shortcut hint, shown on the right */
   hint?: string;
-  /** 图标：14×14 的 SVG 路径 */
+  /** Icon: a 14×14 SVG path */
   icon?: string;
-  /** 子菜单 */
+  /** Submenu */
   sub?: MenuEntry[];
-  /** 分组标题：灰色小字，不能点 */
+  /** Group heading: small grey text, not clickable */
   heading?: boolean;
-  /** 勾选状态：左边显示 ✓（图标位置） */
+  /** Checked state: a ✓ on the left (in the icon slot) */
   checked?: boolean;
 }
 export type MenuEntry = MenuItem | "-";
@@ -44,7 +44,7 @@ function List({
   items,
   x,
   y,
-  /** 子菜单放不下右边时放左边：传入父项左边的位置 */
+  /** When a submenu doesn't fit on the right, put it on the left: pass the parent item's left position */
   flipX,
   onClose,
   onBack,
@@ -63,7 +63,7 @@ function List({
   const [open, setOpen] = useState<{ i: number; x: number; y: number; flip: number; focus: boolean } | null>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
 
-  // 超出窗口时往回挪；子菜单右边放不下时放到父菜单左边
+  // Shift back when it overflows the window; a submenu that doesn't fit on the right goes to the parent menu's left
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;

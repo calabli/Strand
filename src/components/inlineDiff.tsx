@@ -1,9 +1,9 @@
-// 一对改动行里不同的部分加深（冲突窗口说明书 8.5、差异标签页 10.1 共用）。
-// 只看共同的开头和结尾，中间那段加深；两行完全不同（共同的部分去掉空白后不到 4 个字符）时不加深，免得整行都是底色。
+// Emphasize the differing parts of a pair of changed lines (shared by the conflict window, spec §8.5, and the diff tab, §10.1).
+// Only the common start and end are compared and the middle is emphasized; when the lines are entirely different (fewer than 4 common characters after removing whitespace) nothing is emphasized, so the whole line isn't highlighted.
 
 import type { ReactNode } from "react";
 
-/** 拆成 [共同开头, 不同的部分, 共同结尾] */
+/** Split into [common start, differing part, common end] */
 export function splitDiff(x: string, y: string): [string, string, string] {
   let p = 0;
   while (p < x.length && p < y.length && x[p] === y[p]) p++;
@@ -12,7 +12,7 @@ export function splitDiff(x: string, y: string): [string, string, string] {
   return [x.slice(0, p), x.slice(p, x.length - q), x.slice(x.length - q)];
 }
 
-/** 显示空白字符时：空格画成灰色小点，制表符画成灰色箭头（占的宽度不变，复制出来仍是原来的空白） */
+/** When showing whitespace: spaces drawn as small grey dots, tabs as grey arrows (same width; copying still yields the original whitespace) */
 function Ws({ t }: { t: string }) {
   if (!/[ \t]/.test(t)) return <>{t}</>;
   const out: ReactNode[] = [];
@@ -32,15 +32,15 @@ function Ws({ t }: { t: string }) {
   return <>{out}</>;
 }
 
-/** 一段普通文字：显示空白字符时换成 Ws */
+/** A run of plain text: replaced with Ws when showing whitespace */
 const plain = (s: string, ws: boolean | undefined, key?: number) => (ws ? <Ws key={key} t={s} /> : s);
 
-/** 语法着色的一段：[开始, 结束, 种类] */
+/** A syntax-colored run: [start, end, kind] */
 export type Tok = [number, number, string];
 
 /**
- * 一行文字，几层标记叠在一起画：语法着色（toks）、和配对行不同的部分加深（diff 区间）、搜索词（find）、空白字符（ws）。
- * 先把所有区间的边界收集起来切成小段，每一小段按它落在哪些区间里套上对应的标签。
+ * Draws one line with several layers of marks: syntax colors (toks), emphasis on parts differing from the paired line (diff ranges), search terms (find), whitespace (ws).
+ * All range boundaries are collected to cut the text into small pieces, and each piece gets the tags of the ranges it falls in.
  */
 export function Rich({ t, toks, diff, find, ws }: { t: string; toks?: Tok[] | null; diff?: [number, number] | null; find?: RegExp | null; ws?: boolean }) {
   if (!t) return null;
@@ -74,26 +74,26 @@ export function Rich({ t, toks, diff, find, ws }: { t: string; toks?: Tok[] | nu
   return <>{out}</>;
 }
 
-/** 文字里匹配搜索的地方包在 <mark class="find"> 里（搜索结果高亮搜索词）；ws 为真时显示空白字符；toks 是语法着色 */
+/** Wrap matches of the search in <mark class="find"> (search results highlight the term); ws true shows whitespace; toks is syntax coloring */
 export function Found({ t, find, ws, toks }: { t: string; find?: RegExp | null; ws?: boolean; toks?: Tok[] | null }) {
   return <Rich t={t} find={find} ws={ws} toks={toks} />;
 }
 
 /**
- * 显示 t，和 other 不同的部分加深；other 为空，或两行没有共同部分时不加深。
- * find 给出时搜索词单独标出来，toks 是语法着色，ws 显示空白字符。
+ * Show t, emphasizing parts that differ from other; no emphasis when other is empty or the lines have nothing in common.
+ * With find, search terms are marked separately; toks is syntax coloring, ws shows whitespace.
  */
 export function Hi({ t, other, find, ws, toks }: { t: string; other?: string; find?: RegExp | null; ws?: boolean; toks?: Tok[] | null }) {
   let diff: [number, number] | null = null;
   if (other !== undefined) {
     const [a, b, c] = splitDiff(t, other);
-    // 共同的部分只有缩进、空白或一两个标点（如结尾的“);”）时，两行其实完全不同
+    // When the common parts are only indentation, whitespace or a punctuation mark or two (like a trailing ");"), the lines are really entirely different
     if ((a + c).replace(/\s+/g, "").length >= 4 && b) diff = [a.length, a.length + b.length];
   }
   return <Rich t={t} diff={diff} find={find} ws={ws} toks={toks} />;
 }
 
-/** 一行开头的缩进占几列（制表符算 4 列） */
+/** Columns taken by a line's leading indentation (a tab counts as 4) */
 export function indentCols(text: string): number {
   let n = 0;
   for (const ch of text) {
@@ -104,7 +104,7 @@ export function indentCols(text: string): number {
   return n;
 }
 
-/** 文件的缩进单位：大部分缩进是 4 的倍数就是 4，否则是 2 */
+/** The file's indent unit: 4 when most indents are multiples of 4, otherwise 2 */
 export function indentUnit(texts: string[]): number {
   let four = 0, two = 0;
   for (const x of texts) {
@@ -116,7 +116,7 @@ export function indentUnit(texts: string[]): number {
   return two > four / 3 ? 2 : 4;
 }
 
-/** 缩进参考线：放在代码格子上的样式变量（缩进多宽、每级多宽），画线由样式表做 */
+/** Indent guides: style variables on the code cell (indent width and width per level); the stylesheet draws the lines */
 export const indentStyle = (text: string, unit: number): React.CSSProperties | undefined => {
   const n = indentCols(text);
   return n >= unit ? ({ "--ig": `${n}ch`, "--igu": `${unit}ch` } as React.CSSProperties) : undefined;

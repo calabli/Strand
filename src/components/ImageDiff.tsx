@@ -1,6 +1,6 @@
-// 图片对比（对照 JetBrains 的图片差异）：两边各读出这个版本的图片，三种看法——
-// 并排（左旧右新）、滑动（拖动分界线左右对照）、叠加（调新图的透明度）。底下是棋盘格，透明的部分看得出来。
-// 显示两边的尺寸和大小；只有一边时是新增或删除。
+// Image diff (like JetBrains' image diff): load the image at each side's revision, with three views:
+// side by side (old left, new right), swipe (drag the divider to compare), and onion skin (adjust the new image's opacity). A checkerboard underneath shows transparent areas.
+// Shows dimensions and size of both sides; with only one side it's an addition or deletion.
 
 import { useEffect, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -19,7 +19,7 @@ const MIME: Record<string, string> = {
 };
 
 const ext = (p: string) => p.slice(p.lastIndexOf(".") + 1).toLowerCase();
-/** 能当图片显示的文件（svg 是文本，平时看文本差异，这里也能当图片看） */
+/** Files that can be shown as images (svg is text and normally gets a text diff, but can be shown as an image here too) */
 export const isImage = (p: string) => ext(p) in MIME;
 
 type Side = { path: string; rev: string | null } | null | undefined;
@@ -91,7 +91,7 @@ function Meta({ s, label }: { s: State; label: string }) {
 
 type Mode = "side" | "swipe" | "fade";
 
-/** 两边的名字和“没有这个文件”时的说明；不给时是旧、新 */
+/** Names of the two sides and the text when the file doesn't exist; old and new when not given */
 export interface ImageNames {
   left: string;
   right: string;
@@ -110,7 +110,7 @@ export function ImageDiff({ left, right, compact, names }: { left: Side; right: 
   const both = a.status === "ok" && b.status === "ok";
   const m: Mode = both && !compact ? mode : "side";
   const same = both && a.size === b.size && a.w === b.w && a.h === b.h;
-  // 两张图按较大的尺寸叠在一起
+  // The two images are stacked at the larger size
   const W = both ? Math.max(a.w, b.w) : 0;
   const H = both ? Math.max(a.h, b.h) : 0;
 

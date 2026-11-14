@@ -1,7 +1,7 @@
-// 作者过滤（说明书 5.1）：可以勾选多个作者，也可以按规则匹配（包含、前缀、后缀、正则，名字或邮箱满足就算）。
-// - 输入框先用来搜下面的列表（按选中的匹配方式），勾选框直接生效；
-// - 回车或“按规则过滤”把输入的文字存成规则：以后新出现的、符合规则的作者也算。规则和勾选的作者是“或”的关系。
-// - 正则写错时红框提示，不能存成规则。
+// Author filter (spec §5.1): check multiple authors, or match by rule (contains, prefix, suffix, regex; name or email matching counts).
+// - The input first searches the list below (by the selected match mode); checkboxes apply immediately;
+// - Enter or "filter by rule" saves the text as a rule: authors appearing later that match it count too. The rule and checked authors are OR-ed.
+// - A bad regex shows a red outline and can't be saved as a rule.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AuthorMatch, LogAuthor, MatchKind } from "../api/types";
@@ -14,7 +14,7 @@ export const KIND_LABEL: Record<MatchKind, string> = lazy(() => ({ contains: t("
 interface Props {
   x: number;
   y: number;
-  /** 日志里的作者（按提交数排）；还在读取时是 null */
+  /** Authors in the log (by commit count); null while still loading */
   authors: LogAuthor[] | null;
   picked: LogAuthor[];
   rule: AuthorMatch | null;
@@ -32,7 +32,7 @@ export function AuthorPicker({ x, y, authors, picked, rule, onChange, onClose }:
   const [kind, setKind] = useState<MatchKind>(rule?.kind ?? "contains");
   const [pos, setPos] = useState({ left: x, top: y });
 
-  // 按输入和匹配方式筛列表；正则写错时 test 为 null
+  // Filter the list by input and match mode; test is null for a bad regex
   const test = useMemo(() => {
     try {
       return { fn: authorRule({ kind, text: q }), bad: false };

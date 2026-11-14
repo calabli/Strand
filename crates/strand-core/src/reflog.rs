@@ -1,37 +1,37 @@
-//! 操作记录（reflog）：HEAD 或某个本地分支指向过哪些提交，从新到旧。
-//! 用来找回误删的分支、重置或变基前的提交；Strand 自己的撤销覆盖不到的（命令行里做的、超过 200 步的）也能在这里找到。
+//! Reflog: which commits HEAD or a local branch pointed to, newest first.
+//! For recovering deleted branches and commits from before a reset or rebase; what Strand's own undo can't cover (done on the command line, older than 200 steps) can be found here too.
 
 use serde::Serialize;
 
 use crate::error::{CoreError, ErrorCode, Result};
 use crate::repo::Session;
 
-/// 最多读这么多条
+/// Read at most this many entries
 pub const MAX_ENTRIES: usize = 2000;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReflogEntry {
-    /// HEAD@{n} 里的 n
+    /// The n in HEAD@{n}
     pub index: usize,
-    /// 这一步之后指向的提交
+    /// The commit pointed to after this step
     pub id: String,
-    /// 这一步之前指向的提交（第一步是全 0）
+    /// The commit pointed to before this step (all zeros for the first step)
     pub old_id: String,
-    /// 动作，如 commit、checkout、reset、merge origin/main、rebase (finish)
+    /// Action, e.g. commit, checkout, reset, merge origin/main, rebase (finish)
     pub action: String,
-    /// 冒号后面的说明，如 moving from main to dev
+    /// The text after the colon, e.g. moving from main to dev
     pub message: String,
     pub time: i64,
-    /// 提交的标题；提交已经不在仓库里时为空
+    /// The commit title; empty when the commit is no longer in the repository
     pub title: String,
-    /// 提交还在仓库里（没被清理掉）
+    /// The commit still exists in the repository (not pruned)
     pub exists: bool,
-    /// 提交在日志里（能在日志里定位）
+    /// The commit is in the log (can be located there)
     pub in_log: bool,
 }
 
 impl Session {
-    /// 有操作记录的引用：HEAD 在前，然后是本地分支（按名字）
+    /// Refs that have a reflog: HEAD first, then local branches (by name)
     pub fn reflog_refs(&self) -> Result<Vec<String>> {
         let repo = self.git2()?;
         let mut out = vec!["HEAD".to_string()];
@@ -46,7 +46,7 @@ impl Session {
         Ok(out)
     }
 
-    /// 某个引用的操作记录，从新到旧。`name` 是 HEAD 或本地分支名。
+    /// The reflog of one ref, newest first. `name` is HEAD or a local branch name.
     pub fn reflog(&self, name: &str) -> Result<Vec<ReflogEntry>> {
         let repo = self.git2()?;
         let full = if name == "HEAD" { "HEAD".to_string() } else { format!("refs/heads/{name}") };

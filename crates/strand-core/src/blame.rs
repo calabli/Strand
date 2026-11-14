@@ -1,7 +1,7 @@
-//! 逐行追溯（说明书 10.2）：文件每一行最后是被哪个提交改的。
+//! Blame (spec §10.2): which commit last changed each line of a file.
 //!
-//! 调用 `git blame --porcelain`，按行号分页：先取首屏，其余在后台再取，大文件也能很快看到开头。
-//! `rev` 为空时追溯工作区里的文件，还没提交的行算作“还没提交”。
+//! Calls `git blame --porcelain`, paged by line number: the first screen first and the rest in the background, so even large files show their start quickly.
+//! With `rev` empty it blames the file in the worktree, and uncommitted lines count as "not committed yet".
 
 use std::collections::HashMap;
 
@@ -10,15 +10,15 @@ use serde::Serialize;
 use crate::error::{CoreError, ErrorCode, Result};
 use crate::{git_cli, Session};
 
-/// 还没提交的行在 git blame 里的提交编号
+/// The commit id git blame uses for uncommitted lines
 const UNCOMMITTED: &str = "0000000000000000000000000000000000000000";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BlameLine {
-    /// 从 1 开始的行号
+    /// 1-based line number
     pub no: u32,
     pub text: String,
-    /// 在 `commits` 里的位置
+    /// Index into `commits`
     pub commit: u32,
 }
 
@@ -30,24 +30,24 @@ pub struct BlameCommit {
     pub author: String,
     pub email: String,
     pub time: i64,
-    /// 在当前日志里（点它可以跳过去）；被整理掉的提交不在
+    /// In the current log (clicking jumps there); rewritten commits aren't
     pub in_log: bool,
-    /// 还没提交的改动
+    /// Uncommitted changes
     pub uncommitted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BlamePage {
-    /// 文件总行数
+    /// Total number of lines in the file
     pub total: u32,
     pub offset: u32,
     pub lines: Vec<BlameLine>,
-    /// 这一页用到的提交
+    /// Commits used by this page
     pub commits: Vec<BlameCommit>,
 }
 
 impl Session {
-    /// 追溯文件第 offset+1 行起的 limit 行。`rev` 为空表示工作区里的文件。
+    /// Blame `limit` lines starting at line offset+1. `rev` empty means the file in the worktree.
     pub fn blame_file(&self, path: &str, rev: Option<&str>, offset: u32, limit: u32) -> Result<BlamePage> {
         let total = self.file_line_count(path, rev)?;
         if total == 0 || offset >= total {
@@ -99,7 +99,7 @@ impl Session {
         Ok(BlamePage { total, offset, lines, commits })
     }
 
-    /// 文件在某个版本（或工作区）里的行数
+    /// Number of lines of the file at a revision (or in the worktree)
     fn file_line_count(&self, path: &str, rev: Option<&str>) -> Result<u32> {
         let bytes = match rev {
             None => std::fs::read(self.path().join(path)).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("找不到文件 {path}")))?,
@@ -123,13 +123,13 @@ impl Session {
     }
 }
 
-/// 解析 `git blame --porcelain`：每段以“提交编号 原行号 现行号 [行数]”开头，
-/// 这个提交第一次出现时跟着它的信息，最后一行是以制表符开头的内容。
+/// Parse `git blame --porcelain`: each section starts with "commit-id orig-line final-line [count]",
+/// followed by the commit's info the first time it appears, and the last line is the content starting with a tab.
 pub(crate) fn parse(out: &str) -> (Vec<BlameLine>, Vec<String>) {
     let mut ids: Vec<String> = Vec::new();
     let mut pos: HashMap<String, u32> = HashMap::new();
     let mut lines = Vec::new();
-    let mut cur: Option<(u32, u32)> = None; // (提交位置, 现行号)
+    let mut cur: Option<(u32, u32)> = None; // (commit index, final line)
     for l in out.lines() {
         if let Some(text) = l.strip_prefix('\t') {
             if let Some((commit, no)) = cur.take() {

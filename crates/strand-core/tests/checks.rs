@@ -1,4 +1,4 @@
-//! 提交前格式化和检查（说明书 4.4、4.6）。
+//! Format and check before committing (spec §4.4, §4.6).
 
 #![cfg(unix)]
 
@@ -40,7 +40,7 @@ fn config_round_trip_and_suggestions() {
     checks::set_config(p, &want).unwrap();
     assert_eq!(checks::config(p).config, want);
     assert_eq!(git(p, &["config", "--local", "strand.checkCommand"]), "eslint {files}");
-    // 清空命令就删掉配置项
+    // Clearing a command removes the config key
     checks::set_config(p, &ChecksConfig { check_command: " ".into(), ..want.clone() }).unwrap();
     assert_eq!(git(p, &["config", "--local", "--get-all", "strand.checkCommand"]), "");
     assert!(checks::set_config(p, &ChecksConfig { check_command: "a\nb".into(), ..want }).is_err());
@@ -51,7 +51,7 @@ fn check_passes_and_fails_with_issues() {
     let d = repo();
     let p = d.path();
     let files = vec!["src/a.ts".to_string(), "b c.txt".to_string()];
-    // {files} 换成带引号的路径，STRAND_FILES 按行分隔
+    // {files} becomes quoted paths, STRAND_FILES is newline-separated
     let r = checks::run(p, CheckKind::Check, r#"printf '%s|' {files}; echo; printf '%s' "$STRAND_FILES" | wc -l"#, &files, &Cancel::default()).unwrap();
     assert!(r.ok, "{r:?}");
     assert!(r.output.starts_with("src/a.ts|b c.txt|"), "{}", r.output);
@@ -86,7 +86,7 @@ fn parses_rustc_and_eslint_styles() {
     assert_eq!(issues[1].message, "Unexpected var  no-var");
     assert_eq!(issues[1].level, "warning");
     assert_eq!(issues[2].line, Some(2));
-    // 绝对路径也认，换成相对路径
+    // Absolute paths are recognized too and converted to relative ones
     let abs = format!("{}/src/a.ts:4: oops", p.canonicalize().unwrap().display());
     assert_eq!(checks::parse_issues(p, &abs)[0].path, "src/a.ts");
 }

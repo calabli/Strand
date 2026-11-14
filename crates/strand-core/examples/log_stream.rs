@@ -1,6 +1,6 @@
-//! 在真实仓库上测“首批结果先返回，其余分批追加”（说明书 15）：打印每次查询的用时、目前的结果数、是否算完。
+//! Measure "first results return first, the rest are appended in batches" on a real repository (spec §15): prints each query's time, the number of results so far, and whether it is complete.
 //!
-//! cargo run --release -p strand-core --example log_stream -- /path/to/repo [路径子串] [搜索文字]
+//! cargo run --release -p strand-core --example log_stream -- /path/to/repo [path substring] [search text]
 
 use std::time::{Duration, Instant};
 

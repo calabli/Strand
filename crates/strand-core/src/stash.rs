@@ -1,13 +1,13 @@
-//! 贮藏和暂存架（说明书 4.9）。
+//! Stash and shelf (spec §4.9).
 //!
-//! - 贮藏：Git 原生 stash，一次收起全部已跟踪的改动，命令行 `git stash list` 也能看到。
-//! - 暂存架：客户端自己保存的补丁，按文件搁置、可以命名。补丁存在 `.git/strand/shelf/<id>.patch`，
-//!   列表在 `.git/strand/shelf/index.json`。删除和取回只是把条目标记为已删除，30 天后才真正删掉文件，
-//!   这样撤销（说明书第 11 节）可以把条目找回来。
+//! - Stash: Git's native stash, putting away all tracked changes at once; also visible with `git stash list` on the command line.
+//! - Shelf: patches saved by the client itself, shelved per file and nameable. Patches live in `.git/strand/shelf/<id>.patch`,
+//!   the list in `.git/strand/shelf/index.json`. Deleting and restoring only mark the entry deleted; files are actually removed after 30 days,
+//!   so undo (spec §11) can bring entries back.
 //!
-//! 取回时和工作区冲突：仓库进入“取回进行中”（`RepoMode::Unstashing`），走冲突解决流程（第 8 节），
-//! “你的”是工作区，“对方的”是取回的改动。`.git/strand/unstash.json` 记下取回的是什么，
-//! 完成时才删除贮藏条目（pop）或暂存架条目；中止时用 `git reset --merge` 回到取回之前，条目保留。
+//! When restoring conflicts with the worktree, the repository enters "restore in progress" (`RepoMode::Unstashing`) and the conflict resolution flow (§8) takes over;
+//! "yours" is the worktree and "theirs" is the restored changes. `.git/strand/unstash.json` records what is being restored;
+//! the stash entry (pop) or shelf entry is only deleted on finish; on abort `git reset --merge` goes back to before the restore and the entry stays.
 
 use std::path::PathBuf;
 
@@ -41,10 +41,10 @@ pub struct ShelfEntry {
     pub name: String,
     pub time: i64,
     pub files: Vec<ShelfFile>,
-    /// 搁置时 HEAD 所在的提交
+    /// The commit HEAD was on when shelved
     #[serde(default)]
     pub base: String,
-    /// 被删除或取回的时间；列表里不显示，到期后删掉补丁文件
+    /// When it was deleted or restored; hidden from the list, and the patch file is deleted after expiry
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deleted: Option<i64>,
 }
@@ -55,17 +55,17 @@ struct ShelfIndex {
     entries: Vec<ShelfEntry>,
 }
 
-/// 取回时产生了冲突：记下取回的是什么，完成时再删条目
+/// Restoring produced conflicts: record what was restored, delete the entry on finish
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Unstash {
     pub source: UnstashSource,
-    /// 贮藏的提交哈希，或暂存架条目的编号
+    /// The stash's commit hash, or the shelf entry's id
     pub id: String,
-    /// “对方的”一侧显示的名字
+    /// Name shown on the "theirs" side
     pub label: String,
-    /// 完成后删除条目（取回并删除）
+    /// Delete the entry after finishing (restore and delete)
     pub drop: bool,
-    /// 暂存架只取回部分文件时，剩下的文件另存成的条目；中止取回时删掉它（原条目还在）
+    /// When restoring only some files of a shelf entry, the entry the remaining files were saved as; deleted when the restore is aborted (the original entry still exists)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remainder: Option<u64>,
 }
@@ -75,7 +75,7 @@ pub struct Unstash {
 pub enum UnstashSource {
     Stash,
     Shelf,
-    /// 应用补丁到工作区时有冲突（完成时没有条目要删）
+    /// Applying a patch to the worktree hit conflicts (no entry to delete on finish)
     Patch,
 }
 
@@ -92,7 +92,7 @@ impl Session {
         Ok(self.git2()?.path().join("strand"))
     }
 
-    // ---------- 贮藏 ----------
+    // ---------- Stash ----------
 
     pub fn stash_list(&self) -> Result<Vec<StashEntry>> {
         let mut repo = self.git2()?;
@@ -111,7 +111,7 @@ impl Session {
             .collect())
     }
 
-    /// 贮藏里改动的文件（相对贮藏时的 HEAD）
+    /// Files changed in a stash (relative to HEAD at stash time)
     pub fn stash_files(&self, index: usize) -> Result<Vec<crate::model::FileChange>> {
         let e = self.stash_at(index)?;
         self.commit_files(&e.id)
@@ -124,7 +124,7 @@ impl Session {
             .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "这条贮藏已经不在了，列表可能已经变化"))
     }
 
-    /// 贮藏全部已跟踪的改动
+    /// Stash all tracked changes
     pub fn stash_push(&self, message: Option<&str>) -> Result<()> {
         let before = self.stash_list()?.first().map(|e| e.id.clone());
         let mut args = vec!["stash", "push", "--quiet"];
@@ -138,8 +138,8 @@ impl Session {
         Ok(())
     }
 
-    /// 取回贮藏。`drop` 为真时取回后删除（pop），否则保留（apply）。
-    /// 和工作区冲突时进入“取回进行中”，返回 `CONFLICTS`；完成冲突解决后才删除。
+    /// Restore a stash. With `drop` true delete it after restoring (pop), otherwise keep it (apply).
+    /// On conflicts with the worktree enters "restore in progress" and returns `CONFLICTS`; deleted only after conflict resolution finishes.
     pub fn stash_apply(&self, index: usize, drop: bool) -> Result<()> {
         self.require_clean_state()?;
         let e = self.stash_at(index)?;
@@ -166,7 +166,7 @@ impl Session {
         self.drop_stash_id(&e.id)
     }
 
-    /// 按提交哈希删除贮藏（序号可能已经变了）
+    /// Drop a stash by commit hash (its index may have changed)
     fn drop_stash_id(&self, id: &str) -> Result<()> {
         let e = self.stash_list()?.into_iter().find(|e| e.id == id);
         match e {
@@ -175,7 +175,7 @@ impl Session {
         }
     }
 
-    // ---------- 暂存架 ----------
+    // ---------- Shelf ----------
 
     fn shelf_dir(&self) -> Result<PathBuf> {
         Ok(self.strand_dir()?.join("shelf"))
@@ -195,7 +195,7 @@ impl Session {
         std::fs::rename(&tmp, dir.join("index.json")).map_err(io("保存暂存架失败"))
     }
 
-    /// 暂存架里的条目，新的在前（已删除的不显示；到期的顺便清理）
+    /// Shelf entries, newest first (deleted ones hidden; expired ones cleaned up along the way)
     pub fn shelf_list(&self) -> Result<Vec<ShelfEntry>> {
         let mut idx = self.shelf_read()?;
         let cutoff = now() - SHELF_KEEP_SECS;
@@ -214,12 +214,12 @@ impl Session {
         Ok(idx.entries.into_iter().rev().filter(|e| e.deleted.is_none()).collect())
     }
 
-    /// 暂存架里没删除的条目编号（操作日志的快照用）
+    /// Ids of shelf entries not deleted (for op log snapshots)
     pub(crate) fn shelf_visible(&self) -> Vec<u64> {
         self.shelf_read().map(|i| i.entries.iter().filter(|e| e.deleted.is_none()).map(|e| e.id).collect()).unwrap_or_default()
     }
 
-    /// 撤销或重做时恢复暂存架的可见条目
+    /// Restore the shelf's visible entries on undo or redo
     pub(crate) fn shelf_set_visible(&self, ids: &[u64]) -> Result<()> {
         let mut idx = self.shelf_read()?;
         for e in &mut idx.entries {
@@ -233,7 +233,7 @@ impl Session {
         self.shelf_write(&idx)
     }
 
-    /// 把选中文件的改动搁置到暂存架，工作区里这些文件回到 HEAD 的样子。`paths` 含重命名的旧路径。
+    /// Shelve the changes of the selected files and reset those files in the worktree to HEAD. `paths` includes old paths of renames.
     pub fn shelf_save(&self, name: &str, paths: &[String]) -> Result<ShelfEntry> {
         self.require_clean_state()?;
         if paths.is_empty() {
@@ -260,7 +260,7 @@ impl Session {
         let id = idx.next_id;
         let dir = self.shelf_dir()?;
         std::fs::create_dir_all(&dir).map_err(io("保存暂存架失败"))?;
-        // 先把补丁写好再改工作区：写不进去就什么也不改（说明书 15 节：数据安全）
+        // Write the patch before changing the worktree: if it can't be written, change nothing (spec §15: data safety)
         std::fs::write(dir.join(format!("{id}.patch")), patch.as_bytes()).map_err(io("保存暂存架失败"))?;
         let name = if name.trim().is_empty() { format!("改动 · {id}") } else { name.trim().to_string() };
         let base = self.git2()?.head().ok().and_then(|h| h.target()).map(|o| o.to_string()).unwrap_or_default();
@@ -273,7 +273,7 @@ impl Session {
         Ok(entry)
     }
 
-    /// 取回暂存架条目到工作区，条目删除。和工作区冲突时进入“取回进行中”，返回 `CONFLICTS`。
+    /// Restore a shelf entry to the worktree and delete the entry. On conflicts with the worktree enters "restore in progress" and returns `CONFLICTS`.
     pub fn shelf_restore(&self, id: u64) -> Result<()> {
         self.require_clean_state()?;
         let entry = self.shelf_entry(id)?;
@@ -292,9 +292,9 @@ impl Session {
         }
     }
 
-    /// 只取回暂存架条目里的部分文件（说明书 4.9）。`paths` 是条目里的文件路径（重命名的用新路径）。
-    /// 原条目标记删除，剩下的文件另存成一个同名的新条目，放在原来的位置；撤销时原条目整个回来。
-    /// 勾选了全部文件时等同于 `shelf_restore`。和工作区冲突时同样进入“取回进行中”。
+    /// Restore only some files of a shelf entry (spec §4.9). `paths` are file paths in the entry (new paths for renames).
+    /// The original entry is marked deleted and the remaining files are saved as a new same-named entry in its place; undo brings back the whole original.
+    /// Same as `shelf_restore` when all files are checked. Conflicts with the worktree also enter "restore in progress".
     pub fn shelf_restore_files(&self, id: u64, paths: &[String]) -> Result<()> {
         self.require_clean_state()?;
         if paths.is_empty() {
@@ -311,7 +311,7 @@ impl Session {
             return self.shelf_restore(id);
         }
         let dir = self.shelf_dir()?;
-        // 先把剩下的另存成新条目：写不进去就什么也不改
+        // Save the rest as a new entry first: if it can't be written, change nothing
         let rest_id = self.shelf_add_rest(&entry, &keep)?;
 
         let part = dir.join(format!("{id}.part.patch"));
@@ -328,14 +328,14 @@ impl Session {
                     self.set_unstash(&Unstash { source: UnstashSource::Shelf, id: id.to_string(), label: entry.name, drop: true, remainder: Some(rest_id) })?;
                     return Err(CoreError::new(ErrorCode::Conflicts, "取回的改动和工作区有冲突，请逐个处理"));
                 }
-                // 没取回来：去掉刚另存的条目，原条目不变
+                // Nothing was restored: remove the entry just saved, leaving the original
                 self.shelf_mark_deleted(rest_id)?;
                 Err(overwrite_error(err))
             }
         }
     }
 
-    /// 把条目里 `keep` 这些文件的补丁另存成一个同名的新条目，放在原条目后面，返回新编号
+    /// Save the patches of the `keep` files as a new same-named entry after the original and return its id
     fn shelf_add_rest(&self, entry: &ShelfEntry, keep: &[(Vec<String>, Vec<u8>)]) -> Result<u64> {
         let mut idx = self.shelf_read()?;
         idx.next_id += 1;
@@ -351,10 +351,10 @@ impl Session {
         Ok(rest_id)
     }
 
-    // ---------- 拉取前自动搁置（说明书 7.2） ----------
+    // ---------- Auto-shelve before pull (spec §7.2) ----------
 
-    /// 拉取前把工作区里已跟踪文件的改动搁置到暂存架（“拉取前自动搁置”），记下条目编号。
-    /// 没有改动时什么都不做，返回 `None`。未跟踪的文件不动。
+    /// Before pulling, shelve changes to tracked worktree files ("auto-shelve before pull") and record the entry id.
+    /// Does nothing and returns `None` when there are no changes. Untracked files are left alone.
     pub fn pull_shelve(&self) -> Result<Option<ShelfEntry>> {
         let st = self.status()?;
         if st.changes.is_empty() {
@@ -373,8 +373,8 @@ impl Session {
         Ok(Some(e))
     }
 
-    /// 拉取结束（直接完成，或冲突解决完成、中止）后放回自动搁置的改动。仓库还停在合并或变基中时不动。
-    /// 放回成功返回 `Ok(None)`；放回时有冲突或会覆盖文件，就回到放回之前、改动留在暂存架，返回给用户看的说明。
+    /// After the pull ends (finished directly, or conflict resolution finished or aborted), restore the auto-shelved changes. Does nothing while still mid merge or rebase.
+    /// Returns `Ok(None)` on success; when restoring conflicts or would overwrite files, go back to before restoring, leave the changes on the shelf, and return an explanation for the user.
     pub fn pull_unshelve(&self) -> Result<Option<String>> {
         let marker = self.strand_dir()?.join("pull-shelf");
         let Ok(text) = std::fs::read_to_string(&marker) else { return Ok(None) };
@@ -392,7 +392,7 @@ impl Session {
         if self.state()?.state == crate::model::RepoMode::Unstashing {
             self.unstash_abort()?;
         }
-        // 整个放不回去：逐个文件放回，放不回的（有冲突或会覆盖文件）留在暂存架
+        // Can't restore it all: restore file by file, leaving those that can't (conflicts or would overwrite files) on the shelf
         let (taken, kept) = self.unshelve_each(id)?;
         let why = if e.code == ErrorCode::Conflicts { "和拉取下来的内容有冲突" } else { "会覆盖拉取下来的文件" };
         if taken == 0 {
@@ -401,9 +401,9 @@ impl Session {
         Ok(Some(format!("拉取前的改动放回了 {taken} 个文件；{kept} 个文件{why}，留在暂存架“{}”里，可以稍后手动取回", entry.name)))
     }
 
-    /// 把暂存架条目里的文件一个一个放回：能放回的放回，冲突的退回到 HEAD 的样子、留在暂存架。
-    /// 都放回了就删除条目；放回了一部分时原条目删除，剩下的另存成同名新条目（撤销时原条目整个回来）。
-    /// 返回（放回的文件数，留下的文件数）。只在仓库正常、已跟踪的文件没有改动时调用（拉取刚结束）。
+    /// Restore the files of a shelf entry one by one: restore what can be, reset conflicting ones to HEAD and leave them on the shelf.
+    /// Delete the entry when all were restored; when some were, delete the original and save the rest as a new same-named entry (undo brings back the whole original).
+    /// Returns (files restored, files left). Only called when the repository is normal and tracked files have no changes (right after a pull).
     fn unshelve_each(&self, id: u64) -> Result<(usize, usize)> {
         let entry = self.shelf_entry(id)?;
         let sections = split_patch(&self.shelf_patch(id)?)?;
@@ -416,7 +416,7 @@ impl Session {
             match git_cli::run(self.path(), &["apply", "--3way", "--binary", &p], None) {
                 Ok(_) => take += 1,
                 Err(_) => {
-                    // 有冲突时 git 已经写了带冲突标记的文件：退回到 HEAD 的样子
+                    // On conflicts git has already written files with conflict markers: reset to HEAD
                     if self.index_has_conflicts() {
                         self.reset_to_head(&names)?;
                     }
@@ -435,7 +435,7 @@ impl Session {
         Ok((take, kept))
     }
 
-    /// 把这些路径的工作区和索引退回到 HEAD 的样子；HEAD 里没有的删掉
+    /// Reset these paths in the worktree and index to HEAD; delete those not in HEAD
     fn reset_to_head(&self, names: &[String]) -> Result<()> {
         for n in names {
             let spec = format!("HEAD:{n}");
@@ -454,16 +454,16 @@ impl Session {
         self.shelf_mark_deleted(id)
     }
 
-    /// 暂存架条目里的文件和改动行数，从保存的补丁里读（说明书 4.9）
+    /// Files and changed line counts in a shelf entry, read from the saved patch (spec §4.9)
     pub fn shelf_files(&self, id: u64) -> Result<Vec<crate::model::FileChange>> {
         let patch = self.shelf_patch(id)?;
         let diff = git2::Diff::from_buffer(&patch).map_err(|e| CoreError::git("读取暂存架的补丁失败", e))?;
         crate::diff::files(&diff, &mut Vec::new())
     }
 
-    /// 暂存架条目里一个文件的差异（相对搁置时的 HEAD），从保存的补丁里读，不碰工作区
-    /// 暂存架条目里一个文件的差异。`context` 给出时显示整个文件：从搁置时的提交里取出原来的内容，
-    /// 按补丁拼出搁置的内容，再整个比较；原来的内容取不到（提交已经被清理）时退回补丁里的片段。
+    /// A file's diff in a shelf entry (relative to HEAD at shelve time), read from the saved patch without touching the worktree
+    /// A file's diff in a shelf entry. With `context`, show the whole file: take the original content from the commit at shelve time,
+    /// rebuild the shelved content from the patch and compare in full; fall back to the patch hunks when the original can't be read (commit pruned).
     pub fn shelf_diff(&self, id: u64, path: &str, context: Option<u32>) -> Result<crate::model::FileDiff> {
         let patch = self.shelf_patch(id)?;
         let diff = git2::Diff::from_buffer(&patch).map_err(|e| CoreError::git("读取暂存架的补丁失败", e))?;
@@ -515,7 +515,7 @@ impl Session {
         self.shelf_write(&idx)
     }
 
-    // ---------- 取回时的冲突 ----------
+    // ---------- Conflicts when restoring ----------
 
     pub(crate) fn require_clean_state(&self) -> Result<()> {
         if self.state()?.state != crate::model::RepoMode::Normal {
@@ -538,7 +538,7 @@ impl Session {
         std::fs::write(f, serde_json::to_vec(u).unwrap_or_default()).map_err(io("保存取回状态失败"))
     }
 
-    /// 正在进行的取回（冲突还没解决完）
+    /// The restore in progress (conflicts not all resolved)
     pub fn unstash(&self) -> Option<Unstash> {
         let f = self.unstash_file().ok()?;
         std::fs::read(f).ok().and_then(|b| serde_json::from_slice(&b).ok())
@@ -548,7 +548,7 @@ impl Session {
         self.unstash_file().is_ok_and(|f| f.exists()) || self.index_has_conflicts()
     }
 
-    /// 取回的冲突都解决了：删除条目（取回并删除时），回到正常状态
+    /// All restore conflicts are resolved: delete the entry (for restore-and-delete) and return to normal
     pub(crate) fn unstash_finish(&self) -> Result<()> {
         if let Some(u) = self.unstash() {
             if u.drop {
@@ -563,7 +563,7 @@ impl Session {
         Ok(())
     }
 
-    /// 中止取回：回到取回之前，条目保留
+    /// Abort the restore: back to before it, keeping the entry
     pub(crate) fn unstash_abort(&self) -> Result<()> {
         git_cli::run(self.path(), &["reset", "--merge"], None)?;
         if let Some(rest) = self.unstash().and_then(|u| u.remainder) {
@@ -589,7 +589,7 @@ pub(crate) fn overwrite_error(e: CoreError) -> CoreError {
     e
 }
 
-/// 把 `git diff` 的补丁按文件切开：每段从 `diff --git ` 那一行开始，配上这个文件的新旧路径（用 git2 解析得到，顺序一致）。
+/// Split a `git diff` patch by file: each part starts at its `diff --git ` line, paired with the file's new and old paths (parsed with git2, same order).
 fn split_patch(patch: &[u8]) -> Result<Vec<(Vec<String>, Vec<u8>)>> {
     let diff = git2::Diff::from_buffer(patch).map_err(|e| CoreError::git("读取暂存架的补丁失败", e))?;
     let mut starts = Vec::new();
@@ -618,13 +618,13 @@ fn split_patch(patch: &[u8]) -> Result<Vec<(Vec<String>, Vec<u8>)>> {
     Ok(out)
 }
 
-/// `git apply` 按索引里记的文件状态判断工作区有没有改动；撤销等操作刚改写过文件时状态可能是旧的，
-/// 会误报“does not match index”。先刷新一次（失败不要紧）。
+/// `git apply` decides whether the worktree changed from file stats in the index; right after undo and similar operations rewrote files the stats may be stale,
+/// causing a false "does not match index". Refresh once first (failure is fine).
 pub(crate) fn refresh_index(dir: &std::path::Path) {
     let _ = git_cli::run(dir, &["update-index", "-q", "--refresh"], None);
 }
 
-/// 按差异的修改块把原来的内容改成新的内容；修改块和原来的内容对不上时返回 `None`
+/// Turn the original content into the new content by applying the diff's hunks; `None` when the hunks don't match the original
 fn apply_hunks(old: &[u8], hunks: &[crate::model::Hunk]) -> Option<Vec<u8>> {
     use crate::model::LineKind;
     let lines: Vec<&[u8]> = old.split_inclusive(|&b| b == b'\n').collect();
@@ -640,10 +640,10 @@ fn apply_hunks(old: &[u8], hunks: &[crate::model::Hunk]) -> Option<Vec<u8>> {
         String::from_utf8_lossy(t).into_owned()
     };
     let mut out = Vec::with_capacity(old.len());
-    let mut at = 0usize; // 原来内容的下一行（从 0 开始）
+    let mut at = 0usize; // Next line of the original content (0-based)
     for h in hunks {
         let start = (h.old_start as usize).saturating_sub(1);
-        // 空文件或纯新增时 old_start 是 0
+        // old_start is 0 for an empty file or pure additions
         let start = if h.lines.iter().all(|l| l.kind == LineKind::Add) && h.old_start > 0 { h.old_start as usize } else { start };
         if start < at || start > lines.len() {
             return None;

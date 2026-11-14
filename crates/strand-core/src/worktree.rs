@@ -1,16 +1,16 @@
-//! 工作区：状态、工作区差异、创建提交（说明书第 4 节）。
+//! Worktree: status, worktree diffs, creating commits (spec §4).
 
 use crate::error::{CoreError, ErrorCode, Result};
 use crate::model::{FileDiff, RepoMode, Selection, WorktreeStatus};
 use crate::{diff, git_cli, Session};
 
 impl Session {
-    /// 已跟踪文件相对 HEAD 的改动，以及未跟踪的文件。
+    /// Changes to tracked files relative to HEAD, plus untracked files.
     ///
-    /// 大工作区上要快（说明书 15：文件变化后 300 ms 内反映到提交面板）：
-    /// 先用系统 `git status` 找出哪些文件变了、哪些没跟踪（多线程，还会顺手把索引里过时的文件状态写回去；
-    /// libgit2 不写回，文件的时间戳变了以后每次都要把全部文件读一遍，5 万个文件要 6 秒）；
-    /// 再只对变了的这几个文件用 libgit2 算改动行数、识别重命名。`git status` 失败时退回全部用 libgit2。
+    /// Must be fast on large worktrees (spec §15: file changes show in the commit panel within 300 ms):
+    /// first use system `git status` to find changed and untracked files (multi-threaded, and it writes stale file stats back to the index;
+    /// libgit2 doesn't, so after timestamps change every file is read every time, 6 s for 50k files);
+    /// then use libgit2 only on those changed files to count lines and detect renames. Falls back to libgit2 for everything when `git status` fails.
     pub fn status(&self) -> Result<WorktreeStatus> {
         if let Some((at, st)) = self.status_cache.lock().ok().and_then(|mut c| c.take())
             && at.elapsed() < std::time::Duration::from_secs(2)
@@ -20,7 +20,7 @@ impl Session {
         status_at(self.path(), None)
     }
 
-    /// 某个文件的工作区内容相对 HEAD 的差异。未跟踪的文件显示为全部新增。
+    /// A file's worktree content diffed against HEAD. Untracked files show as fully added.
     pub fn diff_worktree(&self, path: &str, ignore_ws: bool, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
         let head = head_tree(&repo);
@@ -38,10 +38,10 @@ impl Session {
         diff::first_file(&d, path)
     }
 
-    /// 按勾选的文件创建提交，返回新提交的版本号。
+    /// Create a commit from the checked files and return the new commit's id.
     ///
-    /// 调用系统 `git commit --only`：只提交这些路径在工作区里的内容，不管暂存区里有什么，
-    /// 也会照常运行钩子、签名和换行符转换。提交后需要调用 `reload` 刷新日志。
+    /// Calls system `git commit --only`: commits only these paths' worktree content regardless of what's staged,
+    /// and runs hooks, signing and line-ending conversion as usual. Call `reload` afterwards to refresh the log.
     pub fn commit_create(&self, message: &str, selection: &Selection, sign_off: bool, author: Option<&str>) -> Result<String> {
         let author = author.map(str::trim).filter(|a| !a.is_empty());
         if let Some(a) = author {
@@ -81,8 +81,8 @@ impl Session {
         Ok(id.trim().to_string())
     }
 
-    /// 修订上一次提交（说明书 4.5）：勾选的改动并入它；`message` 不为空时替换原说明，为空时保留原说明。
-    /// 上一次提交已经推送时返回 `ALREADY_PUSHED`。没勾选文件时只改说明。
+    /// Amend the last commit (spec §4.5): fold the checked changes into it; a non-empty `message` replaces the original, an empty one keeps it.
+    /// Returns `ALREADY_PUSHED` when the last commit was already pushed. With no files checked, only the message changes.
     pub fn commit_amend(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>) -> Result<String> {
         let author = author.map(str::trim).filter(|a| !a.is_empty());
         if let Some(a) = author {
@@ -129,9 +129,9 @@ impl Session {
 }
 
 impl Session {
-    /// 有文件只提交一部分行：在一个临时索引里按 HEAD 搭好要提交的内容再提交，
-    /// 真正的索引和工作区不动（只把提交过的路径在索引里同步到新 HEAD），没勾的行留在工作区。
-    /// `amend` 为真时修订上一次提交；`message` 为空时保留原说明（只用于修订）。
+    /// Some files commit only part of their lines: build the content to commit from HEAD in a temporary index and commit that;
+    /// the real index and worktree are untouched (only the committed paths are synced to the new HEAD in the index), and unchecked lines stay in the worktree.
+    /// `amend` true amends the last commit; an empty `message` keeps the original (amend only).
     fn commit_partial(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>, amend: bool) -> Result<String> {
         let repo = self.git2()?;
         let dir = repo.path().join("strand");
@@ -153,7 +153,7 @@ impl Session {
                 args.push(a);
             }
             git_cli::run_env(self.path(), &args, message, &[("GIT_INDEX_FILE", idx.as_str())])?;
-            // 真正的索引里，提交过的路径对齐到新 HEAD；部分提交的文件剩下的改动留在工作区
+            // In the real index, align committed paths with the new HEAD; remaining changes of partially committed files stay in the worktree
             let mut reset = vec!["reset", "--quiet", "--"];
             reset.extend(paths.iter().map(String::as_str));
             let _ = git_cli::run(self.path(), &reset, None);
@@ -164,7 +164,7 @@ impl Session {
         r
     }
 
-    /// 临时索引：HEAD 的内容 + 整文件勾选的改动 + 部分勾选的行。返回涉及的路径。
+    /// Temporary index: HEAD's content + whole-file checked changes + partially checked lines. Returns the paths involved.
     fn build_partial_index(&self, repo: &git2::Repository, tmp: &std::path::Path, selection: &Selection) -> Result<Vec<String>> {
         let err = |e: git2::Error| CoreError::git("准备提交失败", e);
         let handle = git2::Repository::open(repo.path()).map_err(err)?;
@@ -213,8 +213,8 @@ impl Session {
         Ok(paths)
     }
 
-    /// 只带上选中改动行的文件内容：从 HEAD 的版本出发，丢掉选中的删除行、加上选中的新增行。
-    /// 用原文件的字节拼，保留换行符和文件末尾有没有换行。
+    /// File content with only the selected changed lines: start from HEAD's version, drop selected deleted lines and add selected added lines.
+    /// Built from the original file's bytes, keeping line endings and whether the file ends with a newline.
     fn partial_content(&self, repo: &git2::Repository, path: &str, picked: &[crate::model::LineRef]) -> Result<Vec<u8>> {
         let diff = self.diff_worktree(path, false, 3)?;
         if diff.binary {
@@ -237,7 +237,7 @@ impl Session {
         let new_lines: Vec<&[u8]> = new.split_inclusive(|&b| b == b'\n').collect();
         let stale = || CoreError::new(ErrorCode::InvalidRange, format!("{path} 已经变了，请重新勾选要提交的行"));
         let mut out: Vec<u8> = Vec::with_capacity(old.len());
-        let mut next = 1usize; // 下一行要复制的 HEAD 行号
+        let mut next = 1usize; // Next HEAD line to copy
         let copy_to = |out: &mut Vec<u8>, next: &mut usize, upto: usize| -> Result<()> {
             while *next < upto {
                 out.extend_from_slice(old_lines.get(*next - 1).ok_or_else(stale)?);
@@ -264,7 +264,7 @@ impl Session {
                         if changed(h, l) {
                             let n = line.new_no.ok_or_else(stale)? as usize;
                             let mut bytes = new_lines.get(n - 1).ok_or_else(stale)?.to_vec();
-                            // 新增行放在一行没有换行结尾的旧行后面时，补上换行
+                            // When an added line follows an old line without a trailing newline, add the newline
                             if out.last().is_some_and(|&b| b != b'\n') {
                                 out.push(b'\n');
                             }
@@ -281,7 +281,7 @@ impl Session {
         Ok(out)
     }
 
-    /// 丢弃这些文件的改动，回到 HEAD 的样子（说明书 4.7 回滚、4.1 文件行的丢弃图标）。新增的文件会被删除。
+    /// Discard these files' changes and reset them to HEAD (spec §4.7 rollback, the discard icon on file rows in §4.1). Added files are deleted.
     pub fn changes_discard(&self, paths: &[String]) -> Result<()> {
         if self.state()?.state != RepoMode::Normal {
             return Err(CoreError::new(ErrorCode::MergeInProgress, "合并还没完成，先解决冲突或中止"));
@@ -294,12 +294,12 @@ impl Session {
         git_cli::run(self.path(), &args, None).map(|_| ())
     }
 
-    /// 未跟踪的文件：加入版本控制
+    /// Untracked file: add to version control
     pub fn untracked_add(&self, path: &str) -> Result<()> {
         git_cli::run(self.path(), &["add", "--", path], None).map(|_| ())
     }
 
-    /// 未跟踪的文件：把路径追加到仓库根目录的 .gitignore
+    /// Untracked file: append its path to .gitignore at the repository root
     pub fn untracked_ignore(&self, path: &str) -> Result<()> {
         let f = self.path().join(".gitignore");
         let mut text = std::fs::read_to_string(&f).unwrap_or_default();
@@ -315,7 +315,7 @@ impl Session {
         std::fs::write(&f, text).map_err(|e| CoreError::git("写入 .gitignore 失败", e))
     }
 
-    /// 未跟踪的文件：移到系统废纸篓（不直接删除）
+    /// Untracked file: move to the system Trash (not deleted directly)
     pub fn untracked_delete(&self, path: &str) -> Result<()> {
         let full = self.path().join(path);
         if !full.starts_with(self.path()) || path.contains("..") {
@@ -325,15 +325,15 @@ impl Session {
     }
 }
 
-/// 工作区状态（见 [`Session::status`]）。不借用会话，写操作结束时可以和别的事同时算。
-/// `git status --porcelain=v2 -z --untracked-files=all --no-renames`：工作区状态和操作快照都从它出发（说明书 15）
+/// Worktree status (see [`Session::status`]). Doesn't borrow the session, so it can be computed alongside other work when a write finishes.
+/// `git status --porcelain=v2 -z --untracked-files=all --no-renames`: both worktree status and op snapshots start from it (spec §15)
 pub(crate) fn porcelain(path: &std::path::Path) -> Option<String> {
     git_cli::run(path, &["status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames", "--ignore-submodules=none"], None).ok()
 }
 
 pub(crate) fn status_at(path: &std::path::Path, pre: Option<&str>) -> Result<WorktreeStatus> {
     let repo = git2::Repository::open(path).map_err(|e| CoreError::git("打开仓库失败", e))?;
-    // 裸仓库没有工作区
+    // Bare repositories have no worktree
     if repo.is_bare() {
         return Ok(WorktreeStatus { changes: Vec::new(), untracked: Vec::new() });
     }
@@ -376,8 +376,8 @@ pub(crate) fn status_at(path: &std::path::Path, pre: Option<&str>) -> Result<Wor
     Ok(WorktreeStatus { changes, untracked })
     }
 
-/// 解析 `git status --porcelain=v2 -z --no-renames`：返回（已跟踪且有变化的路径，未跟踪的路径）。
-/// 条目之间用 NUL 分隔；普通条目“1 XY sub mH mI mW hH hI 路径”，冲突条目“u XY sub m1 m2 m3 mW h1 h2 h3 路径”，未跟踪“? 路径”。
+/// Parse `git status --porcelain=v2 -z --no-renames`: returns (changed tracked paths, untracked paths).
+/// Entries are NUL-separated; ordinary "1 XY sub mH mI mW hH hI path", conflicts "u XY sub m1 m2 m3 mW h1 h2 h3 path", untracked "? path".
 fn parse_porcelain_v2(out: &str) -> (Vec<String>, Vec<String>) {
     let (mut changed, mut untracked) = (Vec::new(), Vec::new());
     for e in out.split('\0').filter(|e| !e.is_empty()) {

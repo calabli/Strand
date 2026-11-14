@@ -1,5 +1,5 @@
-/* Strand 原型 · 工具栏、Git 日志、比较、追溯 */
-/* ---------- 工具栏 ---------- */
+/* Strand prototype · toolbar, Git log, compare, blame */
+/* ---------- Toolbar ---------- */
 function toolbar() {
   var b = B();
   var sync = S.merging
@@ -18,7 +18,7 @@ function toolbar() {
     '</div>';
 }
 
-/* ---------- 历史 ---------- */
+/* ---------- History ---------- */
 function remoteOf(name) { for (var i = 0; i < S.remotes.length; i++) if (S.remotes[i].name === 'origin/' + name) return S.remotes[i]; return null; }
 function refsOf(c) {
   var r = '', used = {};

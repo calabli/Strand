@@ -1,6 +1,6 @@
-// 二分查找（git bisect）：在提交的右键菜单里标“坏的”（有问题）和“好的”（没问题），
-// 之后 Git 每次检出中间的一个提交，日志上面这条提示条显示进度，测完点“好”“坏”或“跳过”，几步后找到第一个坏提交。
-// “结束”回到开始前的分支。状态都在 Git 自己那里，命令行里开始的也会显示在这里。
+// Bisect (git bisect): mark commits "bad" (has the problem) and "good" (doesn't) from the commit context menu,
+// then Git checks out a commit in between each time; this bar above the log shows progress; after testing click "good", "bad" or "skip", and a few steps later the first bad commit is found.
+// "End" returns to the branch from before it started. All state lives in Git, so a bisect started on the command line shows here too.
 
 import { useCallback, useEffect, useState } from "react";
 import { api, errOf } from "../api/commands";

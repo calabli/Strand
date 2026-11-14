@@ -1,4 +1,4 @@
-//! 工作区状态、差异、提交、提交详情、文件监听。
+//! Worktree status, diffs, commits, commit details, file watching.
 
 use std::path::Path;
 use std::process::Command;
@@ -31,7 +31,7 @@ fn write(dir: &Path, f: &str, s: &str) {
     std::fs::write(dir.join(f), s).unwrap();
 }
 
-/// 一个有两次提交的仓库，作者信息写进仓库配置，供 `commit_create` 调用系统 git 时使用。
+/// A repository with two commits; author info is written to the repository config for `commit_create` calling system git.
 fn repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
@@ -149,7 +149,7 @@ fn commit_detail_and_diff() {
     let dels: Vec<_> = diff.hunks.iter().flat_map(|h| &h.lines).filter(|l| l.kind == LineKind::Del).map(|l| l.text.as_str()).collect();
     assert_eq!(dels, vec!["fn b() {}"]);
 
-    // 根提交相对空树，所有文件都是新增
+    // A root commit diffs against the empty tree; every file is added
     let root = s.commit_detail(&page.rows[1].id).unwrap();
     assert_eq!(root.files.len(), 4);
     assert!(root.files.iter().all(|f| f.status == FileStatus::A));
@@ -185,21 +185,21 @@ fn watcher_reports_scopes() {
     git(&p, &["branch", "feature"]);
     assert!(collect(&rx).contains(&ChangeScope::Refs));
 
-    // 在命令行里贮藏：只报 Stash（和工作区的 Status），不报 Refs（贮藏不在日志里）
+    // Stash on the command line: only Stash (and Status for the worktree) is reported, not Refs (stashes aren't in the log)
     write(&p, "README.md", "再改\n");
     git(&p, &["stash", "push", "-q"]);
     let s = collect(&rx);
     assert!(s.contains(&ChangeScope::Stash) && !s.contains(&ChangeScope::Refs), "{s:?}");
 
-    // 暂存架的文件变了：报 Shelf
+    // Shelf files changed: Shelf is reported
     let shelf = p.join(".git/strand/shelf");
     std::fs::create_dir_all(&shelf).unwrap();
     std::fs::write(shelf.join("index.json"), "{}").unwrap();
     assert!(collect(&rx).contains(&ChangeScope::Shelf));
 }
 
-/// 工作区状态先用 git status 找出变化的文件（说明书 15）：带空格、中文的路径，子目录里没跟踪的文件，
-/// 暂存了一半的文件，类型变化，都和以前一样列出来；没有变化时两个列表都是空的
+/// Worktree status first finds changed files with git status (spec §15): paths with spaces or Chinese, untracked files in subdirectories,
+/// half-staged files and type changes are all listed as before; both lists are empty when nothing changed
 #[test]
 fn status_handles_odd_paths() {
     let d = repo();

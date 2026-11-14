@@ -1,4 +1,4 @@
-//! 日志过滤和排序（说明书 5.1）。
+//! Log filtering and sorting (spec §5.1).
 
 use std::path::Path;
 use std::process::Command;
@@ -36,9 +36,9 @@ fn commit(d: &Path, file: &str, msg: &str, who: (&str, &str), t: i64) {
     git_as(d, &["commit", "-q", "-m", msg], who, BASE + t);
 }
 
-/// main:    1 初始 - 2 修复登录 - 5 合并 feature
-/// feature:           \ 3 新增 src/ui/Button.tsx - 4 Fix button
-/// other:   从 2 分出 6 修复 other（提交时间比 2 还早）
+/// main:    1 initial - 2 fix login - 5 merge feature
+/// feature:           \ 3 add src/ui/Button.tsx - 4 Fix button
+/// other:   branches from 2: 6 fix other (commit time earlier than 2)
 fn sample() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();
@@ -56,7 +56,7 @@ fn sample() -> tempfile::TempDir {
     dir
 }
 
-/// 查到不再是 partial 为止（路径过滤在后台跑，首批结果可能不全）
+/// Query until it's no longer partial (path filtering runs in the background, so the first results may be incomplete)
 fn query_all(s: &mut Session, f: &LogFilter, sort: LogSort) -> strand_core::model::LogPage {
     let t0 = std::time::Instant::now();
     loop {
@@ -84,15 +84,15 @@ fn text(t: &str) -> LogFilter {
 fn text_search_matches_title_body_and_hash() {
     let dir = sample();
     let mut s = Session::open(dir.path()).unwrap();
-    // 默认不区分大小写，标题和正文都匹配
+    // Case-insensitive by default; matches both title and body
     assert_eq!(titles(&mut s, &text("fix"), LogSort::Topo), ["Fix button color"]);
-    // 子提交排在父提交前：“修复 other”是“修复登录”的子提交
+    // Children come before parents: "fix other" is a child of "fix login"
     assert_eq!(titles(&mut s, &text("修复"), LogSort::Topo), ["修复 other", "修复登录"]);
     assert_eq!(titles(&mut s, &text("TOKEN"), LogSort::Topo), ["修复登录"]);
-    // 区分大小写
+    // Case-sensitive
     let f = LogFilter { text: "fix".into(), case_sensitive: true, ..Default::default() };
     assert!(titles(&mut s, &f, LogSort::Topo).is_empty());
-    // 哈希前缀
+    // Hash prefix
     let first = s.log_page(0, 1).unwrap().rows.remove(0);
     let got = titles(&mut s, &text(&first.id[..7].to_uppercase()), LogSort::Topo);
     assert!(got.contains(&first.title));
@@ -107,7 +107,7 @@ fn regex_and_invalid_regex() {
     let bad = LogFilter { text: "(".into(), regex: true, ..Default::default() };
     let err = s.log_query(&bad, LogSort::Topo, 0, 10).unwrap_err();
     assert_eq!(err.code, ErrorCode::InvalidRegex);
-    // 不是正则时，括号按普通字符匹配
+    // When not a regex, parentheses match literally
     assert!(titles(&mut s, &text("("), LogSort::Topo).is_empty());
 }
 
@@ -120,7 +120,7 @@ fn branch_author_date_path_combine() {
     assert_eq!(titles(&mut s, &branch("other"), LogSort::Topo), ["修复 other", "修复登录", "初始提交"]);
     assert!(titles(&mut s, &branch("不存在"), LogSort::Topo).is_empty());
 
-    // 作者按邮箱，不区分大小写；作者列表按提交数排序
+    // Authors by email, case-insensitive; the author list is sorted by commit count
     let authors = s.log_authors().unwrap();
     assert_eq!(authors[0].email, "linxia@example.com");
     assert_eq!(authors[0].count, 4);
@@ -131,13 +131,13 @@ fn branch_author_date_path_combine() {
     let since = LogFilter { since: Some(BASE + 250), ..Default::default() };
     assert_eq!(titles(&mut s, &since, LogSort::Topo), ["合并 feature", "Fix button color"]);
 
-    // 路径子串，不区分大小写
+    // Path substring, case-insensitive
     let path = LogFilter { path: Some("ui/button".into()), ..Default::default() };
     assert_eq!(titles(&mut s, &path, LogSort::Topo), ["Fix button color", "新增按钮"]);
     let path_cs = LogFilter { path: Some("ui/button".into()), case_sensitive: true, ..Default::default() };
     assert!(titles(&mut s, &path_cs, LogSort::Topo).is_empty());
 
-    // 组合取交集
+    // Combined conditions intersect
     let all = LogFilter {
         text: "修复".into(),
         branch: Some("main".into()),
@@ -162,14 +162,14 @@ fn date_sort_and_locate_in_results() {
     assert_eq!(s.log_locate_in("main~1", &f, LogSort::Topo).unwrap(), Some(1));
     assert_eq!(s.log_locate_in("feature", &f, LogSort::Topo).unwrap(), None);
 
-    // 仓库重新读取后缓存清空，结果跟着变
+    // The cache is cleared when the repository is re-read, and the results follow
     commit(dir.path(), "z.txt", "修复 z", LIN, 500);
     s.reload().unwrap();
     assert_eq!(titles(&mut s, &f, LogSort::Topo)[0], "修复 z");
 }
 
-/// 首批结果先返回（说明书 15）：路径过滤在后台跑，查询不等它；算完后和一次性算的结果一样，
-/// 换条件时旧的后台查询被丢掉，不会混进新结果
+/// First results return first (spec §15): path filtering runs in the background and queries don't wait for it; when done the result equals a one-shot computation,
+/// and when conditions change the old background query is dropped and never mixes into new results
 #[test]
 fn path_filter_streams_and_matches_full_result() {
     let dir = sample();
@@ -182,19 +182,19 @@ fn path_filter_streams_and_matches_full_result() {
     assert_eq!(done.total, full.len());
     assert!(done.rows.iter().all(|c| full.iter().any(|id| id.to_string() == c.id)));
 
-    // 换一个路径：结果只来自新的查询
+    // Switch to another path: results come only from the new query
     let g = LogFilter { path: Some("README".into()), ..Default::default() };
     let other = query_all(&mut s, &g, LogSort::Topo);
     assert!(other.rows.iter().all(|c| !done.rows.iter().any(|d| d.id == c.id) || c.title == "初始提交"));
-    // 再换回来也能算完
+    // Switching back also completes
     assert_eq!(query_all(&mut s, &f, LogSort::Topo).total, full.len());
 
-    // 写错的正则照样马上报错
+    // A bad regex still fails immediately
     let bad = LogFilter { text: "(".into(), regex: true, path: Some("ui".into()), ..Default::default() };
     assert!(s.log_query(&bad, LogSort::Topo, 0, 10).is_err());
 }
 
-/// 重新读取仓库但提交和引用都没变（如抓取了但没有新东西）：过滤结果和后台的路径查询都留着，不用重来
+/// Re-reading the repository with commits and refs unchanged (e.g. a fetch with nothing new): filter results and the background path query are kept, no restart
 #[test]
 fn reload_without_changes_keeps_filter() {
     let dir = sample();
@@ -206,7 +206,7 @@ fn reload_without_changes_keeps_filter() {
     assert!(!again.partial, "没有变化时不重新跑路径查询");
     assert_eq!(again.total, done.total);
 
-    // 引用变了（新建分支）：结果照样对，分支过滤能看到新分支
+    // Refs changed (new branch): results are still correct and the branch filter sees the new branch
     git_as(dir.path(), &["branch", "新分支", "main"], LIN, BASE);
     s.reload().unwrap();
     let b = LogFilter { branch: Some("新分支".into()), ..Default::default() };
@@ -214,7 +214,7 @@ fn reload_without_changes_keeps_filter() {
     assert_eq!(query_all(&mut s, &f, LogSort::Topo).total, done.total);
 }
 
-/// 同一时间的提交很多时，每次读出的顺序也一样：重新读取后不会被当成“提交变了”而丢掉过滤缓存
+/// With many commits at the same time, the order is the same on every read: re-reading isn't taken as "commits changed" and doesn't drop the filter cache
 #[test]
 fn same_time_commits_keep_order_across_reloads() {
     let dir = sample();
@@ -240,48 +240,48 @@ fn same_time_commits_keep_order_across_reloads() {
     assert!(!s.log_query(&f, LogSort::Topo, 0, 10).unwrap().partial);
 }
 
-/// 作者多选、按规则匹配（包含、前缀、后缀、正则，名字或邮箱满足就算）、自定义日期范围
+/// Multi-select authors, match by rule (contains, prefix, suffix, regex; name or email matching counts), custom date range
 #[test]
 fn authors_multi_rules_and_date_range() {
     let dir = sample();
     let mut s = Session::open(dir.path()).unwrap();
-    // 第三个作者
+    // The third author
     git_as(dir.path(), &["checkout", "-q", "main"], LIN, BASE);
     commit(dir.path(), "c.txt", "王五的提交", ("王五", "wangwu@corp.cn"), 500);
     s.reload().unwrap();
     let rule = |kind, t: &str| LogFilter { author_match: Some(AuthorMatch { kind, text: t.into() }), ..Default::default() };
 
-    // 多选：取并集
+    // Multi-select: union
     let two = LogFilter { authors: vec!["ZHOU@example.com".into(), "wangwu@corp.cn".into()], ..Default::default() };
     assert_eq!(titles(&mut s, &two, LogSort::Topo), ["王五的提交", "Fix button color", "新增按钮"]);
-    // 前缀：名字“周”开头
+    // Prefix: name starts with "周"
     assert_eq!(titles(&mut s, &rule(MatchKind::Prefix, "周"), LogSort::Topo), ["Fix button color", "新增按钮"]);
-    // 后缀：邮箱以 corp.cn 结尾
+    // Suffix: email ends with corp.cn
     assert_eq!(titles(&mut s, &rule(MatchKind::Suffix, "CORP.CN"), LogSort::Topo), ["王五的提交"]);
-    // 包含：example（林夏和周舟）
+    // Contains: example (林夏 and 周舟)
     assert_eq!(titles(&mut s, &rule(MatchKind::Contains, "example"), LogSort::Topo).len(), 6);
-    // 正则：名字是“林夏”或“王五”
+    // Regex: name is "林夏" or "王五"
     assert_eq!(titles(&mut s, &rule(MatchKind::Regex, "^(林夏|王五)$"), LogSort::Topo).len(), 5);
-    // 前缀里的特殊字符按字面匹配
+    // Special characters in a prefix match literally
     assert!(titles(&mut s, &rule(MatchKind::Prefix, "lin.ia"), LogSort::Topo).is_empty());
-    // 规则和多选是“或”
+    // Rule and multi-select are OR-ed
     let mix = LogFilter { authors: vec!["wangwu@corp.cn".into()], author_match: Some(AuthorMatch { kind: MatchKind::Prefix, text: "zhou".into() }), ..Default::default() };
     assert_eq!(titles(&mut s, &mix, LogSort::Topo), ["王五的提交", "Fix button color", "新增按钮"]);
-    // 空规则不过滤
+    // An empty rule doesn't filter
     assert_eq!(titles(&mut s, &rule(MatchKind::Regex, "  "), LogSort::Topo).len(), 7);
-    // 正则写错
+    // Bad regex
     let e = s.log_query(&rule(MatchKind::Regex, "(林"), LogSort::Topo, 0, 10).unwrap_err();
     assert_eq!(e.code, ErrorCode::InvalidRegex);
     assert_eq!(e.detail.unwrap()["field"], "author");
 
-    // 日期范围：[since, until)
+    // Date range: [since, until)
     let range = LogFilter { since: Some(BASE + 100), until: Some(BASE + 300), ..Default::default() };
     assert_eq!(titles(&mut s, &range, LogSort::Topo), ["新增按钮", "修复登录"]);
     let until = LogFilter { until: Some(BASE + 100), ..Default::default() };
     assert_eq!(titles(&mut s, &until, LogSort::Date), ["修复 other", "初始提交"]);
 }
 
-/// 只看第一父提交、不显示合并提交、折叠线性分支
+/// First parent only, hide merge commits, collapse linear branches
 #[test]
 fn first_parent_no_merges_and_collapse() {
     let dir = tempfile::tempdir().unwrap();
@@ -307,14 +307,14 @@ fn first_parent_no_merges_and_collapse() {
     assert!(!titles(&mut s, &nm, LogSort::Topo).contains(&"合并旁支".to_string()));
     assert_eq!(titles(&mut s, &nm, LogSort::Topo).len(), 6);
 
-    // 折叠：已删除的旁支上的三个提交收起来，记在合并提交那一行；有分支的“保留的分支”不折叠；图谱照样有
+    // Collapsing: the three commits on the deleted side branch are folded and noted on the merge commit's row; the "kept branch" with a branch isn't folded; the graph is still there
     let c = LogFilter { collapse_linear: true, ..Default::default() };
     let p = s.log_query(&c, LogSort::Topo, 0, 100).unwrap();
     let got: Vec<(&str, u32)> = p.rows.iter().map(|r| r.title.as_str()).zip(p.folded.iter().copied()).collect();
     assert_eq!(got, [("保留的分支", 0), ("合并旁支", 3), ("主线 2", 0), ("主线 1", 0)]);
     assert_eq!(p.graph.len(), 4);
     assert!(p.lanes >= 2, "合并提交仍然画出两条线");
-    // 折叠起来的提交找不到位置，留下的能找到
+    // Folded commits can't be located; the remaining ones can
     let out = Command::new("git").args(["rev-parse", "main^2"]).current_dir(d).output().unwrap();
     let hidden = String::from_utf8_lossy(&out.stdout).trim().to_string();
     assert_eq!(s.log_locate_in(&hidden, &c, LogSort::Topo).unwrap(), None);

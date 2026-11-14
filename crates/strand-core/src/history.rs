@@ -1,4 +1,4 @@
-//! 提交详情和某个提交里的文件差异（说明书 5.5、10.6）。
+//! Commit details and file diffs within a commit (spec §5.5, §10.6).
 
 use crate::error::{CoreError, ErrorCode, Result};
 use crate::model::{CommitDetail, FileDiff};
@@ -13,11 +13,11 @@ impl Session {
         Ok(CommitDetail { commit, files, caps })
     }
 
-    /// 提交（也可以是贮藏这种不在日志里的提交）相对第一个父提交改动的文件
+    /// Files a commit (also a commit not in the log, like a stash) changed relative to its first parent
     pub(crate) fn commit_files(&self, id: &str) -> Result<Vec<crate::model::FileChange>> {
         let repo = self.git2()?;
         let mut d = commit_diff(&repo, id, None)?;
-        // 部分克隆：先把缺的文件内容一次下载下来（找重命名也要读内容）
+        // Partial clone: download the missing file contents in one go first (finding renames reads contents too)
         diff::prefetch(&repo, &d, diff::PREFETCH_LIMIT);
         find_renames(&mut d)?;
         let mut ignored = Vec::new();
@@ -28,7 +28,7 @@ impl Session {
         self.diff_commit_ctx(id, path, 3)
     }
 
-    /// 同 [`Session::diff_commit`]，指定上下文行数（很大时就是整个文件，差异窗口的全文显示用）
+    /// Same as [`Session::diff_commit`], with the number of context lines (a huge value means the whole file, for the full view in the diff window)
     pub fn diff_commit_ctx(&self, id: &str, path: &str, context: u32) -> Result<FileDiff> {
         let repo = self.git2()?;
         let d = commit_diff_ctx(&repo, id, Some(path), context)?;
@@ -37,7 +37,7 @@ impl Session {
     }
 }
 
-/// 提交相对第一个父提交的差异；根提交相对空树。
+/// A commit's diff against its first parent; a root commit against the empty tree.
 fn commit_diff<'r>(repo: &'r git2::Repository, id: &str, path: Option<&str>) -> Result<git2::Diff<'r>> {
     commit_diff_ctx(repo, id, path, 3)
 }

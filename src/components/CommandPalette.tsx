@@ -1,5 +1,5 @@
-// 命令面板（说明书 12.1）：⌘K 打开。输入为空时列出前 10 项常用命令；有输入时按子串匹配命令名和分类，
-// 同时搜索提交说明和哈希。列表和按键由 Palette 组件处理（分支弹窗也用它）。
+// Command palette (spec §12.1): opened with ⌘K. With empty input, lists the top 10 common commands; with input, matches command names and categories by substring,
+// and also searches commit messages and hashes. The list and keys are handled by the Palette component (the branch popup uses it too).
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/commands";
@@ -10,10 +10,10 @@ import { Palette, type PaletteRow } from "./Palette";
 
 export interface PaletteCommand {
   id: string;
-  /** 分类，如“视图”“操作” */
+  /** Category, e.g. "View", "Actions" */
   section: string;
   label: string;
-  /** 快捷键提示 */
+  /** Shortcut hint */
   hint?: string;
   icon?: string;
   run: () => void;
@@ -27,10 +27,10 @@ export function CommandPalette({ commands, onPickCommit, onClose }: { commands: 
   const [q, setQ] = useState("");
   const [commits, setCommits] = useState<Commit[]>([]);
 
-  // 搜索提交：输入停 150 ms 后查一次
+  // Search commits: query once after typing pauses for 150 ms
   useEffect(() => {
     const text = q.trim();
-    // 先清掉上一次的结果，免得回车选中和当前输入不匹配的提交
+    // Clear the previous results first so Enter doesn't select a commit that doesn't match the current input
     setCommits([]);
     if (!text) return;
     let live = true;
@@ -68,7 +68,7 @@ export function CommandPalette({ commands, onPickCommit, onClose }: { commands: 
   );
 }
 
-/** 快捷键说明（说明书 12.3），命令面板里的“查看快捷键”打开 */
+/** Keyboard shortcuts (spec §12.3), opened by "Show shortcuts" in the command palette */
 export const SHORTCUTS: [string, string][] = [
   ["⌘K", "打开或关闭命令面板"],
   ["⌘F", "搜索日志"],

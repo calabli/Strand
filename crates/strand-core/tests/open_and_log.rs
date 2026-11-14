@@ -1,4 +1,4 @@
-//! 用系统 git 建一个临时仓库，检查打开、状态和日志分页。
+//! Build a temporary repository with system git and check opening, status and log paging.
 
 use std::path::Path;
 use std::process::Command;
@@ -75,7 +75,7 @@ fn sample_repo() -> tempfile::TempDir {
 #[test]
 fn opens_and_reads_state() {
     let dir = sample_repo();
-    // 从子目录打开也能找到仓库根
+    // Opening from a subdirectory finds the repository root
     std::fs::create_dir(dir.path().join("sub")).unwrap();
     let s = Session::open(dir.path().join("sub")).unwrap();
     let st = s.state().unwrap();
@@ -103,7 +103,7 @@ fn reads_log_with_refs_and_graph() {
     assert_eq!(page.rows[4].author.name, "林夏");
     assert_eq!(page.rows[4].time, 1_700_000_001);
 
-    // 合并提交在泳道 0，feature 的两个提交在泳道 1
+    // The merge commit is in lane 0, feature's two commits in lane 1
     let lanes: Vec<u32> = page.graph.iter().map(|g| g.lane).collect();
     assert_eq!(lanes, vec![0, 1, 1, 0, 0]);
     assert_eq!(page.lanes, 2);
@@ -132,7 +132,7 @@ fn parents_never_before_children_in_the_same_second() {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();
     git(d, &["init", "-q", "-b", "main"]);
-    // 所有提交同一时间：只按时间排序会乱
+    // All commits at the same time: sorting by time alone would scramble them
     commit(d, "a.txt", "初始提交", 0);
     git(d, &["checkout", "-q", "-b", "feature"]);
     commit(d, "f.txt", "功能", 0);
@@ -165,7 +165,7 @@ fn parents_never_before_children_in_the_same_second() {
     assert_eq!(rows.last().unwrap().title, "初始提交");
 }
 
-/// 文件监听触发的刷新：引用和 HEAD 没变时不重新读取
+/// Refresh triggered by file watching: no re-read when refs and HEAD are unchanged
 #[test]
 fn reload_if_changed_skips_when_nothing_moved() {
     let d = tempfile::tempdir().unwrap();

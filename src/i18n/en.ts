@@ -1,5 +1,5 @@
-// 英文翻译：键是中文原文（含 {0} 占位），值是英文。由界面里的 t("…") 和核心层的提示文字整理而来。
-// 新增界面文字时在这里补上英文；开发模式下缺少的会在控制台提示“[i18n] 缺英文”。
+// English translations: keys are the original Chinese (with {0} placeholders), values are English. Compiled from t("…") in the UI and messages from the core layer.
+// Add English here when adding UI text; missing ones are reported in the console in development as "[i18n] 缺英文".
 export const en: Record<string, string> = {
   "跳到提交": "Jump to commit",
   "输入哈希前缀、分支名或标签名。跳转时会清空过滤条件。": "Enter a hash prefix, branch name or tag name. Jumping clears the filters.",

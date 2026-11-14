@@ -1,8 +1,8 @@
-// 项目文件（左侧面板的“文件”标签）：项目里的文件按目录树显示（已跟踪的和没被忽略的未跟踪文件），
-// 目录一开始折叠；上面的搜索框按路径过滤，过滤时全部展开。有未提交改动的文件在右边标出状态。
-// 单击文件在中间打开文件视图（内容和修改链）。
-// 搜索框可以切到“内容”：在文件内容里全文搜（git grep），默认搜工作区，也可以选一个版本（分支、标签、版本号）；
-// 结果按文件分组，列出行号和那一行，点一行打开文件并跳到那一行。
+// Project files (the "Files" tab in the left panel): the project's files as a directory tree (tracked files and untracked ones not ignored),
+// with directories collapsed at first; the search box above filters by path and expands everything while filtering. Files with uncommitted changes show their status on the right.
+// Clicking a file opens the file view (content and change chain) in the middle.
+// The search box can switch to "Content": full-text search in file contents (git grep), the worktree by default or a chosen revision (branch, tag, commit id);
+// results are grouped by file with line numbers and lines; clicking one opens the file at that line.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
@@ -13,20 +13,20 @@ import { Found } from "./inlineDiff";
 import { FileTree, StatusBadge, TypeIcon } from "./FileRow";
 import { t, tr } from "../i18n";
 
-/** 搜索时最多显示这么多个文件 */
+/** Maximum files shown while searching */
 const LIMIT = 3000;
 
 interface Props {
   status: WorktreeStatus | null;
-  /** 中间正在看的文件 */
+  /** The file being viewed in the middle */
   active: string | null;
-  /** 变了就重新读取文件列表（仓库变化、切换分支后） */
+  /** Re-read the file list when this changes (repository changes, after switching branches) */
   reloadKey: string;
-  /** 内容搜索时选版本用 */
+  /** For choosing a revision in content search */
   refs: RefsList | null;
-  /** 打开文件；从内容搜索结果打开时带上行号和版本（空是工作区） */
+  /** Open a file; from content search results, with the line and revision (empty is the worktree) */
   onOpen: (path: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }) => void;
-  /** 文件的右键菜单（打开、和别的文件或剪贴板比较） */
+  /** File context menu (open, compare with another file or the clipboard) */
   onMenu?: (path: string, x: number, y: number) => void;
 }
 
@@ -49,7 +49,7 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu }
     };
   }, [reloadKey, nonce]);
 
-  // 工作区里有改动的文件：路径 → 状态（未跟踪的是 ?）
+  // Files with changes in the worktree: path → status (? for untracked)
   const marks = useMemo(() => {
     const m = new Map<string, "M" | "A" | "D" | "R" | "T" | "?">();
     for (const c of status?.changes ?? []) m.set(c.path, c.status);
@@ -105,7 +105,7 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu }
           </button>
         </span>
       </div>
-      {/* 两种搜索都留着，切换时不丢输入和结果 */}
+      {/* Both searches stay mounted so switching keeps input and results */}
       <div className="pf-pane" hidden={mode !== "content"}>
         <ContentSearch refs={refs} reloadKey={reloadKey} onOpen={onOpen} />
       </div>
@@ -131,12 +131,12 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu }
   );
 }
 
-/** 在文件内容里全文搜（git grep） */
+/** Full-text search in file contents (git grep) */
 function ContentSearch({ refs, reloadKey, onOpen }: { refs: RefsList | null; reloadKey: string; onOpen: Props["onOpen"] }) {
   const [q, setQ] = useState("");
   const [regex, setRegex] = useState(false);
   const [cs, setCs] = useState(false);
-  /** 搜哪个版本；空是工作区 */
+  /** Which revision to search; empty is the worktree */
   const [rev, setRev] = useState<string | null>(null);
   const [res, setRes] = useState<{ data: ProjectSearch | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null });
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
@@ -144,7 +144,7 @@ function ContentSearch({ refs, reloadKey, onOpen }: { refs: RefsList | null; rel
   const input = useRef<HTMLInputElement>(null);
   const re = findRegExp(q.trim(), regex, cs);
 
-  // 输入后 400 ms（或回车）再搜；工作区的内容变了（reloadKey）也重搜
+  // Search 400 ms after typing (or on Enter); search again when the worktree content changes (reloadKey)
   const [go, setGo] = useState(0);
   useEffect(() => {
     const text = q.trim();
