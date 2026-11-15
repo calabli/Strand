@@ -346,7 +346,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
     <div class="fact"><div class="n">135<small>ms</small></div><div class="l">打开 8.6 万个提交的 git 仓库（有 commit-graph 时，本机发布版）</div></div>
     <div class="fact"><div class="n">6.4<small>MB</small></div><div class="l">macOS 安装包（dmg）；Windows 安装程序 5.1 MB</div></div>
     <div class="fact"><div class="n">300<small>ms</small></div><div class="l">文件改动后提交面板刷新的目标，5 万个文件的工作区也一样</div></div>
-    <div class="fact"><div class="n">184</div><div class="l">个核心层测试，每个功能都在真实的临时仓库里跑</div></div>
+    <div class="fact"><div class="n">191</div><div class="l">个核心层测试，每个功能都在真实的临时仓库里跑</div></div>
   </div>
 </section>
 
@@ -358,11 +358,14 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
       <p class="intro">大仓库也能秒开：日志结构先读出来，说明和作者按页取。图谱在后台线程算，滚动不卡。</p>
       <div class="feats">
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 2v12M4 10c0-3 8-2 8-6"/></svg>图谱和过滤</h3><p>按分支、作者、日期、路径过滤，搜索支持正则和区分大小写，也能在改动内容里搜。单击分支只看它。</p></div>
-        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h4M2 8h4M2 12h4M8 4h6M8 8h6M8 12h6"/></svg>逐行追溯和文件历史</h3><p>每一行是谁在哪个提交改的；文件的修改链跟着改名走，任选两个版本对比。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h4M2 8h4M2 12h4M8 4h6M8 8h6M8 12h6"/></svg>逐行追溯和文件历史</h3><p>每行左边写着谁在哪天改的，越新底色越深；右键一行“追溯改动之前的版本”，一路往前追。修改链跟着改名走，任选两个版本对比。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2v12M3 5l2.5 3L3 11M13 5l-2.5 3L13 11"/></svg>二分查找</h3><p>在提交上标好、坏，日志上方的提示条显示正在测哪个、大约还要几步，找到后直接定位第一个坏提交。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5v3h3"/></svg>操作记录（reflog）</h3><p>重置、变基、删分支丢下的提交标成“不在日志里”，从那一行新建分支就找回来了。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 2h7v12H3zM12 5v9"/></svg>差异</h3><p>合并视图或左右对比，左右各自横向滚动；忽略空白、语法高亮、代码位置面包屑，工作区文件可以直接在差异里改。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 3h12v10H2zM8 3v10"/></svg>图片对比</h3><p>png、jpg、gif、webp 显示两边的图、尺寸和大小，并排、滑动或叠加着看。合并冲突里的图片也能先看再选。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h4l1-1.5h3L11 4h3v9H2z"/></svg>文件标签页</h3><p>一个文件一个标签，可以固定。⌘W 关掉、⇧⌘T 重新打开、⌘E 列出最近的文件，右键关闭其他、左侧、右侧或全部。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 3h12v10H2zM5 6h6M5 9h4"/></svg>项目文件和内容搜索</h3><p>目录树里点开任何文件，用 <code>git grep</code> 在工作区或某个版本里搜内容，结果按文件分组，点一处跳过去。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 3h12v10H2zM2 6h12M5 9h2"/></svg>控制台</h3><p>Strand 执行的每一条 git 命令、用时和输出都列在控制台里，凭据自动打码，出了问题一眼看到是哪一步。</p></div>
       </div>
     </section>
 
@@ -374,8 +377,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M3 14c.4-2.6 2.4-4 5-4s4.6 1.4 5 4"/></svg>作者和共同作者</h3><p>这一次换个作者提交，或者加共同作者，写成说明末尾的 <code>Co-authored-by</code> 行。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5v3h3M8 5v3l2 1.3"/></svg>说明历史和模板</h3><p>翻出自己在这个仓库写过的说明；读取 <code>commit.template</code>，模板原样没改不让提交。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8.5l3 3 7-7"/></svg>提交前检查</h3><p>提交前先格式化、再跑检查命令，问题按文件和行号列出来，可以点进去看，也可以仍然提交。</p></div>
-        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12M4 4v8M12 4v8"/></svg>暂存架和贮藏</h3><p>把一部分改动搁起来，之后只取回其中几个文件；取回有冲突时逐个处理。</p></div>
-        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 2h5l3 3v9H4zM6.5 8h3M6.5 11h3"/></svg>整理提交</h3><p>上移、下移、并入、丢弃，实时显示“N 个提交整理后变成 M 个”；Fixup 并入更早的提交，整个是一步撤销。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12M4 4v8M12 4v8"/></svg>暂存架和贮藏</h3><p>把一部分改动搁起来，可以连同未跟踪的新文件一起；之后只取回其中几个文件，取回有冲突时逐个处理。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 2h5l3 3v9H4zM6.5 8h3M6.5 11h3"/></svg>整理提交</h3><p>上移、下移、并入、丢弃、改说明，实时显示“N 个提交整理后变成 M 个”；Fixup 并入更早的提交，整个是一步撤销。</p></div>
       </div>
     </section>
 
@@ -409,6 +412,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h5l1 1.5h6V13H2z"/></svg>工作目录</h3><p>用 <code>git worktree</code> 在新文件夹里检出分支，在 Strand 里直接切过去。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 2h5l3 3v9H4zM8 6v5M6 9l2 2 2-2"/></svg>补丁</h3><p>为提交或勾选的文件创建补丁；把 .patch 拖进窗口应用，<code>format-patch</code> 的补丁可以直接生成提交。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2.5l1.5 3.2 3.5.4-2.6 2.4.7 3.5L8 10.3 4.9 12l.7-3.5L3 6.1l3.5-.4z"/></svg>签名和标签</h3><p>带说明的标签、签名标签；提交详情里显示签名是否有效，GPG 和 SSH 都行。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h5l1 1.5h6V13H2zM7 8.5h3.5V11H7z"/></svg>子模块</h3><p>分支树里列出子模块和状态：没初始化、检出的提交不同、里面有改动。一键更新到记录的提交，或者在 Strand 里打开它。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 2h5l3 3v9H4zM6.5 8.5h3M6.5 11h3M9 2v3h3"/></svg>Git LFS</h3><p>LFS 文件的差异、全文和图片对比显示真实内容，而不是指针；还没下载的文件提示一下，点一下就 <code>git lfs pull</code>。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13h10"/></svg>自动更新</h3><p>启动时看看 GitHub 上有没有新版本，有的话在角落提示，下载、核对签名、安装、重启一气呵成。可以关掉。</p></div>
       </div>
     </section>
 
@@ -427,6 +433,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
             <tr><td>Compare with Clipboard</td><td>和剪贴板比较</td><td>“文件”标签和提交面板的右键菜单</td></tr>
             <tr><td>Interactively Rebase from Here</td><td>从这里开始整理</td><td>提交的右键菜单</td></tr>
             <tr><td>Push All up to Here</td><td>推送到这里为止</td><td>提交的右键菜单</td></tr>
+            <tr><td>Annotate Previous Revision</td><td>追溯改动之前的版本</td><td>文件视图逐行追溯里右键一行</td></tr>
+            <tr><td>Pin Tab · Reopen Closed Tab · Recent Files</td><td>固定标签页 · ⇧⌘T · ⌘E</td><td>文件标签的右键菜单和快捷键</td></tr>
+            <tr><td>Update Submodules</td><td>更新子模块</td><td>分支树的“子模块”分组、命令面板</td></tr>
           </tbody>
         </table>
       </div>
