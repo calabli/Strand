@@ -62,6 +62,8 @@ Strand calls the Git installed on your system, so you need Git 2.30 or later. On
 
 The macOS build is ad-hoc signed and not notarized. The first time you open it, macOS blocks it: right-click the app and choose Open, or allow it under System Settings › Privacy & Security. If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/Strand.app`. The Windows builds are unsigned, so SmartScreen may ask you to confirm.
 
+A user manual with screenshots (in Chinese) is in [docs/Strand 使用说明书.md](docs/Strand%20使用说明书.md).
+
 ## Development
 
 Requirements: Rust 1.88+, Node.js 20+, pnpm, and system Git 2.30+. On Windows you also need WebView2 and the Visual Studio Build Tools.
@@ -153,7 +155,7 @@ cargo run --release -p strand-core --example perf -- /tmp/perf
 | `src/components/` | UI components: toolbar, commit panel, branch tree, command palette, log view, commit details, diffs, conflict view and merge window, dialogs, menus |
 | `src/i18n/` | Translations. UI text is written as `t("<Chinese source>")`; English is in `en.ts`, keyed by the Chinese text |
 | `src/styles/` | Theme tokens and app styles |
-| `docs/` | The product spec (in Chinese, 17 sections: interaction rules, availability conditions, backend commands, data model, error codes, performance targets, acceptance criteria) |
+| `docs/` | The user manual with screenshots and the product spec (both in Chinese; the spec has 17 sections: interaction rules, availability conditions, backend commands, data model, error codes, performance targets, acceptance criteria) |
 | `prototype/` | The interactive HTML prototype (open `prototype/index.html` directly), with a smoke test: `node prototype/tests/smoke.js` |
 | `design/` | Source files of the early design canvas |
 
