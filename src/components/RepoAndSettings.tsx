@@ -113,7 +113,9 @@ export function RepoList({
                   <span className="cur-tag">{t("当前")}</span>
                 )}
               </span>
-              <span className="repo-path dim">{r.path}</span>
+              <span className="repo-path dim" title={r.path}>
+                <bdi>{r.path}</bdi>
+              </span>
             </button>
             <span className="repo-acts">
               <span className="dim small repo-time">
