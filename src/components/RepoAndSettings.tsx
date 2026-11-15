@@ -158,11 +158,17 @@ export function RepoPopup({
   onOpen,
   onBrowse,
   onClone,
+  onTerminal,
+  onReveal,
   onClose,
 }: {
   x: number;
   y: number;
   current: string | null;
+  /** Open a terminal in the current repository's folder */
+  onTerminal?: () => void;
+  /** Reveal the current repository's folder in the file manager */
+  onReveal?: () => void;
   onOpen: (path: string) => void;
   onBrowse: () => void;
   onClone: () => void;
@@ -216,6 +222,31 @@ export function RepoPopup({
       >
         {t("克隆仓库…")}
       </button>
+      {(onTerminal || onReveal) && <div className="repo-sep" />}
+      {onTerminal && (
+        <button
+          type="button"
+          className="repo-browse"
+          onClick={() => {
+            onClose();
+            onTerminal();
+          }}
+        >
+          {t("在终端中打开")}
+        </button>
+      )}
+      {onReveal && (
+        <button
+          type="button"
+          className="repo-browse"
+          onClick={() => {
+            onClose();
+            onReveal();
+          }}
+        >
+          {t("在文件管理器中显示")}
+        </button>
+      )}
     </div>
   );
 }

@@ -307,6 +307,17 @@ pub(crate) fn check_rel_path(path: &str) -> Result<()> {
 }
 
 impl Session {
+    /// The full path of a file in the worktree, for revealing it in the file manager or opening it with the default
+    /// application. `path` must stay inside the worktree (not absolute, no `..`, not in .git) and exist.
+    pub fn worktree_file(&self, path: &str) -> Result<std::path::PathBuf> {
+        check_rel_path(path)?;
+        let full = self.path().join(path);
+        if !full.exists() {
+            return Err(CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")));
+        }
+        Ok(full)
+    }
+
     /// A file's raw bytes at a revision (for image diffs); `rev` empty means the worktree. Fails when over 30 MB or the file doesn't exist at this revision
     pub fn file_bytes(&self, path: &str, rev: Option<&str>) -> Result<Vec<u8>> {
         let data = self.file_bytes_raw(path, rev)?;
@@ -350,4 +361,16 @@ impl Session {
             }
         }
     }
+}
+
+/// File types that run something when opened with their default application (apps, scripts, installers):
+/// "open with default application" reveals these in the file manager instead of opening them
+pub fn runs_when_opened(path: &str) -> bool {
+    const EXT: &[&str] = &[
+        "app", "command", "tool", "terminal", "workflow", "pkg", "mpkg", "scpt", "applescript", // macOS
+        "exe", "bat", "cmd", "com", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "msi", "msc", "lnk", "scr", "hta", "reg", "cpl", // Windows
+        "sh", "bash", "zsh", "desktop", "jar",
+    ];
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    name.rsplit_once('.').is_some_and(|(_, ext)| EXT.iter().any(|e| ext.eq_ignore_ascii_case(e)))
 }

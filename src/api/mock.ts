@@ -1,7 +1,7 @@
 // Sample data for the browser preview. Only used when running without Tauri.
 
 import { authorRule } from "./authorRule";
-import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule } from "./types";
+import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule, MergedBranch } from "./types";
 
 const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(v), 60));
 
@@ -1144,3 +1144,13 @@ export const submoduleList = () =>
     { path: "vendor/theme", name: "vendor/theme", url: "https://example.com/theme.git", recorded: "b81d044".padEnd(40, "0"), current: "c90e113".padEnd(40, "0"), state: "moved", dirty: false },
     { path: "docs/site", name: "docs/site", url: "https://example.com/site.git", recorded: "77ad0e2".padEnd(40, "0"), state: "uninitialized", dirty: false },
   ]);
+
+export const mergedBranches = (into: string) =>
+  delay<MergedBranch[]>(
+    into === "main"
+      ? [
+          { name: "fix/diff-ime", head: "e1b07c4".padEnd(40, "0"), title: "修复：diff 视图中输入法候选框错位", time: Math.floor(Date.now() / 1000) - 3 * 86400, upstream: "origin/fix/diff-ime", favorite: false },
+          { name: "spike/gpui", head: "9a3f2d1".padEnd(40, "0"), title: "试验：用 GPUI 画图谱", time: Math.floor(Date.now() / 1000) - 12 * 86400, favorite: false },
+        ]
+      : [],
+  );

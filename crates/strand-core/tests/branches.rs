@@ -258,3 +258,72 @@ fn favorites_live_in_repo() {
     s.set_favorite("feature", false).unwrap();
     assert_eq!(fav(&s, "feature"), Some(false));
 }
+
+/// Clean up merged branches: list the local branches already in a target branch, then delete several at once
+#[test]
+fn merged_branches_and_bulk_delete() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    git(p, &["init", "-q", "-b", "main"]);
+    git(p, &["config", "user.name", "林夏"]);
+    git(p, &["config", "user.email", "l@x.cn"]);
+    write(p, "a.txt", "1\n");
+    git(p, &["add", "."]);
+    git(p, &["commit", "-q", "-m", "一"]);
+    // done-a: merged by fast-forward; done-b: merged with a merge commit; open: has its own commit; same: at main
+    git(p, &["switch", "-q", "-c", "done-a"]);
+    write(p, "b.txt", "b\n");
+    git(p, &["add", "."]);
+    git(p, &["commit", "-q", "-m", "加 b"]);
+    git(p, &["switch", "-q", "main"]);
+    git(p, &["merge", "-q", "--ff-only", "done-a"]);
+    git(p, &["switch", "-q", "-c", "done-b"]);
+    write(p, "c.txt", "c\n");
+    git(p, &["add", "."]);
+    git(p, &["commit", "-q", "-m", "加 c"]);
+    git(p, &["switch", "-q", "main"]);
+    git(p, &["merge", "-q", "--no-ff", "done-b", "-m", "合并 done-b"]);
+    git(p, &["switch", "-q", "-c", "open"]);
+    write(p, "d.txt", "d\n");
+    git(p, &["add", "."]);
+    git(p, &["commit", "-q", "-m", "加 d"]);
+    git(p, &["switch", "-q", "main"]);
+    git(p, &["branch", "same"]);
+
+    let s = Session::open(p).unwrap();
+    let names: Vec<String> = s.merged_branches("main").unwrap().into_iter().map(|b| b.name).collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["done-a", "done-b", "same"]);
+    // Merged into "open" (which has everything main has): main is current, so it's left out
+    let into_open: Vec<String> = s.merged_branches("open").unwrap().into_iter().map(|b| b.name).collect();
+    assert!(!into_open.contains(&"main".to_string()) && into_open.contains(&"done-a".to_string()));
+    assert!(s.merged_branches("nope").is_err());
+
+    // The current branch is refused before anything is deleted
+    let e = s.branches_delete(&["done-a".into(), "main".into()]).unwrap_err();
+    assert_eq!(e.code, ErrorCode::InvalidName);
+    assert!(git(p, &["branch", "--list", "done-a"]).contains("done-a"));
+    assert_eq!(s.branches_delete(&["done-a".into(), "done-b".into()]).unwrap(), 2);
+    let left = git(p, &["branch", "--format=%(refname:short)"]);
+    assert_eq!(left.lines().collect::<Vec<_>>(), ["main", "open", "same"]);
+}
+
+/// Revealing or opening a worktree file: only paths inside the worktree, and apps/scripts aren't opened directly
+#[test]
+fn worktree_file_paths() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    git(p, &["init", "-q", "-b", "main"]);
+    std::fs::create_dir_all(p.join("src")).unwrap();
+    write(p, "src/a.txt", "a\n");
+    let s = Session::open(p).unwrap();
+    assert!(s.worktree_file("src/a.txt").unwrap().ends_with("src/a.txt"));
+    assert_eq!(s.worktree_file("src/none.txt").unwrap_err().code, ErrorCode::NotFound);
+    for bad in ["../x", "/etc/passwd", ".git/config", ""] {
+        assert!(s.worktree_file(bad).is_err(), "{bad}");
+    }
+    use strand_core::file_history::runs_when_opened;
+    assert!(runs_when_opened("tools/build.sh") && runs_when_opened("Setup.EXE") && runs_when_opened("x/Run.command"));
+    assert!(!runs_when_opened("src/main.rs") && !runs_when_opened("README.md") && !runs_when_opened("Makefile"));
+}

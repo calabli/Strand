@@ -35,6 +35,7 @@ import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
 import { findRegExp, isMac, keys, shortId } from "./components/format";
 import { Palette } from "./components/Palette";
+import { CleanBranches, defaultCleanTarget } from "./components/CleanBranches";
 import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
@@ -221,6 +222,8 @@ export default function App() {
   const [jump, setJump] = useState<{ row: number; n: number } | null>(null);
   const [refs, setRefs] = useState<RefsList | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  /** Clean up merged branches: the target branch, or null when the dialog is closed */
+  const [cleanInto, setCleanInto] = useState<string | null>(null);
   const [popup, setPopup] = useState(false);
   const [dialog, ask] = useDialog();
   // Conflict session: read while the repository is mid merge, rebase, etc.; hidden first on "continue later"
@@ -673,6 +676,7 @@ export default function App() {
       setCompareBase(head);
       locate(name);
     },
+    cleanMerged: (into?: string) => setCleanOpen(into),
     submodule: {
       update: (paths: string[]) => void remote.submoduleUpdate(paths),
       open: (path: string) => repo && open(joinPath(repo.path, path)),
@@ -1133,6 +1137,7 @@ export default function App() {
       { id: "redo", section: o, icon: COMMIT_ICONS.redo, label: t("重做"), hint: keys("⇧⌘Z"), run: oplog.redo, disabled: !oplog.list.can_redo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以重做的操作") },
       { id: "apply-patch", section: o, icon: COMMIT_ICONS.applyPatch, label: t("应用补丁…"), run: () => setApplying({ text: "" }), disabled: !normal, why: busyWhy },
       { id: "new-branch", section: b, icon: COMMIT_ICONS.branch, label: t("新建分支…"), run: () => ops.create() },
+      { id: "clean-branches", section: b, icon: COMMIT_ICONS.drop, label: t("清理已合并的分支…"), run: () => setCleanOpen() },
       { id: "checkout-rev", section: b, icon: COMMIT_ICONS.checkout, label: t("检出标签或指定版本…"), run: () => ops.checkoutRev(), disabled: !normal, why: busyWhy },
       ...(refs?.branches ?? [])
         .filter((x) => !x.is_current)
@@ -1189,6 +1194,7 @@ export default function App() {
       { id: "open", section: m, icon: COMMIT_ICONS.folder, label: t("打开仓库…"), run: choose },
       { id: "clone", section: m, icon: COMMIT_ICONS.clone, label: t("克隆仓库…"), run: () => setCloneOpen(true) },
       { id: "worktree-add", section: m, icon: COMMIT_ICONS.folder, label: t("新建工作目录…"), run: () => setWtDialog({}) },
+      { id: "terminal", section: m, icon: COMMIT_ICONS.console, label: t("在终端中打开"), run: openTerminal },
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: keys("⌘E"), run: () => (setRecentQ(""), setRecentFiles(true)) },
       { id: "reopen-file", section: m, icon: COMMIT_ICONS.history, label: t("重新打开关掉的标签页"), hint: keys("⇧⌘T"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
       { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: keys("⌘,"), run: () => setSettingsOpen(true) },
@@ -1225,6 +1231,32 @@ export default function App() {
       onSubmit: () => runWrite(api.fileRestore(c.id, f.path), del ? t("已删除 {0}", f.path) : t("已把 {0} 取回到 {1}", f.path, shortId(c.id))),
     });
   };
+  /** Reveal in the file manager / open with the default application (spec §12.2); gone: not in the worktree */
+  const osItems = (path: string, gone = false): MenuEntry[] => [
+    {
+      label: t("在文件管理器中显示"),
+      icon: COMMIT_ICONS.folder,
+      disabled: gone,
+      why: t("工作区里没有这个文件"),
+      run: () => void api.fileReveal(path).catch((e) => setError(errOf(e).message)),
+    },
+    {
+      label: t("用默认程序打开"),
+      icon: COMMIT_ICONS.repo,
+      disabled: gone,
+      why: t("工作区里没有这个文件"),
+      run: () =>
+        void api.fileOpen(path).then(
+          (opened) => opened || say(t("{0} 是程序或脚本，没有直接打开，已在文件管理器中显示", path)),
+          (e) => setError(errOf(e).message),
+        ),
+    },
+  ];
+  const openTerminal = () => void api.repoTerminal().catch((e) => setError(errOf(e).message));
+  const setCleanOpen = (into?: string) => {
+    const target = into ?? defaultCleanTarget(refs?.branches ?? []);
+    if (target) setCleanInto(target);
+  };
   const commitFileMenu = (c: Commit, f: FileChange, files: FileChange[], x: number, y: number) => {
     const ok = repo?.state === "normal" && !repo?.bisecting;
     const why = t("合并或变基还没完成");
@@ -1238,6 +1270,8 @@ export default function App() {
         { label: t("把这个文件的改动拣选到工作区"), icon: COMMIT_ICONS.cherry, disabled: !ok, why, run: () => openPickFiles(c, [f.path], false, files) },
         { label: t("在工作区还原这个文件的改动"), icon: COMMIT_ICONS.revert, disabled: !ok, why, run: () => openPickFiles(c, [f.path], true, files) },
         { label: f.status === "D" ? t("取回这个版本（删除工作区里的文件）…") : t("取回这个版本的文件…"), icon: COMMIT_ICONS.checkout, disabled: !ok, why, run: () => restoreFile(c, f) },
+        "-",
+        ...osItems(f.path),
       ],
     });
   };
@@ -1299,6 +1333,8 @@ export default function App() {
         { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(path, undefined, true) },
         "-",
         ...compareItems(path),
+        "-",
+        ...osItems(path),
       ],
     });
 
@@ -1307,7 +1343,19 @@ export default function App() {
     setMenu({
       x,
       y,
-      items: [
+      items: status?.untracked.includes(path)
+        ? [
+            { label: t("查看内容"), icon: COMMIT_ICONS.compare, run: () => openDiff({ kind: "worktree", path }) },
+            "-",
+            ...compareItems(path),
+            "-",
+            ...osItems(path),
+            "-",
+            { label: t("加入版本控制"), icon: COMMIT_ICONS.commit, run: () => onUntracked("add", path) },
+            { label: t("加入忽略规则"), icon: COMMIT_ICONS.cancel, run: () => onUntracked("ignore", path) },
+            { label: t("删除（移到废纸篓）…"), icon: COMMIT_ICONS.drop, danger: true, run: () => onUntracked("delete", path) },
+          ]
+        : [
         { label: t("查看差异"), icon: COMMIT_ICONS.compare, run: () => openDiff({ kind: "worktree", path }) },
         { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => {
           setUi((u) => ({ ...u, path }));
@@ -1315,7 +1363,7 @@ export default function App() {
         } },
         { label: t("逐行追溯"), icon: COMMIT_ICONS.patch, run: () => setBlame({ path, rev: null }), disabled: status?.changes.find((c) => c.path === path)?.status === "D", why: t("文件已经删除") },
         "-",
-        ...(status?.changes.find((c) => c.path === path)?.status === "D" ? [] : [...compareItems(path), "-" as const]),
+        ...(status?.changes.find((c) => c.path === path)?.status === "D" ? [] : [...compareItems(path), "-" as const, ...osItems(path), "-" as const]),
         { label: t("丢弃改动…"), icon: COMMIT_ICONS.drop, run: () => discard([path]), danger: true, disabled: !normal, why: busyWhy },
       ],
     });
@@ -1541,6 +1589,7 @@ export default function App() {
                           : { label: t("固定标签页"), icon: PIN_ICON, run: () => pinFile(f.path, true) },
                         { label: t("最近的文件…"), hint: keys("⌘E"), run: () => setRecentFiles(true) },
                         { label: t("复制路径"), icon: COMMIT_ICONS.copy, run: () => void navigator.clipboard.writeText(f.path) },
+                        ...osItems(f.path),
                         { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(f.path, undefined, true) },
                       ],
                     });
@@ -1868,7 +1917,22 @@ export default function App() {
       {pickFiles && <PickFiles {...pickFiles} onClose={() => setPickFiles(null)} done={doneCb} failed={failedCb} say={say} />}
       {applying && <ApplyPatch initial={applying} onClose={() => setApplying(null)} done={doneCb} failed={failedCb} say={say} />}
       {patch && <PatchWindow title={patch.title} text={patch.text} name={patch.name} onClose={() => setPatch(null)} say={say} />}
-      {repoPop && <RepoPopup x={repoPop.x} y={repoPop.y} current={repo.path} onOpen={open} onBrowse={choose} onClone={() => setCloneOpen(true)} onClose={() => setRepoPop(null)} />}
+      {cleanInto && repo && (
+        <CleanBranches branches={refs?.branches ?? []} into={cleanInto} onClose={() => setCleanInto(null)} done={doneCb} />
+      )}
+      {repoPop && (
+        <RepoPopup
+          x={repoPop.x}
+          y={repoPop.y}
+          current={repo.path}
+          onOpen={open}
+          onBrowse={choose}
+          onClone={() => setCloneOpen(true)}
+          onTerminal={openTerminal}
+          onReveal={() => void revealPath(repo.path).catch((e) => setError(errOf(e).message))}
+          onClose={() => setRepoPop(null)}
+        />
+      )}
       {cloneDialog}
       {wtDialog && (
         <WorktreeDialog

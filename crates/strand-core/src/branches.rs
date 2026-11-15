@@ -3,7 +3,7 @@
 //! Reads use git2; all writes call system git, so hooks, config and behavior match the command line exactly.
 
 use crate::error::{CoreError, ErrorCode, Result};
-use crate::model::{Branch, MergeMode, MergeResult, RebaseOutcome, RebasePlan, RefsList, RemoteBranch, RepoMode, Tag};
+use crate::model::{Branch, MergeMode, MergeResult, MergedBranch, RebaseOutcome, RebasePlan, RefsList, RemoteBranch, RepoMode, Tag};
 use crate::{git_cli, Session};
 
 impl Session {
@@ -213,6 +213,63 @@ impl Session {
                 .with_detail(serde_json::json!({ "unmerged": true })));
         }
         self.git(&["branch", "--delete", "--force", name])
+    }
+
+    /// Local branches whose commits are all in `into` (a branch name or revision): candidates for "clean up merged
+    /// branches". Leaves out the current branch, `into` itself and branches checked out in another worktree.
+    pub fn merged_branches(&self, into: &str) -> Result<Vec<MergedBranch>> {
+        let repo = self.git2()?;
+        let target = repo
+            .revparse_single(into)
+            .and_then(|o| o.peel_to_commit())
+            .map_err(|_| CoreError::new(ErrorCode::NotFound, format!("找不到 {into}")))?
+            .id();
+        let mut out = Vec::new();
+        for b in self.refs_list()?.branches {
+            if b.is_current || b.name == into || b.worktree.is_some() {
+                continue;
+            }
+            let Ok(tip) = git2::Oid::from_str(&b.head) else { continue };
+            let merged = tip == target || repo.graph_descendant_of(target, tip).unwrap_or(false);
+            if !merged {
+                continue;
+            }
+            let c = repo.find_commit(tip).ok();
+            out.push(MergedBranch {
+                name: b.name.clone(),
+                head: b.head.clone(),
+                title: c.as_ref().and_then(|c| c.summary().ok().flatten().map(str::to_string)).unwrap_or_default(),
+                time: c.as_ref().map_or(0, |c| c.time().seconds()),
+                upstream: b.upstream.clone(),
+                favorite: b.favorite,
+            });
+        }
+        out.sort_by_key(|b| std::cmp::Reverse(b.time));
+        Ok(out)
+    }
+
+    /// Delete several local branches at once (cleaning up merged branches). The current branch and branches checked out
+    /// in another worktree are refused before anything is deleted. Returns how many were deleted.
+    pub fn branches_delete(&self, names: &[String]) -> Result<usize> {
+        if names.is_empty() {
+            return Err(CoreError::new(ErrorCode::NothingSelected, "没有选择要删除的分支"));
+        }
+        let refs = self.refs_list()?;
+        for n in names {
+            let Some(b) = refs.branches.iter().find(|b| &b.name == n) else {
+                return Err(CoreError::new(ErrorCode::NotFound, format!("分支 {n} 不存在")));
+            };
+            if b.is_current {
+                return Err(CoreError::new(ErrorCode::InvalidName, "不能删除当前分支"));
+            }
+            if let Some(w) = &b.worktree {
+                return Err(CoreError::new(ErrorCode::InvalidName, format!("分支 {n} 在工作目录 {w} 里检出，不能删除")));
+            }
+        }
+        let mut args = vec!["branch", "--delete", "--force"];
+        args.extend(names.iter().map(String::as_str));
+        self.git(&args)?;
+        Ok(names.len())
     }
 
     /// Merge `source` (a local branch, remote branch, tag or commit) into the current branch.

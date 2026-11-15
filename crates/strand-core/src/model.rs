@@ -222,6 +222,19 @@ pub struct FileDiff {
     pub lfs: bool,
 }
 
+/// A local branch whose commits are all in another branch (a candidate for "clean up merged branches")
+#[derive(Debug, Clone, Serialize)]
+pub struct MergedBranch {
+    pub name: String,
+    pub head: String,
+    /// Title of its latest commit
+    pub title: String,
+    pub time: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<String>,
+    pub favorite: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CommitDetail {
     pub commit: Commit,

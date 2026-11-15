@@ -805,7 +805,14 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
           <>
             <div className="cp-group dim">{t("未跟踪的文件")} {untracked.length}</div>
             {untracked.map((p) => (
-              <div key={p} className={"frow untracked" + (activePath === p ? " active" : "")}>
+              <div
+                key={p}
+                className={"frow untracked" + (activePath === p ? " active" : "")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onFileMenu?.(p, e.clientX, e.clientY);
+                }}
+              >
                 <button type="button" className="frow-main" onClick={() => onOpenDiff(p)} title={p}>
                   <StatusBadge s="?" />
                   <span className="fpath mono">{p}</span>

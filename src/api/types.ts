@@ -823,3 +823,14 @@ export interface Submodule {
   /** Uncommitted or untracked changes inside */
   dirty: boolean;
 }
+
+/** A local branch whose commits are all in another branch (clean up merged branches) */
+export interface MergedBranch {
+  name: string;
+  head: string;
+  /** Title of its latest commit */
+  title: string;
+  time: number;
+  upstream?: string;
+  favorite: boolean;
+}

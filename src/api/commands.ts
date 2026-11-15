@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  MergedBranch,
   Submodule,
   UpdateInfo,
   UpdateProgress,
@@ -209,6 +210,17 @@ export const api = {
   signingConfig: (): Promise<SigningConfig> => (inTauri ? call("signing_config") : Promise.resolve({ ...mock.signing })),
   signingSet: (commit: boolean): Promise<SigningConfig> => (inTauri ? call("signing_set", { commit }) : Promise.resolve(Object.assign(mock.signing, { commit }))),
   tagDelete: (name: string): Promise<Written<null>> => (inTauri ? call("tag_delete", { name }) : mock.tagDelete(name)),
+
+  // Files in the system, the terminal, cleaning up merged branches
+  /** Reveal a worktree file in the file manager */
+  fileReveal: (path: string): Promise<void> => (inTauri ? call("file_reveal", { path }) : Promise.resolve()),
+  /** Open a worktree file with its default application; false when it was revealed instead (apps and scripts aren't opened) */
+  fileOpen: (path: string): Promise<boolean> => (inTauri ? call("file_open", { path }) : Promise.resolve(!/\.(sh|exe|bat|command|app)$/i.test(path))),
+  /** Open a terminal in the repository folder */
+  repoTerminal: (): Promise<void> => (inTauri ? call("repo_terminal") : Promise.resolve()),
+  mergedBranches: (into: string): Promise<MergedBranch[]> => (inTauri ? call("merged_branches", { into }) : mock.mergedBranches(into)),
+  /** Delete several local branches in one undoable step */
+  branchesDelete: (names: string[]): Promise<Written<number>> => (inTauri ? call("branches_delete", { names }) : mock.slow(names.length)),
 
   // Submodules and Git LFS
   submoduleList: (): Promise<Submodule[]> => (inTauri ? call("submodule_list") : mock.submoduleList()),

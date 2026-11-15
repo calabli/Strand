@@ -14,6 +14,8 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Sort by time or graph order, first-parent only, hide merges, collapse linear branches.
 - Blame, file history that follows renames, comparing any two versions of a file.
 - Files open in tabs, one per file: close, close others, close left/right, close all, pin, ⌘W, ⇧⌘T to reopen and ⌘E for recent files. The file view can show who last changed each line on the left and follow a line back to the version before the change.
+- Clean up merged branches: list the local branches already merged into main (or any branch), delete them in one undoable step.
+- Reveal files in the file manager, open them with the default app, open the repository in a terminal; copy a commit's full hash, short hash or message.
 - Submodules in the branch tree with their state; update (initializing when needed) or open one in Strand.
 - Git LFS: diffs, file views and image comparisons show the downloaded content instead of pointer files; files not downloaded yet can be fetched with `git lfs pull` (needs git-lfs installed).
 - Bisect with a progress bar above the log, and a reflog window to recover lost commits.

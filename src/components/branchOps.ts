@@ -342,6 +342,8 @@ export type BranchOps = ReturnType<typeof useBranchOps> & {
     reveal: (path: string) => void;
     remove: (w: Worktree) => void;
   };
+  /** Clean up merged branches: open the dialog listing local branches already in `into`, provided by App */
+  cleanMerged?: (into?: string) => void;
   /** Submodules, provided by App */
   submodule?: {
     /** Check out the recorded commits (initializing when needed); all when paths is empty */

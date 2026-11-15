@@ -1202,3 +1202,11 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .modal-back, .modal-back > .modal, .modal-back.closing, .modal-back.closing > .modal, .menu, .palette, .update-card { animation: none; }
 }
+.repo-sep { height: 1px; margin: 4px 0; background: var(--line); }
+/* Clean up merged branches */
+.modal.clean-branches { width: min(560px, 100%); }
+.cb-into { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cb-into select { height: 28px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 6px; background: var(--win); color: var(--fg); max-width: 260px; }
+.cb-row { display: flex; align-items: center; gap: 8px; }
+.cb-name { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

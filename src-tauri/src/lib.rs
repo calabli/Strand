@@ -559,6 +559,61 @@ fn window_close(window: tauri::Window) -> CmdResult<()> {
     window.close().map_err(|e| CoreError::git("关闭窗口失败", e))
 }
 
+// ---------- Files and the terminal ----------
+
+/// Reveal a worktree file in the system file manager
+#[tauri::command]
+async fn file_reveal(state: State<'_, AppState>, path: String) -> CmdResult<()> {
+    let full = with_repo(&state, move |s| s.worktree_file(&path)).await?;
+    tauri_plugin_opener::reveal_item_in_dir(&full).map_err(|e| CoreError::git("在文件管理器中显示失败", e))
+}
+
+/// Open a worktree file with its default application. Apps, scripts and installers are revealed in the file manager
+/// instead, so opening never runs anything; returns false in that case
+#[tauri::command]
+async fn file_open(state: State<'_, AppState>, path: String) -> CmdResult<bool> {
+    let rel = path.clone();
+    let full = with_repo(&state, move |s| s.worktree_file(&path)).await?;
+    if strand_core::file_history::runs_when_opened(&rel) {
+        tauri_plugin_opener::reveal_item_in_dir(&full).map_err(|e| CoreError::git("在文件管理器中显示失败", e))?;
+        return Ok(false);
+    }
+    tauri_plugin_opener::open_path(&full, None::<&str>).map_err(|e| CoreError::git("打开文件失败", e))?;
+    Ok(true)
+}
+
+/// Open a terminal in the repository folder: Terminal on macOS, Windows Terminal (or Command Prompt) on Windows,
+/// the system's default terminal on Linux
+#[tauri::command]
+fn repo_terminal(state: State<'_, AppState>) -> CmdResult<()> {
+    let dir = repo_path(&state)?;
+    let fail = |e: std::io::Error| CoreError::git("打开终端失败", e);
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg("-a").arg("Terminal").arg(&dir).spawn().map_err(fail)?;
+    #[cfg(target_os = "windows")]
+    {
+        if std::process::Command::new("wt").args(["-d", "."]).current_dir(&dir).spawn().is_err() {
+            std::process::Command::new("cmd").args(["/C", "start", "cmd"]).current_dir(&dir).spawn().map_err(fail)?;
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    std::process::Command::new("x-terminal-emulator").current_dir(&dir).spawn().map_err(fail)?;
+    Ok(())
+}
+
+/// Local branches whose commits are all in `into` (clean up merged branches)
+#[tauri::command]
+async fn merged_branches(state: State<'_, AppState>, into: String) -> CmdResult<Vec<strand_core::model::MergedBranch>> {
+    with_repo(&state, move |s| s.merged_branches(&into)).await
+}
+
+/// Delete several local branches in one step (undo brings them all back)
+#[tauri::command]
+async fn branches_delete(state: State<'_, AppState>, names: Vec<String>) -> CmdResult<Written<usize>> {
+    let label = if names.len() == 1 { format!("删除分支 {}", names[0]) } else { format!("删除 {} 个已合并的分支", names.len()) };
+    logged_op(&state, label, OpKind::Branch, move |s| s.branches_delete(&names)).await
+}
+
 // ---------- Submodules and Git LFS ----------
 
 #[tauri::command]
@@ -1604,6 +1659,11 @@ pub fn run(adopted: Option<u128>) {
             lfs_installed,
             lfs_pull,
             window_close,
+            file_reveal,
+            file_open,
+            repo_terminal,
+            merged_branches,
+            branches_delete,
             remote_pull,
             remote_pull_preview,
             remote_push_preview,

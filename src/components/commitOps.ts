@@ -96,10 +96,13 @@ export function useCommitOps({ ask, done, failed, say, head }: Deps) {
     [done, failed, say],
   );
 
+  /** Copy the full hash (default), the short hash, or the commit message (title, blank line, body) */
   const copy = useCallback(
-    (c: Commit) => {
-      navigator.clipboard?.writeText(c.id).then(
-        () => say(t("已复制 {0}", shortId(c.id))),
+    (c: Commit, what: "id" | "short" | "message" = "id") => {
+      const text = what === "id" ? c.id : what === "short" ? shortId(c.id) : c.body ? `${c.title}\n\n${c.body}` : c.title;
+      const done = what === "message" ? t("已复制提交说明") : t("已复制 {0}", shortId(c.id));
+      navigator.clipboard?.writeText(text).then(
+        () => say(done),
         () => say(t("复制失败")),
       );
     },
@@ -207,7 +210,15 @@ export function commitActions(
   const branchItems: MenuEntry[] = extra.branches.map((b) => ({ label: t("分支 {0}", b.name), icon: I.branch, sub: b.items }));
   return [
     // Copy and patches
-    { label: t("复制版本号"), icon: I.copy, run: () => ops.copy(c) },
+    {
+      label: t("复制"),
+      icon: I.copy,
+      sub: [
+        { label: t("完整版本号"), hint: c.id.slice(0, 10) + "…", run: () => ops.copy(c, "id") },
+        { label: t("短版本号"), hint: shortId(c.id), run: () => ops.copy(c, "short") },
+        { label: t("提交说明"), run: () => ops.copy(c, "message") },
+      ],
+    },
     { label: t("创建补丁…"), icon: I.patch, run: extra.patch },
     "-",
     // View

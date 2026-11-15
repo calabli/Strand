@@ -44,6 +44,7 @@ export function branchActions(b: Branch, ops: BranchOps, fav: boolean, toggleFav
     { label: t("重命名…"), icon: I.reword, run: () => ops.rename(b) },
     "-",
     { label: t("删除…"), icon: I.drop, run: () => ops.remove(b), disabled: b.is_current, why: t("不能删除当前分支"), danger: true },
+    { label: t("清理已经并入它的分支…"), icon: I.drop, run: () => ops.cleanMerged?.(b.name), disabled: !ops.cleanMerged },
   ];
 }
 
