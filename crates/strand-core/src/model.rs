@@ -217,6 +217,9 @@ pub struct FileDiff {
     pub hunks: Vec<Hunk>,
     /// Truncated for exceeding the line limit
     pub truncated: bool,
+    /// A Git LFS file shown with its real content: it can only be committed whole (lines can't be picked)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lfs: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -136,7 +136,7 @@ pub fn first_file_lfs(repo: &git2::Repository, diff: &git2::Diff<'_>, path: &str
 
 pub fn first_file(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
     let Some(idx) = diff.deltas().position(|d| d.status() != git2::Delta::Unmodified) else {
-        return Ok(FileDiff { path: path.to_string(), binary: false, hunks: Vec::new(), truncated: false });
+        return Ok(FileDiff { path: path.to_string(), binary: false, hunks: Vec::new(), truncated: false, lfs: false });
     };
     file_at(diff, idx, path)
 }
@@ -167,7 +167,7 @@ fn file_at(diff: &git2::Diff<'_>, idx: usize, path: &str) -> Result<FileDiff> {
         (Some(p), false) => patch_hunks(&p)?,
         _ => (Vec::new(), false),
     };
-    Ok(FileDiff { path: path.to_string(), binary, hunks, truncated })
+    Ok(FileDiff { path: path.to_string(), binary, hunks, truncated, lfs: false })
 }
 
 /// All change blocks of a patch (at most `MAX_LINES` lines, truncated beyond that)
@@ -216,7 +216,7 @@ pub fn buffers_diff(old: &[u8], new: &[u8], path: &str, context: u32) -> Result<
         .map_err(|e| CoreError::git("计算差异失败", e))?;
     let binary = p.delta().flags().is_binary() || is_binary_path(&p.delta());
     let (hunks, truncated) = if binary { (Vec::new(), false) } else { patch_hunks(&p)? };
-    Ok(FileDiff { path: path.to_string(), binary, hunks, truncated })
+    Ok(FileDiff { path: path.to_string(), binary, hunks, truncated, lfs: false })
 }
 
 fn make_hunk(h: &git2::DiffHunk<'_>, lines: Vec<DiffLine>) -> Hunk {

@@ -182,8 +182,14 @@ impl Session {
             .flat_map(|f| std::iter::once(f.path.clone()).chain(f.old_path.clone()))
             .collect();
         if !whole.is_empty() {
-            idx.add_all(whole.iter(), git2::IndexAddOption::DEFAULT, None).map_err(err)?;
-            idx.update_all(whole.iter(), None).map_err(err)?;
+            // Whole files go in through `git add`, not libgit2: libgit2 doesn't run filter drivers from .gitattributes
+            // (Git LFS stores a pointer, other clean filters rewrite content), so a big LFS file would be committed as is
+            idx.write().map_err(err)?;
+            let tmp_str = tmp.to_string_lossy().into_owned();
+            let mut args = vec!["add", "-A", "--"];
+            args.extend(whole.iter().map(String::as_str));
+            git_cli::run_env(self.path(), &args, None, &[("GIT_INDEX_FILE", tmp_str.as_str())])?;
+            idx.read(true).map_err(err)?;
             paths.extend(whole);
         }
         for f in selection.files.iter().filter(|f| !f.whole) {
@@ -217,6 +223,10 @@ impl Session {
     /// Built from the original file's bytes, keeping line endings and whether the file ends with a newline.
     fn partial_content(&self, repo: &git2::Repository, path: &str, picked: &[crate::model::LineRef]) -> Result<Vec<u8>> {
         let diff = self.diff_worktree(path, false, 3)?;
+        // The worktree holds the real content and the repository a pointer: lines can't be mapped between them
+        if diff.lfs {
+            return Err(CoreError::new(ErrorCode::InvalidRange, format!("{path} 是 Git LFS 文件，只能整个文件提交")));
+        }
         if diff.binary {
             return Err(CoreError::new(ErrorCode::InvalidRange, format!("{path} 是二进制文件，只能整个文件提交")));
         }

@@ -21,7 +21,8 @@ export function relTime(at: number): string {
   return t("{0} 年前", Math.floor(s / (86400 * 365)));
 }
 
-const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+/** Running on macOS (shortcut display, and ⌘W closing the window only there) */
+export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** Shortcut display: as is on macOS; on other systems ⌘ becomes Ctrl, ⌥ becomes Alt, ⇧ becomes Shift (spec §12.3) */
 export function keys(s: string): string {

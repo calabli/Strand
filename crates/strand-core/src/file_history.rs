@@ -129,7 +129,7 @@ impl Session {
         let (old, new) = (crate::lfs::resolve_bytes(&repo, old), crate::lfs::resolve_bytes(&repo, new));
         let binary = old.iter().take(8000).any(|&b| b == 0) || new.iter().take(8000).any(|&b| b == 0);
         if binary {
-            return Ok(FileDiff { path: to_path.to_string(), binary: true, hunks: Vec::new(), truncated: false });
+            return Ok(FileDiff { path: to_path.to_string(), binary: true, hunks: Vec::new(), truncated: false, lfs: false });
         }
         let mut opts = git2::DiffOptions::new();
         opts.context_lines(context);
@@ -137,7 +137,7 @@ impl Session {
             .map_err(|e| CoreError::git("计算差异失败", e))?;
         let buf = patch.to_buf().map_err(|e| CoreError::git("计算差异失败", e))?;
         if buf.is_empty() {
-            return Ok(FileDiff { path: to_path.to_string(), binary: false, hunks: Vec::new(), truncated: false });
+            return Ok(FileDiff { path: to_path.to_string(), binary: false, hunks: Vec::new(), truncated: false, lfs: false });
         }
         let d = git2::Diff::from_buffer(&buf).map_err(|e| CoreError::git("计算差异失败", e))?;
         let mut fd = diff::first_file(&d, to_path)?;

@@ -121,5 +121,7 @@ pub fn diff_resolved(repo: &git2::Repository, d: &git2::Diff<'_>, path: &str, co
     }
     let old = read(&of).map(|b| resolve_bytes(repo, b)).unwrap_or_default();
     let new = read(&nf).map(|b| resolve_bytes(repo, b)).unwrap_or_default();
-    crate::diff::buffers_diff(&old, &new, path, context).map(Some)
+    let mut fd = crate::diff::buffers_diff(&old, &new, path, context)?;
+    fd.lfs = true;
+    Ok(Some(fd))
 }

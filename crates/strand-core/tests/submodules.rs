@@ -161,3 +161,71 @@ fn lfs_pointers_show_real_content() {
     let fd = s.file_diff_versions(Some(&format!("{head}~1")), "big.dat", Some(&head), "big.dat").unwrap();
     assert!(fd.hunks.iter().flat_map(|h| &h.lines).any(|l| l.text == "line two"));
 }
+
+/// A partial commit (some file with only some lines checked) adds the whole files through git, so clean filters run
+/// (Git LFS turns big files into pointers this way); before, libgit2 added them raw.
+#[test]
+fn partial_commit_runs_clean_filters_for_whole_files() {
+    use strand_core::model::{LineKind, LineRef, SelectedFile, Selection};
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    init(p);
+    git(p, &["config", "filter.upper.clean", "tr a-z A-Z"]);
+    git(p, &["config", "filter.upper.smudge", "cat"]);
+    std::fs::write(p.join(".gitattributes"), "*.up filter=upper\n").unwrap();
+    std::fs::write(p.join("a.up"), "abc\n").unwrap();
+    std::fs::write(p.join("a.txt"), "1\n2\n3\n4\n5\n6\n7\n8\n9\n").unwrap();
+    git(p, &["add", "."]);
+    git(p, &["commit", "-q", "-m", "初始"]);
+    assert_eq!(git(p, &["show", "HEAD:a.up"]), "ABC");
+
+    std::fs::write(p.join("a.up"), "abc\ndef\n").unwrap();
+    std::fs::write(p.join("a.txt"), "1 改\n2\n3\n4\n5\n6\n7\n8\n9 改\n").unwrap();
+    let s = Session::open(p).unwrap();
+    // Only the first change of a.txt
+    let diff = s.diff_worktree("a.txt", false, 3).unwrap();
+    let mut lines = Vec::new();
+    for (h, hunk) in diff.hunks.iter().enumerate() {
+        for (l, line) in hunk.lines.iter().enumerate() {
+            if line.kind != LineKind::Context && line.text.starts_with('1') {
+                lines.push(LineRef { hunk: h as u32, line: l as u32 });
+            }
+        }
+    }
+    let sel = Selection {
+        files: vec![
+            SelectedFile { path: "a.txt".into(), old_path: None, whole: false, lines },
+            SelectedFile { path: "a.up".into(), old_path: None, whole: true, lines: vec![] },
+        ],
+    };
+    s.commit_create("部分提交", &sel, false, None).unwrap();
+    assert_eq!(git(p, &["show", "HEAD:a.up"]), "ABC\nDEF");
+    assert_eq!(git(p, &["show", "HEAD:a.txt"]), "1 改\n2\n3\n4\n5\n6\n7\n8\n9");
+}
+
+/// Lines of a Git LFS file can't be picked: the diff says so and a partial commit is refused
+#[test]
+fn lfs_files_commit_whole_only() {
+    use strand_core::model::{LineRef, SelectedFile, Selection};
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    init(p);
+    std::fs::write(p.join(".gitattributes"), "*.dat filter=lfs diff=lfs merge=lfs -text\n").unwrap();
+    std::fs::write(p.join("big.dat"), lfs_pointer(p, b"one\ntwo\n", true)).unwrap();
+    git(p, &["add", "."]);
+    git(p, &["commit", "-q", "-m", "加 LFS 文件"]);
+    // The worktree holds the real content (as git-lfs leaves it), then changes
+    std::fs::write(p.join("big.dat"), "one\nTWO\n").unwrap();
+    let s = Session::open(p).unwrap();
+    let diff = s.diff_worktree("big.dat", false, 3).unwrap();
+    assert!(diff.lfs);
+    let sel = Selection { files: vec![SelectedFile { path: "big.dat".into(), old_path: None, whole: false, lines: vec![LineRef { hunk: 0, line: 1 }] }] };
+    let e = s.commit_create("只提交一行", &sel, false, None).unwrap_err();
+    assert!(e.message.contains("LFS"), "{}", e.message);
+    // A plain (non-LFS) diff isn't marked
+    std::fs::write(p.join("n.txt"), "x\n").unwrap();
+    git(p, &["add", "n.txt"]);
+    git(p, &["commit", "-q", "-m", "n"]);
+    std::fs::write(p.join("n.txt"), "y\n").unwrap();
+    assert!(!Session::open(p).unwrap().diff_worktree("n.txt", false, 3).unwrap().lfs);
+}

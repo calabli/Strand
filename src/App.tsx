@@ -33,7 +33,7 @@ import { FileView } from "./components/FileView";
 import { ProjectFiles } from "./components/ProjectFiles";
 import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
-import { findRegExp, keys, shortId } from "./components/format";
+import { findRegExp, isMac, keys, shortId } from "./components/format";
 import { Palette } from "./components/Palette";
 import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
@@ -1005,7 +1005,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", key);
   }, [repo]);
 
-  // File tabs: ⌘W closes the file (or diff) tab shown, and the window when neither is; ⇧⌘T reopens the last closed file; ⌘E lists recent files
+  // File tabs: ⌘W closes the file (or diff) tab shown, and on macOS the window when neither is; ⇧⌘T reopens the last closed file; ⌘E lists recent files
   const tabRef = useRef(tab);
   tabRef.current = tab;
   const [recentFiles, setRecentFiles] = useState(false);
@@ -1029,7 +1029,8 @@ export default function App() {
         e.preventDefault();
         if (tabRef.current === "file" && fileOpenRef.current) closeFiles([fileOpenRef.current]);
         else if (tabRef.current === "diff") (setTarget(null), setTab("log"));
-        else void api.windowClose();
+        // Closing the window with ⌘W is a macOS habit; on Windows and Linux Ctrl+W only closes tabs, so a stray press can't close the app
+        else if (isMac) void api.windowClose();
       } else if (k === "t" && e.shiftKey && repo) {
         e.preventDefault();
         reopenRef.current();
@@ -1721,7 +1722,8 @@ export default function App() {
                         : t("提交 {0}", shortId(target.id))
               }
               pick={
-                target.kind === "worktree" && status?.changes.find((c) => c.path === target.path)?.status === "M"
+                // Git LFS files are committed whole: their diff shows the real content, which doesn't map to the stored pointer line by line
+                target.kind === "worktree" && !diff.data?.lfs && status?.changes.find((c) => c.path === target.path)?.status === "M"
                   ? {
                       excluded: new Set(lineSel[target.path]?.excluded ?? []),
                       onToggle: (keys, on, all) => toggleLines(target.path, keys, on, all),

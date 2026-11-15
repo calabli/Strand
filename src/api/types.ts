@@ -196,6 +196,8 @@ export interface FileDiff {
   binary: boolean;
   hunks: Hunk[];
   truncated: boolean;
+  /** A Git LFS file shown with its real content: committed whole only, no line checks */
+  lfs?: boolean;
 }
 
 export interface CommitDetail {
