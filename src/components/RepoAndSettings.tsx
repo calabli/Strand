@@ -30,16 +30,22 @@ import {
   type Settings,
 } from "../settings";
 import { formatTime } from "./format";
+import { ACTIONS, type ActionId, comboFromEvent, comboOf, conflictOf, labelOf, resetAll, setCombo, showCombo, usable, useKeymap } from "../keymap";
+
+const isMacOs = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** Recently opened repositories (shared by the toolbar popup and the "open a repository" page) */
 export function RepoList({
   current,
   onOpen,
+  onOpenNew,
   onClose,
   autoFocus = true,
 }: {
   current: string | null;
   onOpen: (path: string) => void;
+  /** Open in a new window; absent hides the button */
+  onOpenNew?: (path: string) => void;
   onClose?: () => void;
   autoFocus?: boolean;
 }) {
@@ -121,6 +127,19 @@ export function RepoList({
               <span className="dim small repo-time">
                 {formatTime(r.opened).slice(0, 10)}
               </span>
+              {onOpenNew && r.path !== current && (
+                <button
+                  type="button"
+                  className="ib sm"
+                  title={t("在新窗口中打开")}
+                  aria-label={t("在新窗口中打开 {0}", r.name)}
+                  onClick={() => (onClose?.(), onOpenNew(r.path))}
+                >
+                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M8 2h4v4M12 2 6.5 7.5M10 8.5V12H2V4h3.5" />
+                  </svg>
+                </button>
+              )}
               <button
                 type="button"
                 className="ib sm"
@@ -160,8 +179,11 @@ export function RepoPopup({
   onClone,
   onTerminal,
   onReveal,
+  onOpenNew,
   onClose,
 }: {
+  /** Open a repository in a new window */
+  onOpenNew?: (path: string) => void;
   x: number;
   y: number;
   current: string | null;
@@ -201,7 +223,7 @@ export function RepoPopup({
       aria-label={t("仓库")}
       onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
-      <RepoList current={current} onOpen={onOpen} onClose={onClose} />
+      <RepoList current={current} onOpen={onOpen} onOpenNew={onOpenNew} onClose={onClose} />
       <button
         type="button"
         className="repo-browse"
@@ -530,7 +552,8 @@ export function SettingsWindow({
               </button>,
               t("更新包带签名，安装前会核对，装好后自动重新启动"),
             )}
-          <div ref={gitSec}>
+          <KeysSection />
+        <div ref={gitSec}>
             <GitConfigSection repoOpen={!!repoOpen} />
           </div>
           <div className="set-sec dim">Git</div>
@@ -882,6 +905,67 @@ export function GitConfigSection({ repoOpen }: { repoOpen: boolean }) {
             );
           },
         )}
+    </>
+  );
+}
+
+/** Settings → Keyboard shortcuts: click a shortcut, then press the new combo (Esc cancels) */
+function KeysSection() {
+  useKeymap();
+  const [capturing, setCapturing] = useState<ActionId | null>(null);
+  const [msg, setMsg] = useState<{ id: ActionId; text: string } | null>(null);
+  useEffect(() => {
+    if (!capturing) return;
+    const key = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.key === "Escape") return setCapturing(null);
+      const combo = comboFromEvent(e);
+      if (!combo) return; // a modifier alone: keep waiting
+      if (!usable(combo)) return setMsg({ id: capturing, text: t("要带 {0} 或 {1}，或者用 F1–F12，免得打字时误触", isMacOs ? "⌘" : "Ctrl", isMacOs ? "⌥" : "Alt") });
+      const other = conflictOf(capturing, combo);
+      if (other) return setMsg({ id: capturing, text: t("{0} 已经给了“{1}”", showCombo(combo), labelOf(other)) });
+      setCombo(capturing, combo);
+      setMsg(null);
+      setCapturing(null);
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [capturing]);
+  const changed = ACTIONS.some((a) => comboOf(a.id) !== a.def);
+  return (
+    <>
+      <div className="set-sec dim set-sec-row">
+        <span>{t("快捷键")}</span>
+        {changed && (
+          <button type="button" className="linklike small" onClick={() => (resetAll(), setMsg(null))}>
+            {t("全部恢复默认")}
+          </button>
+        )}
+      </div>
+      {ACTIONS.map((a) => (
+        <div className="set-row keys-row" key={a.id}>
+          <div>
+            <div>{t(a.label)}</div>
+            {msg?.id === a.id && <div className="small err">{msg.text}</div>}
+          </div>
+          <span className="keys-ctl">
+            {comboOf(a.id) !== a.def && capturing !== a.id && (
+              <button type="button" className="linklike small" title={t("恢复默认（{0}）", showCombo(a.def))} onClick={() => (setCombo(a.id, null), setMsg(null))}>
+                {t("恢复默认")}
+              </button>
+            )}
+            <button
+              type="button"
+              className={"btn sm keys-btn mono" + (capturing === a.id ? " pressed" : "")}
+              aria-label={t("修改“{0}”的快捷键", t(a.label))}
+              onClick={() => (setMsg(null), setCapturing(capturing === a.id ? null : a.id))}
+            >
+              {capturing === a.id ? t("按下新的快捷键…") : showCombo(comboOf(a.id))}
+            </button>
+          </span>
+        </div>
+      ))}
     </>
   );
 }

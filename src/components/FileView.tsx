@@ -19,6 +19,7 @@ import type { FileDiff, FileHistory, FileText } from "../api/types";
 import { DiffView, blameSide, type BSide } from "./DiffView";
 import { Menu, type MenuState } from "./Menu";
 import { FindBar, goToLine, useFind } from "./FindBar";
+import { EditFile } from "./EditFile";
 import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
 import { findRegExp, formatTime, relTime, shortId } from "./format";
@@ -53,6 +54,10 @@ const idle = { data: null, loading: false, error: null };
 export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, onLfsPull }: Props) {
   /** Blame annotations on the left of the full text (per tab, off by default) */
   const [annot, setAnnot] = useState(false);
+  /** Editing the worktree file: the line to open at; null when not editing */
+  const [editAt, setEditAt] = useState<number | null>(null);
+  /** Bumped after saving, so the text is read again */
+  const [saved, setSaved] = useState(0);
   /** Whether the change chain column is open: collapsed by default, content takes the full width */
   const [chain, setChain] = useState(!!showHistory);
   useEffect(() => setChain(!!showHistory), [path, showHistory]);
@@ -155,7 +160,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reqKey, reloadKey]);
+  }, [reqKey, reloadKey, saved]);
 
   /** Click to select one; ⌘ / Shift click to add a second (compare); clicking a selected one deselects it */
   const pick = (k: string, add: boolean) => {
@@ -208,6 +213,11 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           {t("修改链")}
           {hist.data && <span className="dim">{versions.length + (hist.data.truncated ? "+" : "")}</span>}
         </button>
+        {req?.kind === "text" && req.rev === null && !!text.data?.text && !text.data.lfs_missing && (
+          <button type="button" className="btn sm" title={t("编辑这个文件（也可以双击某一行）")} onClick={() => setEditAt(1)}>
+            {t("编辑")}
+          </button>
+        )}
         <button
           type="button"
           className={"ib" + (annot ? " pressed" : "")}
@@ -357,10 +367,12 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
                 setAnnot(true);
               }}
               onLfsPull={onLfsPull}
+              onEditLine={req?.kind === "text" && req.rev === null && !text.data?.lfs_missing ? (n) => setEditAt(n) : undefined}
             />
           )}
         </div>
       </div>
+      {editAt != null && <EditFile path={path} line={editAt} onClose={() => setEditAt(null)} onSaved={() => setSaved((n) => n + 1)} />}
     </div>
   );
 }
@@ -394,6 +406,7 @@ function TextView({
   onLocate,
   onPrevious,
   onLfsPull,
+  onEditLine,
 }: {
   load: Load<FileText>;
   focus: number | null;
@@ -405,6 +418,8 @@ function TextView({
   /** Show the revision before the commit that changed a line (rev, path there, the line's number in that commit) */
   onPrevious: (rev: string, path: string, line: number) => void;
   onLfsPull?: () => void;
+  /** Double-click a line to edit the worktree file there; absent for other revisions */
+  onEditLine?: (line: number) => void;
 }) {
   const f = load.data;
   // ⌘F finds in the text, ⌘L goes to a line (only the file tab on screen answers)
@@ -523,7 +538,7 @@ function TextView({
       {f?.text !== undefined && (
         <div className={"tv mono" + (load.loading ? " stale" : "") + (blame ? " with-ann" : "")} style={{ "--lnw": `${String(Math.min(lines.length, MAX_LINES)).length + 2}ch` } as React.CSSProperties}>
           {lines.slice(0, MAX_LINES).map((l, i) => (
-            <div key={i} data-n={i + 1} className={"tv-line" + (focus === i + 1 ? " focus" : "")}>
+            <div key={i} data-n={i + 1} className={"tv-line" + (focus === i + 1 ? " focus" : "")} onDoubleClick={onEditLine ? () => onEditLine(i + 1) : undefined}>
               {blame && ann(i + 1)}
               <span className="ln">{i + 1}</span>
               <span className="code" style={guides ? indentStyle(l, unit) : undefined}>

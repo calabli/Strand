@@ -2,7 +2,8 @@
 
 import type { RepoState } from "../api/types";
 import type { RemoteKind, RemoteOps } from "./remoteOps";
-import { keys, shortId } from "./format";
+import { shortId } from "./format";
+import { hintOf, useKeymap } from "../keymap";
 import { lang, setLang, t, lazy } from "../i18n";
 
 const Icon = ({ d }: { d: string }) => (
@@ -64,6 +65,7 @@ interface Props {
 }
 
 export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onShowConflicts, conflictLeft, busy, remote, ahead, behind, needsForce, hasUpstream, onPullMenu, onSettings, onPalette, panel, undo }: Props) {
+  useKeymap();
   const h = repo.head;
   const branch =
     h.kind === "detached" ? `HEAD@${shortId(h.commit ?? "")}` : h.kind === "unborn" ? t("{0}（还没有提交）", h.branch) : h.branch;
@@ -128,7 +130,7 @@ export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onSho
       <div className="tb-actions">
         <button type="button" className="tb-palette" onClick={onPalette} title={t("命令面板")} aria-label={t("命令面板")}>
           <Icon d="M9.5 9.5 12.5 12.5M10.5 6a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0" />
-          <span className="kbd">{keys("⌘K")}</span>
+          <span className="kbd">{hintOf("palette")}</span>
         </button>
         <button type="button" className="ib" title={undo.undoTip} aria-label={t("撤销")} disabled={!undo.can} onClick={undo.onUndo}>
           <Icon d={ICONS.undo} />
@@ -195,7 +197,7 @@ export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onSho
         >
           {lang === "zh" ? "EN" : "中"}
         </button>
-        <button type="button" className="ib" title={t("设置（{0}）", keys("⌘,"))} aria-label={t("设置")} onClick={onSettings}>
+        <button type="button" className="ib" title={t("设置（{0}）", hintOf("settings"))} aria-label={t("设置")} onClick={onSettings}>
           <Icon d={ICONS.gear} />
         </button>
         <button type="button" className={"ib" + (busy ? " spin" : "")} title={t("重新读取仓库")} aria-label={t("重新读取仓库")} onClick={onReload} disabled={busy}>

@@ -20,6 +20,7 @@ import { AuthorOptions, coAuthorsOf, identOk } from "./compose";
 import { FileRow, FileTree, StatusBadge, treeOrder } from "./FileRow";
 import { setSettings, settings, useSettings } from "../settings";
 import { t, tr } from "../i18n";
+import { hintOf, matches, useKeymap } from "../keymap";
 import { ChecksOptions, ChecksReport } from "./checks";
 
 interface Props {
@@ -97,6 +98,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
   // Record "unchecked" paths so new changes are checked automatically
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState("");
+  useKeymap();
   // Amend (spec §4.5): targets unpushed commits on the current branch, the last commit by default
   const [amend, setAmend] = useState(false);
   const [targets, setTargets] = useState<RangeCommit[] | null>(null);
@@ -1001,9 +1003,10 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
             title={template ? t("说明框里是提交说明模板（{0}）", compose?.template_path ?? "commit.template") : undefined}
             onChange={(e) => setMsg(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              const push = matches(e.nativeEvent, "commitPush");
+              if (push || matches(e.nativeEvent, "commit")) {
                 e.preventDefault();
-                commit(e.altKey);
+                commit(push);
               }
             }}
           />
@@ -1036,17 +1039,17 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
               className="primary cp-commit"
               onClick={() => commit()}
               disabled={(busy && !phase) || disabled}
-              title={phase ? t("点击取消") : t("{0}（⌘↵）", busy ? t("正在提交…") : amend ? t("修订") : t("提交 {0} 个文件", picked.length))}
+              title={phase ? t("点击取消") : t("{0}（{1}）", busy ? t("正在提交…") : amend ? t("修订") : t("提交 {0} 个文件", picked.length), hintOf("commit"))}
             >
               <span className="cp-commit-label">
                 {phase ? (phase.kind === "format" ? t("正在格式化… 点击取消") : t("正在检查… 点击取消")) : busy ? t("正在提交…") : amend ? t("修订") : t("提交 {0} 个文件", picked.length)}
               </span>
-              <span className="kbd">⌘↵</span>
+              <span className="kbd">{hintOf("commit")}</span>
             </button>
             <button
               type="button"
               className="btn cp-push"
-              title={t("提交并推送（⌥⌘↵）")}
+              title={t("提交并推送（{0}）", hintOf("commitPush"))}
               aria-label={t("提交并推送")}
               hidden={amend}
               onClick={() => commit(true)}

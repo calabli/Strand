@@ -566,6 +566,18 @@ fn notify(app: AppHandle, title: String, body: String) -> CmdResult<()> {
     app.notification().builder().title(title).body(body).show().map_err(|e| CoreError::git("发送通知失败", e))
 }
 
+/// Open a repository in a new window: another Strand process started with the folder, so each window has its own
+/// repository, watcher and undo history (on macOS it shows as a second Strand in the Dock)
+#[tauri::command]
+fn open_new_window(path: String) -> CmdResult<()> {
+    if !std::path::Path::new(&path).is_dir() {
+        return Err(CoreError::new(ErrorCode::NotFound, format!("找不到文件夹 {path}")));
+    }
+    let exe = std::env::current_exe().map_err(|e| CoreError::git("打开新窗口失败", e))?;
+    std::process::Command::new(exe).arg(&path).spawn().map_err(|e| CoreError::git("打开新窗口失败", e))?;
+    Ok(())
+}
+
 /// Close the main window (⌘W with no file tab shown)
 #[tauri::command]
 fn window_close(window: tauri::Window) -> CmdResult<()> {
@@ -625,6 +637,64 @@ async fn merged_branches(state: State<'_, AppState>, into: String) -> CmdResult<
 async fn branches_delete(state: State<'_, AppState>, names: Vec<String>) -> CmdResult<Written<usize>> {
     let label = if names.len() == 1 { format!("删除分支 {}", names[0]) } else { format!("删除 {} 个已合并的分支", names.len()) };
     logged_op(&state, label, OpKind::Branch, move |s| s.branches_delete(&names)).await
+}
+
+// ---------- Pull / merge requests (GitHub, GitLab) ----------
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+fn hosting_or_err(path: &std::path::Path) -> CmdResult<strand_core::hosting::Hosting> {
+    strand_core::hosting::hosting_at(path).ok_or_else(|| CoreError::new(ErrorCode::NotFound, "远程仓库不在 GitHub 或 GitLab 上"))
+}
+
+/// Where origin is hosted (null when it isn't GitHub or GitLab)
+#[tauri::command]
+async fn hosting_info(state: State<'_, AppState>) -> CmdResult<Option<strand_core::hosting::Hosting>> {
+    let path = repo_path(&state)?;
+    blocking(move || Ok(strand_core::hosting::hosting_at(&path))).await
+}
+
+/// Hand an access token to Git's credential helper for origin's host
+#[tauri::command]
+async fn hosting_set_token(state: State<'_, AppState>, token: String) -> CmdResult<()> {
+    let path = repo_path(&state)?;
+    blocking(move || {
+        let h = hosting_or_err(&path)?;
+        strand_core::hosting::save_token(&path, &h, &token)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn pr_list(state: State<'_, AppState>) -> CmdResult<Vec<strand_core::hosting::PullRequest>> {
+    let path = repo_path(&state)?;
+    blocking(move || {
+        let h = hosting_or_err(&path)?;
+        strand_core::hosting::list(&path, &h)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn pr_checks(state: State<'_, AppState>, number: u64, head_sha: String) -> CmdResult<strand_core::hosting::Checks> {
+    let path = repo_path(&state)?;
+    blocking(move || {
+        let h = hosting_or_err(&path)?;
+        strand_core::hosting::checks(&path, &h, number, &head_sha)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn pr_create(state: State<'_, AppState>, title: String, body: String, head: String, base: String, draft: bool) -> CmdResult<strand_core::hosting::PullRequest> {
+    let path = repo_path(&state)?;
+    blocking(move || {
+        let h = hosting_or_err(&path)?;
+        strand_core::hosting::create(&path, &h, &title, &body, &head, &base, draft)
+    })
+    .await
 }
 
 // ---------- Submodules and Git LFS ----------
@@ -1724,6 +1794,7 @@ pub fn run(adopted: Option<u128>) {
             lfs_installed,
             lfs_pull,
             window_close,
+            open_new_window,
             notify,
             untracked_delete_all,
             stash_branch,
@@ -1735,6 +1806,11 @@ pub fn run(adopted: Option<u128>) {
             file_open,
             repo_terminal,
             merged_branches,
+            hosting_info,
+            hosting_set_token,
+            pr_list,
+            pr_checks,
+            pr_create,
             branches_delete,
             remote_pull,
             remote_pull_preview,

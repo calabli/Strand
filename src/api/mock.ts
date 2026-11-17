@@ -1,7 +1,7 @@
 // Sample data for the browser preview. Only used when running without Tauri.
 
 import { authorRule } from "./authorRule";
-import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule, MergedBranch } from "./types";
+import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule, MergedBranch, Hosting, PullRequest, Checks } from "./types";
 
 const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(v), 60));
 
@@ -1154,3 +1154,25 @@ export const mergedBranches = (into: string) =>
         ]
       : [],
   );
+
+// Pull requests: sample data only (the browser preview never calls GitHub or GitLab)
+let mockToken = false;
+const nowS = () => Math.floor(Date.now() / 1000);
+const mockPrs: PullRequest[] = [
+  { number: 42, title: "日志支持按作者着色", author: "linxia", head: "feature/author-colors", head_sha: "a1".padEnd(40, "0"), base: "main", draft: false, url: "https://github.com/strand-demo/strand/pull/42", updated: nowS() - 3600 },
+  { number: 39, title: "修复：diff 视图中输入法候选框错位", author: "zhou", head: "fix/diff-ime", head_sha: "e1b07c4".padEnd(40, "0"), base: "main", draft: false, url: "https://github.com/strand-demo/strand/pull/39", updated: nowS() - 2 * 86400 },
+  { number: 37, title: "试验：用 GPUI 画图谱", author: "mei", head: "spike/gpui", head_sha: "9a3f2d1".padEnd(40, "0"), base: "main", draft: true, url: "https://github.com/strand-demo/strand/pull/37", updated: nowS() - 9 * 86400 },
+];
+export const hostingInfo = () => delay<Hosting | null>({ kind: "github", host: "github.com", path: "strand-demo/strand", web_url: "https://github.com/strand-demo/strand" });
+export const hostingSetToken = (token: string) =>
+  token.length < 8 ? Promise.reject({ code: "INVALID_NAME", message: "令牌不对" }) : delay(void (mockToken = true));
+const needToken = () => Promise.reject({ code: "AUTH_FAILED", message: "还没有这个网站的访问令牌", detail: { need_token: true, host: "github.com" } });
+export const prList = () => (mockToken ? delay([...mockPrs]) : needToken());
+export const prChecks = (n: number) =>
+  delay<Checks>(n === 42 ? { total: 4, success: 3, failed: 0, pending: 1 } : n === 39 ? { total: 3, success: 2, failed: 1, pending: 0 } : { total: 0, success: 0, failed: 0, pending: 0 });
+export const prCreate = (title: string, head: string, base: string, draft: boolean) => {
+  if (!mockToken) return needToken();
+  const p: PullRequest = { number: 43, title, author: "you", head, head_sha: "f".repeat(40), base, draft, url: "https://github.com/strand-demo/strand/pull/43", updated: nowS() };
+  mockPrs.unshift(p);
+  return delay(p);
+};

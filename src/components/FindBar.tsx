@@ -4,7 +4,8 @@
 // Only text that's on screen can be found: folded unchanged parts of a diff are left out until expanded.
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { findRegExp, keys } from "./format";
+import { findRegExp } from "./format";
+import { hintOf, matches } from "../keymap";
 import { t } from "../i18n";
 
 export type FindMode = "find" | "line";
@@ -22,14 +23,13 @@ export function useFind(host: RefObject<HTMLElement | null>, active: boolean) {
   useEffect(() => {
     if (!active) return;
     const key = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-      const k = e.key.toLowerCase();
-      if (k !== "f" && k !== "l") return;
+      const isFind = matches(e, "find");
+      if (!isFind && !matches(e, "goLine")) return;
       // Only when the view is on screen and no dialog is open
       if (!host.current?.offsetParent || document.querySelector(".modal-back, .palette")) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      setMode(k === "f" ? "find" : "line");
+      setMode(isFind ? "find" : "line");
     };
     // Capture: runs before the log's own ⌘F handler
     window.addEventListener("keydown", key, true);
@@ -134,7 +134,7 @@ export function FindBar({ f, host, onLine }: { f: FindState; host: RefObject<HTM
       <button type="button" className="ib sm" title={t("下一个（↵）")} aria-label={t("下一个")} disabled={!count} onClick={() => step(1)}>
         ↓
       </button>
-      <button type="button" className="ib sm" title={t("跳到行（{0}）", keys("⌘L"))} aria-label={t("跳到行")} onClick={() => f.setMode("line")}>
+      <button type="button" className="ib sm" title={t("跳到行（{0}）", hintOf("goLine"))} aria-label={t("跳到行")} onClick={() => f.setMode("line")}>
         #
       </button>
       <button type="button" className="ib sm" title={t("关闭（Esc）")} aria-label={t("关闭")} onClick={close}>

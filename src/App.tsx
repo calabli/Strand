@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
 import { treeOrder, TypeIcon } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
-import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Submodule, Branch, Worktree, WorktreeStatus } from "./api/types";
+import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Submodule, Branch, Worktree, WorktreeStatus, Hosting } from "./api/types";
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
 import { useRebase } from "./components/RebaseWindow";
 import { CompareView, PatchWindow, TreeWindow } from "./components/compareTools";
@@ -35,9 +35,11 @@ import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
 import { findRegExp, isMac, keys, shortId } from "./components/format";
 import { Palette } from "./components/Palette";
+import { ACTIONS, matches, hintOf, useKeymap } from "./keymap";
 import { CleanBranches, defaultCleanTarget } from "./components/CleanBranches";
 import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
+import { CreatePr, PullRequestsView, prGoLabel, prNewLabel, prNo, prWord } from "./components/PullRequests";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
 import { Toolbar } from "./components/Toolbar";
 import { setLang, t, tr } from "./i18n";
@@ -139,7 +141,7 @@ export default function App() {
   const panesRef = useRef<HTMLDivElement>(null);
   const logSplitRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<WorktreeStatus | null>(null);
-  const [tab, setTab] = useState<"log" | "console" | "diff" | "file">("log");
+  const [tab, setTab] = useState<"log" | "console" | "diff" | "file" | "prs">("log");
   /** Files open in the middle, one tab each (like an IDE's editor tabs); each keeps its own state while another is shown */
   const [files, setFiles] = useState<FileTab[]>([]);
   /** The file tab shown when the "file" tab is active */
@@ -213,7 +215,7 @@ export default function App() {
     [],
   );
   /** Console, file view and diff tab use the middle plus right width without commit details (diffs compare side by side and would wrap if narrow) */
-  const wide = tab === "console" || tab === "file" || tab === "diff";
+  const wide = tab === "console" || tab === "file" || tab === "diff" || tab === "prs";
   const [target, setTarget] = useState<DiffTarget | null>(null);
   /** Open diff tabs (like file tabs); target is the one shown */
   const [diffTabs, setDiffTabs] = useState<DiffTarget[]>([]);
@@ -230,11 +232,41 @@ export default function App() {
   const [jump, setJump] = useState<{ row: number; n: number } | null>(null);
   const [refs, setRefs] = useState<RefsList | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // Re-render when shortcuts are changed in settings (hints in menus and the palette)
+  useKeymap();
   /** Choosing the remote branch a local branch tracks (a palette), with its search text */
   const [upstreamFor, setUpstreamFor] = useState<Branch | null>(null);
   /** A file tab being dragged to a new place, and the tab it's over */
   const [dragTab, setDragTab] = useState<{ path: string; over: string | null } | null>(null);
   const [upQ, setUpQ] = useState("");
+  /** origin on GitHub / GitLab (pull / merge requests tab); the create dialog with its default title and description */
+  const [hosting, setHosting] = useState<Hosting | null>(null);
+  const [newPr, setNewPr] = useState<{ title: string; body: string } | null>(null);
+  const [prKey, setPrKey] = useState(0);
+  const remoteCount = refs?.remotes.length ?? 0;
+  useEffect(() => {
+    if (!repo?.path) return setHosting(null);
+    let live = true;
+    api.hostingInfo().then(
+      (h) => live && setHosting(h),
+      () => live && setHosting(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [repo?.path, remoteCount]);
+  useEffect(() => {
+    if (!hosting && tab === "prs") setTab("log");
+  }, [hosting, tab]);
+  const openNewPr = () => {
+    const c = repo?.head.commit;
+    const fill = (title = "", body = "") => setNewPr({ title, body });
+    if (!c) return fill();
+    api.commitDetail(c).then(
+      (d) => fill(d.commit.title, d.commit.body.trim()),
+      () => fill(),
+    );
+  };
   /** Clean up merged branches: the target branch, or null when the dialog is closed */
   const [cleanInto, setCleanInto] = useState<string | null>(null);
   const [popup, setPopup] = useState(false);
@@ -1001,13 +1033,13 @@ export default function App() {
   useEffect(() => {
     if (!logVisible) return;
     const key = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+      if (matches(e, "searchLog")) {
         e.preventDefault();
         setFocusSearch(Date.now());
         return;
       }
       const t = e.target as HTMLElement;
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d" && !t.closest("input, textarea, [contenteditable=true]")) {
+      if (matches(e, "openDiff") && !t.closest("input, textarea, [contenteditable=true]")) {
         const k = keyCtx.current;
         if (k.selected && k.multi.length < 2) {
           e.preventDefault();
@@ -1064,13 +1096,13 @@ export default function App() {
   const recent = useRecentRepos();
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === ",") {
+      if (matches(e, "settings")) {
         e.preventDefault();
         setSettingsOpen(true);
         return;
       }
       if (!repo) return;
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+      if (matches(e, "palette")) {
         e.preventDefault();
         setPalette((p) => !p);
       }
@@ -1096,21 +1128,22 @@ export default function App() {
   reopenRef.current = reopenFile;
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      const mod = (e.metaKey || e.ctrlKey) && !e.altKey;
-      if (!mod) return;
-      const k = e.key.toLowerCase();
+      const close = matches(e, "closeTab");
+      const reopen = matches(e, "reopenTab");
+      const recentKey = matches(e, "recentFiles");
+      if (!close && !reopen && !recentKey) return;
       // Leave it to open dialogs, menus and palettes
       if (document.querySelector(".modal-back, .palette, .menu")) return;
-      if (k === "w" && !e.shiftKey) {
+      if (close) {
         e.preventDefault();
         if (tabRef.current === "file" && fileOpenRef.current) closeFiles([fileOpenRef.current]);
         else if (tabRef.current === "diff") closeDiffRef.current();
         // Closing the window with ⌘W is a macOS habit; on Windows and Linux Ctrl+W only closes tabs, so a stray press can't close the app
         else if (isMac) void api.windowClose();
-      } else if (k === "t" && e.shiftKey && repo) {
+      } else if (reopen && repo) {
         e.preventDefault();
         reopenRef.current();
-      } else if (k === "e" && !e.shiftKey && repo) {
+      } else if (recentKey && repo) {
         e.preventDefault();
         setRecentQ("");
         setRecentFiles((o) => !o);
@@ -1127,11 +1160,13 @@ export default function App() {
   useEffect(() => {
     if (!undoKeys) return;
     const key = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "z") return;
+      const isUndo = matches(e, "undo");
+      const isRedo = matches(e, "redo");
+      if (!isUndo && !isRedo) return;
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, [contenteditable=true], [role=dialog]")) return;
       e.preventDefault();
-      if (e.shiftKey) oplogRef.current.redo();
+      if (isRedo) oplogRef.current.redo();
       else oplogRef.current.undo();
     };
     window.addEventListener("keydown", key);
@@ -1197,6 +1232,12 @@ export default function App() {
     const list: PaletteCommand[] = [
       { id: "go-log", section: v, icon: COMMIT_ICONS.history, label: t("转到历史"), run: () => setTab("log") },
       { id: "go-console", section: v, icon: COMMIT_ICONS.console, label: t("转到控制台"), run: () => setTab("console") },
+      ...(hosting
+        ? [
+            { id: "go-prs", section: v, icon: COMMIT_ICONS.merge, label: prGoLabel(hosting), run: () => setTab("prs") },
+            { id: "new-pr", section: b, icon: COMMIT_ICONS.merge, label: prNewLabel(hosting), run: openNewPr },
+          ]
+        : []),
       { id: "go-changes", section: v, icon: COMMIT_ICONS.changes, label: t("转到改动"), run: () => setPanel("commit") },
       { id: "fetch", section: o, icon: COMMIT_ICONS.fetch, label: t("抓取"), run: () => remote.fetch() },
       ...(repo.submodules
@@ -1205,8 +1246,8 @@ export default function App() {
       ...(repo.lfs ? [{ id: "lfs-pull", section: o, icon: COMMIT_ICONS.fetch, label: t("下载 LFS 文件"), disabled: !!remote.running, why: t("网络操作进行中"), run: () => void lfsPull() }] : []),
       { id: "pull", section: o, icon: COMMIT_ICONS.pull, label: t("拉取"), run: () => remote.pull(), disabled: !normal || !cur?.upstream, why: !normal ? busyWhy : t("这个分支没有跟踪的远程分支") },
       { id: "push", section: o, icon: COMMIT_ICONS.push, label: t("推送"), run: () => remote.openPush(), disabled: repo.head.kind !== "branch", why: t("现在不在任何分支上") },
-      { id: "undo", section: o, icon: COMMIT_ICONS.undo, label: t("撤销上一步"), hint: keys("⌘Z"), run: () => oplog.undo(), disabled: !oplog.list.can_undo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以撤销的操作") },
-      { id: "redo", section: o, icon: COMMIT_ICONS.redo, label: t("重做"), hint: keys("⇧⌘Z"), run: oplog.redo, disabled: !oplog.list.can_redo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以重做的操作") },
+      { id: "undo", section: o, icon: COMMIT_ICONS.undo, label: t("撤销上一步"), hint: hintOf("undo"), run: () => oplog.undo(), disabled: !oplog.list.can_undo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以撤销的操作") },
+      { id: "redo", section: o, icon: COMMIT_ICONS.redo, label: t("重做"), hint: hintOf("redo"), run: oplog.redo, disabled: !oplog.list.can_redo || undoBlocked, why: undoBlocked ? busyWhy : t("没有可以重做的操作") },
       { id: "apply-patch", section: o, icon: COMMIT_ICONS.applyPatch, label: t("应用补丁…"), run: () => setApplying({ text: "" }), disabled: !normal, why: busyWhy },
       { id: "new-branch", section: b, icon: COMMIT_ICONS.branch, label: t("新建分支…"), run: () => ops.create() },
       { id: "clean-branches", section: b, icon: COMMIT_ICONS.drop, label: t("清理已合并的分支…"), run: () => setCleanOpen() },
@@ -1248,7 +1289,7 @@ export default function App() {
       { id: "remotes", section: o, icon: COMMIT_ICONS.fetch, label: t("管理远程…"), run: () => setRemotesOpen(true) },
       { id: "reflog", section: m, icon: COMMIT_ICONS.history, label: t("查看操作记录（reflog）…"), run: () => setReflogOpen(true) },
       { id: "jump", section: m, icon: COMMIT_ICONS.jump, label: t("跳到提交…"), run: jumpTo },
-      { id: "search", section: m, icon: COMMIT_ICONS.search, label: t("搜索日志"), hint: keys("⌘F"), run: () => {
+      { id: "search", section: m, icon: COMMIT_ICONS.search, label: t("搜索日志"), hint: hintOf("searchLog"), run: () => {
         setTab("log");
         setFocusSearch(Date.now());
       } },
@@ -1266,16 +1307,23 @@ export default function App() {
       { id: "open", section: m, icon: COMMIT_ICONS.folder, label: t("打开仓库…"), run: choose },
       { id: "clone", section: m, icon: COMMIT_ICONS.clone, label: t("克隆仓库…"), run: () => setCloneOpen(true) },
       { id: "worktree-add", section: m, icon: COMMIT_ICONS.folder, label: t("新建工作目录…"), run: () => setWtDialog({}) },
+      {
+        id: "new-window",
+        section: m,
+        icon: COMMIT_ICONS.repo,
+        label: t("在新窗口中打开仓库…"),
+        run: () => void pickFolder(t("在新窗口中打开仓库")).then((p) => (p ? api.openNewWindow(p) : undefined)).catch((e) => setError(errOf(e).message)),
+      },
       { id: "terminal", section: m, icon: COMMIT_ICONS.console, label: t("在终端中打开"), run: openTerminal },
-      { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: keys("⌘E"), run: () => (setRecentQ(""), setRecentFiles(true)) },
-      { id: "reopen-file", section: m, icon: COMMIT_ICONS.history, label: t("重新打开关掉的标签页"), hint: keys("⇧⌘T"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
-      { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: keys("⌘,"), run: () => setSettingsOpen(true) },
+      { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
+      { id: "reopen-file", section: m, icon: COMMIT_ICONS.history, label: t("重新打开关掉的标签页"), hint: hintOf("reopenTab"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
+      { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: hintOf("settings"), run: () => setSettingsOpen(true) },
       { id: "update-check", section: m, icon: COMMIT_ICONS.gear, label: t("检查更新…"), run: () => updates.check(true) },
       { id: "git-config", section: m, icon: COMMIT_ICONS.gear, label: t("Git 配置（用户名、邮箱、代理）…"), run: () => (setSettingsSection("git"), setSettingsOpen(true)) },
       { id: "lang-zh", section: m, icon: COMMIT_ICONS.web, label: "中文", run: () => setLang("zh") },
       { id: "lang-en", section: m, icon: COMMIT_ICONS.web, label: "English", run: () => setLang("en") },
       { id: "keys", section: m, icon: COMMIT_ICONS.keys, label: t("查看快捷键"), run: () =>
-        ask({ title: t("快捷键"), items: SHORTCUTS.map(([k, d]) => `${keys(k)}　${t(d)}`), confirm: t("关闭"), onSubmit: () => {} }) },
+        ask({ title: t("快捷键"), items: [...ACTIONS.map((x) => `${hintOf(x.id)}　${t(x.label)}`), ...SHORTCUTS.filter(([k]) => !/^(⌘K|⌘F|⌘D|⌘↵|⌥⌘↵|⌘Z \/ ⇧⌘Z)$/.test(k)).map(([k, d]) => `${keys(k)}　${t(d)}`)], message: t("可以在设置的“快捷键”里修改"), confirm: t("关闭"), onSubmit: () => {} }) },
     );
     return list;
   };
@@ -1624,6 +1672,11 @@ export default function App() {
             <button type="button" role="tab" aria-selected={tab === "console"} onClick={() => setTab("console")}>
               {t("控制台")}
             </button>
+            {hosting && (
+              <button type="button" role="tab" aria-selected={tab === "prs"} onClick={() => setTab("prs")}>
+                {prWord(hosting)}
+              </button>
+            )}
             {files.map((f, i) => {
               const name = f.path.slice(f.path.lastIndexOf("/") + 1);
               // Two open files with the same name: show the folder too
@@ -1690,17 +1743,17 @@ export default function App() {
                       x: e.clientX,
                       y: e.clientY,
                       items: [
-                        { label: t("关闭"), hint: keys("⌘W"), run: () => closeFiles([f.path]) },
+                        { label: t("关闭"), hint: hintOf("closeTab"), run: () => closeFiles([f.path]) },
                         { label: t("关闭其他标签页"), disabled: !others.length, run: () => closeFiles(others) },
                         { label: t("关闭左侧的标签页"), disabled: !left.length, run: () => closeFiles(left) },
                         { label: t("关闭右侧的标签页"), disabled: !right.length, run: () => closeFiles(right) },
                         { label: t("关闭全部文件"), disabled: !loose(files).length, why: t("只剩固定的标签页"), run: () => closeFiles(loose(files)) },
-                        { label: t("重新打开关掉的标签页"), hint: keys("⇧⌘T"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
+                        { label: t("重新打开关掉的标签页"), hint: hintOf("reopenTab"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
                         "-",
                         f.pinned
                           ? { label: t("取消固定"), icon: PIN_ICON, run: () => pinFile(f.path, false) }
                           : { label: t("固定标签页"), icon: PIN_ICON, run: () => pinFile(f.path, true) },
-                        { label: t("最近的文件…"), hint: keys("⌘E"), run: () => setRecentFiles(true) },
+                        { label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => setRecentFiles(true) },
                         { label: t("复制路径"), icon: COMMIT_ICONS.copy, run: () => void navigator.clipboard.writeText(f.path) },
                         ...osItems(f.path),
                         { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(f.path, undefined, true) },
@@ -1771,7 +1824,7 @@ export default function App() {
                       x: e.clientX,
                       y: e.clientY,
                       items: [
-                        { label: t("关闭"), hint: keys("⌘W"), run: () => closeDiffs([d]) },
+                        { label: t("关闭"), hint: hintOf("closeTab"), run: () => closeDiffs([d]) },
                         { label: t("关闭其他差异"), disabled: diffTabs.length < 2, run: () => closeDiffs(diffTabs.filter((x) => x !== d)) },
                         { label: t("关闭全部差异"), run: () => closeDiffs(diffTabs) },
                       ],
@@ -1901,6 +1954,9 @@ export default function App() {
             </div>
           </div>
           {tab === "console" && <ConsoleView onToast={say} />}
+          {tab === "prs" && hosting && (
+            <PullRequestsView hosting={hosting} refs={refs} ask={ask} reloadKey={prKey} onCreate={openNewPr} onCheckout={(b) => (b.includes("/") && refs?.remotes.some((r) => r.name === b) ? ops.checkoutRemote(b) : ops.switchTo(b))} />
+          )}
           {files.map((f) => (
             <div key={f.path} className="tabpanel ftab-panel" hidden={!(tab === "file" && fileOpen === f.path)}>
               <FileView
@@ -2112,6 +2168,7 @@ export default function App() {
           onBrowse={choose}
           onClone={() => setCloneOpen(true)}
           onTerminal={openTerminal}
+          onOpenNew={(p) => void api.openNewWindow(p).catch((e) => setError(errOf(e).message))}
           onReveal={() => void revealPath(repo.path).catch((e) => setError(errOf(e).message))}
           onClose={() => setRepoPop(null)}
         />
@@ -2158,6 +2215,21 @@ export default function App() {
       {palette && <CommandPalette commands={paletteCommands()} onPickCommit={(id) => locate(id)} onClose={() => setPalette(false)} />}
       {blame && <BlameWindow path={blame.path} rev={blame.rev} onClose={() => setBlame(null)} onJump={(id) => locate(id)} />}
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
+      {newPr && hosting && (
+        <CreatePr
+          hosting={hosting}
+          refs={refs}
+          lastTitle={newPr.title}
+          lastBody={newPr.body}
+          ask={ask}
+          onClose={() => setNewPr(null)}
+          onCreated={(p) => {
+            setPrKey((k) => k + 1);
+            setTab("prs");
+            say(t("已创建 {0}", prNo(hosting, p.number) + " " + p.title));
+          }}
+        />
+      )}
       {dialog}
       {remote.push && <PushDialog p={remote.push} onPush={remote.doPush} onClose={remote.closePush} onRemote={remote.pickPushRemote} />}
       {remote.pullPanel && <PullPanel p={remote.pullPanel} onMode={remote.previewMode} onStart={remote.startPull} onAbort={remote.abortPull} />}

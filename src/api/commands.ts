@@ -5,6 +5,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Hosting,
+  PullRequest,
+  Checks,
   MergedBranch,
   Submodule,
   UpdateInfo,
@@ -225,6 +228,13 @@ export const api = {
   /** Open a terminal in the repository folder */
   repoTerminal: (): Promise<void> => (inTauri ? call("repo_terminal") : Promise.resolve()),
   mergedBranches: (into: string): Promise<MergedBranch[]> => (inTauri ? call("merged_branches", { into }) : mock.mergedBranches(into)),
+  /** Where origin is hosted; null when it isn't GitHub or GitLab */
+  hostingInfo: (): Promise<Hosting | null> => (inTauri ? call("hosting_info") : mock.hostingInfo()),
+  hostingSetToken: (token: string): Promise<void> => (inTauri ? call("hosting_set_token", { token }) : mock.hostingSetToken(token)),
+  prList: (): Promise<PullRequest[]> => (inTauri ? call("pr_list") : mock.prList()),
+  prChecks: (number: number, headSha: string): Promise<Checks> => (inTauri ? call("pr_checks", { number, headSha }) : mock.prChecks(number)),
+  prCreate: (title: string, body: string, head: string, base: string, draft: boolean): Promise<PullRequest> =>
+    inTauri ? call("pr_create", { title, body, head, base, draft }) : mock.prCreate(title, head, base, draft),
   /** Delete several local branches in one undoable step */
   branchesDelete: (names: string[]): Promise<Written<number>> => (inTauri ? call("branches_delete", { names }) : mock.slow(names.length)),
 
@@ -243,6 +253,8 @@ export const api = {
   untrackedDeleteAll: (): Promise<Written<string[]>> => (inTauri ? call("untracked_delete_all") : mock.slow([])),
   /** Create a branch where a stash was made and bring the stash back there */
   stashBranch: (index: number, name: string): Promise<Written<null>> => (inTauri ? call("stash_branch", { index, name }) : mock.slow(null)),
+  /** Open a repository in a new window (a separate Strand process) */
+  openNewWindow: (path: string): Promise<void> => (inTauri ? call("open_new_window", { path }) : Promise.resolve(void window.open(location.href, "_blank"))),
   /** Close the window (⌘W with no file tab shown) */
   windowClose: (): Promise<void> => (inTauri ? call("window_close") : Promise.resolve()),
 

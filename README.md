@@ -19,6 +19,8 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Find (⌘F) and go to line (⌘L) in diffs and file views; several diff tabs; double-click a commit to open its changes; multi-select files in the commit panel; drag file tabs to reorder.
 - Stash to a new branch, move all untracked files to the trash (undoable), system notifications when long network operations finish in the background; the window remembers its size and shows the repository and branch in its title.
 - Reveal files in the file manager, open them with the default app, open the repository in a terminal; copy a commit's full hash, short hash or message.
+- Pull requests (GitHub) and merge requests (GitLab): list the open ones with their CI checks, check out their branch, open them in the browser, and create one from the current branch. The access token comes from Git's credential helper; Strand never stores it.
+- Edit files right in the file view (the Edit button, or double-click a line); open repositories in new windows; change keyboard shortcuts in Settings.
 - Submodules in the branch tree with their state; update (initializing when needed) or open one in Strand.
 - Git LFS: diffs, file views and image comparisons show the downloaded content instead of pointer files; files not downloaded yet can be fetched with `git lfs pull` (needs git-lfs installed).
 - Bisect with a progress bar above the log, and a reflog window to recover lost commits.
@@ -172,7 +174,7 @@ To add a backend command: implement and test it in `strand-core`, add a thin wra
 
 ## Keyboard and accessibility
 
-⌘K (Ctrl+K on Windows) opens the command palette to search commands, branches and commits. Other shortcuts include ⌘F to search the log, ↑ ↓ to move between commits, → ← to jump to parent and child, F2 to reword, ⌘↵ to commit, and ⌘Z / ⇧⌘Z to undo and redo; "Show shortcuts" in the palette lists them all.
+⌘K (Ctrl+K on Windows) opens the command palette to search commands, branches and commits. Other shortcuts include ⌘F to search the log, ↑ ↓ to move between commits, → ← to jump to parent and child, F2 to reword, ⌘↵ to commit, and ⌘Z / ⇧⌘Z to undo and redo; "Show shortcuts" in the palette lists them all, and the global ones can be changed under Settings › Keyboard shortcuts.
 
 Everything can be done with the keyboard: icon buttons have accessible names matching their tooltips, rows are reachable with Tab, Shift+F10 opens context menus, and focus returns to where a dialog was opened from. Text contrast is at least 4.5:1 in both the light and dark themes.
 
@@ -183,6 +185,7 @@ Everything can be done with the keyboard: icon buttons have accessible names mat
 - Undo snapshots don't include untracked files, except for the operations on untracked files themselves. Changes inside a worktree that was force-removed can't be brought back.
 - Rebasing in the rebase window stops at merge commits.
 - Cloning uses system Git only; authentication relies on SSH keys and credential helpers.
+- Pull and merge requests can be listed and created, but not reviewed, commented on or merged inside Strand. Hosts are recognized by having "github" or "gitlab" in their name.
 - Pre-commit check settings live in each repository's Git config and can't be shared through the repository.
 - The graph is drawn as one SVG per row.
 - The core layer's messages are in Chinese and are translated for display by template matching.

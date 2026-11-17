@@ -834,3 +834,32 @@ export interface MergedBranch {
   upstream?: string;
   favorite: boolean;
 }
+
+/** Where origin is hosted (pull / merge requests) */
+export interface Hosting {
+  kind: "github" | "gitlab";
+  host: string;
+  /** owner/repo, or GitLab's group/…/project */
+  path: string;
+  web_url: string;
+}
+
+export interface PullRequest {
+  number: number;
+  title: string;
+  author: string;
+  head: string;
+  head_sha: string;
+  base: string;
+  draft: boolean;
+  url: string;
+  /** Unix seconds */
+  updated: number;
+}
+
+export interface Checks {
+  total: number;
+  success: number;
+  failed: number;
+  pending: number;
+}
