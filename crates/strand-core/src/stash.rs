@@ -134,6 +134,16 @@ impl Session {
         }
     }
 
+    /// Create a branch at the commit a stash was made on, switch to it and bring the stash back there
+    /// (`git stash branch`); the stash entry is dropped when that succeeds. Useful when the stash no longer applies
+    /// cleanly to the current branch.
+    pub fn stash_branch(&self, index: usize, name: &str) -> Result<()> {
+        self.require_clean_state()?;
+        self.check_branch_name(name)?;
+        self.stash_at(index)?;
+        git_cli::run(self.path(), &["stash", "branch", name.trim(), &format!("stash@{{{index}}}")], None).map(|_| ())
+    }
+
     fn stash_at(&self, index: usize) -> Result<StashEntry> {
         self.stash_list()?
             .into_iter()

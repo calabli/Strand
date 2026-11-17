@@ -342,6 +342,17 @@ export type BranchOps = ReturnType<typeof useBranchOps> & {
     reveal: (path: string) => void;
     remove: (w: Worktree) => void;
   };
+  /** Remote cleanup and tracking, provided by App */
+  remote?: {
+    /** Delete a remote branch such as origin/feature (asks first) */
+    deleteBranch: (name: string) => void;
+    /** Delete a tag on the remote (asks first) */
+    deleteTag: (name: string) => void;
+    /** Choose the remote branch a local branch tracks */
+    setUpstream: (b: Branch) => void;
+    /** A network operation is running */
+    busy: boolean;
+  };
   /** Clean up merged branches: open the dialog listing local branches already in `into`, provided by App */
   cleanMerged?: (into?: string) => void;
   /** Submodules, provided by App */

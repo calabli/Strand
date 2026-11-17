@@ -24,7 +24,9 @@ export function StatusBadge({ s }: { s: FileChange["status"] | "?" }) {
 interface Props {
   f: FileChange;
   active?: boolean;
-  onOpen: () => void;
+  /** Part of a multi-selection (⌘ / Shift click) */
+  selected?: boolean;
+  onOpen: (e: React.MouseEvent) => void;
   /** The control at the start of the row, e.g. a checkbox */
   lead?: ReactNode;
   /** Icons shown at the end of the row on hover */
@@ -35,12 +37,12 @@ interface Props {
   onDouble?: () => void;
 }
 
-export function FileRow({ f, active, onOpen, lead, trail, depth, onDouble }: Props) {
+export function FileRow({ f, active, selected, onOpen, lead, trail, depth, onDouble }: Props) {
   const inDir = depth !== undefined;
   const name = f.old_path ? `${f.old_path} → ${f.path}` : f.path;
   const label = inDir ? (f.old_path && dirOf(f.old_path) !== dirOf(f.path) ? `${f.old_path} → ${baseOf(f.path)}` : f.old_path ? `${baseOf(f.old_path)} → ${baseOf(f.path)}` : baseOf(f.path)) : name;
   return (
-    <div className={"frow" + (active ? " active" : "") + (inDir ? " in-dir" : "")} style={inDir ? { paddingLeft: indentOf(depth) } : undefined}>
+    <div className={"frow" + (active ? " active" : "") + (selected ? " msel" : "") + (inDir ? " in-dir" : "")} style={inDir ? { paddingLeft: indentOf(depth) } : undefined}>
       {lead}
       <button type="button" className="frow-main" onClick={onOpen} onDoubleClick={onDouble} title={name}>
         {/* Tree view: file type icon, file name colored by status (modified blue, added green, deleted red); list view: status letter */}

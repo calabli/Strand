@@ -3,6 +3,7 @@
 // - CloneDialog: repository URL, parent folder, folder name (filled from the URL); shows progress, can be cancelled; opens it when done.
 
 import { useReturnFocus } from "./focus";
+import { notifyIfAway } from "./remoteOps";
 import { useEffect, useRef, useState } from "react";
 import { api, errOf, inTauri, onTaskProgress, pickFolder } from "../api/commands";
 import type { RefsList } from "../api/types";
@@ -203,9 +204,11 @@ export function CloneDialog({ defaultDir, onDone, onClose }: { defaultDir: strin
     setTask(id);
     setProgress({ text: t("正在连接…") });
     setError(null);
+    const started = Date.now();
     try {
       const dest = join(dir.trim(), name.trim());
       await api.repoClone(id, url.trim(), dest);
+      notifyIfAway(started, t("克隆完成"), name.trim());
       try {
         localStorage.setItem(CLONE_DIR, dir.trim());
       } catch {
@@ -214,7 +217,10 @@ export function CloneDialog({ defaultDir, onDone, onClose }: { defaultDir: strin
       onDone(dest);
     } catch (e) {
       const err = errOf(e);
-      if (err.code !== "CANCELLED") setError(err.message);
+      if (err.code !== "CANCELLED") {
+        setError(err.message);
+        notifyIfAway(started, t("克隆失败"), tr(err.message));
+      }
     } finally {
       setTask(null);
       setProgress(null);

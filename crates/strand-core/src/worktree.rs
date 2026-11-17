@@ -333,6 +333,17 @@ impl Session {
         }
         trash::delete(&full).map_err(|e| CoreError::git("移到废纸篓失败", e))
     }
+
+    /// Move every untracked (and not ignored) file to the trash at once; returns their paths
+    pub fn untracked_delete_all(&self) -> Result<Vec<String>> {
+        let untracked = self.status()?.untracked;
+        if untracked.is_empty() {
+            return Ok(untracked);
+        }
+        let full: Vec<std::path::PathBuf> = untracked.iter().map(|p| self.path().join(p)).collect();
+        trash::delete_all(&full).map_err(|e| CoreError::git("移到废纸篓失败", e))?;
+        Ok(untracked)
+    }
 }
 
 /// Worktree status (see [`Session::status`]). Doesn't borrow the session, so it can be computed alongside other work when a write finishes.

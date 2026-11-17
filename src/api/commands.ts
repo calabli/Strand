@@ -211,6 +211,12 @@ export const api = {
   signingSet: (commit: boolean): Promise<SigningConfig> => (inTauri ? call("signing_set", { commit }) : Promise.resolve(Object.assign(mock.signing, { commit }))),
   tagDelete: (name: string): Promise<Written<null>> => (inTauri ? call("tag_delete", { name }) : mock.tagDelete(name)),
 
+  /** Delete a branch on the remote (network task) */
+  remoteBranchDelete: (taskId: string, name: string): Promise<Written<null>> => (inTauri ? call("remote_branch_delete", { taskId, name }) : mock.slow(null)),
+  /** Delete a tag on the remote; the local tag stays (network task) */
+  remoteTagDelete: (taskId: string, name: string): Promise<Written<null>> => (inTauri ? call("remote_tag_delete", { taskId, name }) : mock.slow(null)),
+  /** Set the remote branch a local branch tracks; null stops tracking */
+  branchSetUpstream: (branch: string, upstream: string | null): Promise<RepoState> => (inTauri ? call("branch_set_upstream", { branch, upstream }) : mock.repoState()),
   // Files in the system, the terminal, cleaning up merged branches
   /** Reveal a worktree file in the file manager */
   fileReveal: (path: string): Promise<void> => (inTauri ? call("file_reveal", { path }) : Promise.resolve()),
@@ -229,6 +235,14 @@ export const api = {
   lfsInstalled: (): Promise<boolean> => (inTauri ? call("lfs_installed") : Promise.resolve(false)),
   /** Download the LFS contents of the current checkout (git lfs pull) */
   lfsPull: (taskId: string): Promise<Written<null>> => (inTauri ? call("lfs_pull", { taskId }) : mock.slow(null)),
+  /** The window title (repository and branch) */
+  windowSetTitle: (title: string): Promise<void> => (inTauri ? call("window_set_title", { title }) : Promise.resolve()),
+  /** A system notification */
+  notify: (title: string, body: string): Promise<void> => (inTauri ? call("notify", { title, body }) : Promise.resolve()),
+  /** Move every untracked file to the trash (undoable) */
+  untrackedDeleteAll: (): Promise<Written<string[]>> => (inTauri ? call("untracked_delete_all") : mock.slow([])),
+  /** Create a branch where a stash was made and bring the stash back there */
+  stashBranch: (index: number, name: string): Promise<Written<null>> => (inTauri ? call("stash_branch", { index, name }) : mock.slow(null)),
   /** Close the window (⌘W with no file tab shown) */
   windowClose: (): Promise<void> => (inTauri ? call("window_close") : Promise.resolve()),
 

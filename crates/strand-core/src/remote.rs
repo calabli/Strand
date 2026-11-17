@@ -132,9 +132,9 @@ pub fn fetch(dir: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result
     let before = behind_upstream(dir);
     let refs_before = ref_list(dir);
     if remotes(dir).len() > 1 {
-        run_net(dir, &["fetch", "--progress", "--all"], cancel, progress)?;
+        run_net(dir, &["fetch", "--progress", "--prune", "--all"], cancel, progress)?;
     } else {
-        run_net(dir, &["fetch", "--progress", &main], cancel, progress)?;
+        run_net(dir, &["fetch", "--progress", "--prune", &main], cancel, progress)?;
     }
     let refs_changed = ref_list(dir) != refs_before;
     // Also record which tags the remote has (spec §6.5: unpushed tags are marked); failure doesn't affect the fetch result
@@ -219,7 +219,7 @@ pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progr
     }
     if fetch {
         let r = upstream_remote(dir).map(Ok).unwrap_or_else(|| default_remote(dir))?;
-        run_net(dir, &["fetch", "--progress", &r], cancel, progress)?;
+        run_net(dir, &["fetch", "--progress", "--prune", &r], cancel, progress)?;
     }
     let incoming = behind_upstream(dir);
     if incoming == 0 {
@@ -474,6 +474,38 @@ pub fn tag_push(dir: &Path, name: &str, cancel: &Cancel, progress: &dyn Fn(Progr
         return Err(CoreError::new(ErrorCode::NotFound, format!("找不到标签 {name}")));
     }
     push_tags(dir, &[name.to_string()], cancel, progress)
+}
+
+/// Delete a branch on a remote (`git push <remote> --delete <branch>`); `name` is the remote branch as shown, e.g. `origin/feature`.
+/// The remote-tracking branch goes away with it. Local branches tracking it are left alone (their upstream is then gone).
+pub fn remote_branch_delete(dir: &Path, name: &str, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
+    let (remote, branch) = split_remote_branch(dir, name)?;
+    if branch == "HEAD" {
+        return Err(CoreError::new(ErrorCode::InvalidName, "不能删除远程的 HEAD"));
+    }
+    run_net(dir, &["push", &remote, "--delete", &branch], cancel, progress).map(|_| ())
+}
+
+/// Split `origin/feature/x` into its remote and branch, matching the longest configured remote name
+fn split_remote_branch(dir: &Path, name: &str) -> Result<(String, String)> {
+    let mut rs = remotes(dir);
+    rs.sort_by_key(|r| std::cmp::Reverse(r.len()));
+    rs.into_iter()
+        .find_map(|r| name.strip_prefix(&format!("{r}/")).map(|b| (r.clone(), b.to_string())))
+        .filter(|(_, b)| !b.is_empty())
+        .ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("{name} 不是远程分支")))
+}
+
+/// Delete a tag on the default remote (`git push <remote> --delete refs/tags/<name>`); the local tag stays
+pub fn remote_tag_delete(dir: &Path, name: &str, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
+    let remote = default_remote(dir)?;
+    run_net(dir, &["push", &remote, "--delete", &format!("refs/tags/{name}")], cancel, progress)?;
+    // Forget it in the remembered list of remote tags, so it shows as not pushed right away
+    if let Some(mut tags) = remote_tags(dir) {
+        tags.remove(name);
+        save_remote_tags(dir, &tags);
+    }
+    Ok(())
 }
 
 fn push_tags(dir: &Path, names: &[String], cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {

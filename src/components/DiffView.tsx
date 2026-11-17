@@ -17,6 +17,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/commands";
 import type { DiffLine, FileDiff } from "../api/types";
 import { Menu, type MenuState } from "./Menu";
+import { FindBar, goToLine, useFind } from "./FindBar";
 import { formatTime, shortId } from "./format";
 import { highlight, langOf, type Tok } from "../highlight";
 import { t, tr } from "../i18n";
@@ -161,11 +162,14 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find, files, readOnly, blameSides, onLocate, editable, imageSides }: Props) {
+export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find: findProp, files, readOnly, blameSides, onLocate, editable, imageSides }: Props) {
   const [cur, setCur] = useState(0);
   /** Editing: which line to open at */
   const [editAt, setEditAt] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  // ⌘F finds in this diff, ⌘L goes to a line (not in the small diff box under commit details, where ⌘F searches the log)
+  const finder = useFind(box, !compact);
+  const find = finder.re ?? findProp;
   const settings = useSettings();
   const diffView = compact ? "unified" : settings.diffView;
   const ignoreWs = settings.ignoreWs;
@@ -665,6 +669,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
       </div>
       {!compact && diff && !diff.binary && n > 0 && <Crumbs path={diff.path} get={newText} top={top} box={box} />}
       <div className="diff-main">
+        <FindBar f={finder} host={box} onLine={(n) => goToLine(box.current, n)} />
         <div
           className={"diff-body" + (diffView === "split" ? " split" : "")}
           ref={box}

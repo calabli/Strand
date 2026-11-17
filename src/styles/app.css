@@ -155,6 +155,9 @@ button:disabled { cursor: default; opacity: 0.45; }
 
 /* Commit panel */
 .commit-panel { display: flex; flex-direction: column; min-height: 0; }
+.commit-panel[hidden] { display: none; }
+.ppane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ppane[hidden] { display: none; }
 .cp { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .cp-empty, .cp-clean { padding: 12px; margin: 0; }
 .cp-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 4px; }
@@ -1210,3 +1213,18 @@ mark.find .tk-keyword, mark.find [class^="tk-"] { color: inherit; }
 .cb-row { display: flex; align-items: center; gap: 8px; }
 .cb-name { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Find bar (⌘F) and go to line (⌘L) in diffs and file views */
+.diff-main, .fv-textwrap { position: relative; }
+.fv-textwrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.findbar { position: absolute; top: 6px; right: 18px; z-index: 5; display: flex; align-items: center; gap: 2px; padding: 4px 4px 4px 6px;
+  background: var(--win); border: 1px solid var(--line2); border-radius: 8px; box-shadow: var(--shadow); animation: fade-in 0.1s ease-out; }
+.findbar input { width: 200px; height: 26px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 6px; background: var(--win); color: var(--fg); user-select: text; }
+.findbar input[aria-invalid="true"] { border-color: var(--danger); }
+.findbar-n { min-width: 56px; text-align: center; white-space: nowrap; }
+mark.find.find-cur { outline: 2px solid var(--accent); outline-offset: 0; }
+@keyframes line-flash { from { background: color-mix(in srgb, var(--accent) 30%, transparent); } }
+.line-flash { animation: line-flash 1.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .findbar, .line-flash { animation: none; } }
+.frow.msel { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ftab.drop { box-shadow: inset 2px 0 0 var(--accent); }
+.cp-group-row { display: flex; align-items: center; justify-content: space-between; padding-right: 6px; }

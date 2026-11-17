@@ -190,6 +190,8 @@ interface Props {
   multi: Set<string>;
   /** Click; with ⌘/Ctrl adds to the selection, with Shift selects a range */
   onSelect: (c: Commit, row: number, mods: { toggle: boolean; range: boolean }) => void;
+  /** Double-click a commit: open its changes */
+  onOpen?: (c: Commit) => void;
   /** Jump to a row (scrolled to the middle of the visible area); n differs every time so the same row can be jumped to again */
   jump: { row: number; n: number } | null;
   /** The commit HEAD is on, drawn as a hollow circle in the graph */
@@ -203,7 +205,7 @@ interface Props {
   onExpand?: () => void;
 }
 
-export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, selected, multi, onSelect, jump, onJumpRow, headId, currentBranch, onMenu, onExpand }: Props) {
+export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, selected, multi, onSelect, onOpen, jump, onJumpRow, headId, currentBranch, onMenu, onExpand }: Props) {
   const marker = useMarker(highlight);
   const { exactDates: exact, mergeRefs, dimMerges } = useSettings();
   const box = useRef<HTMLDivElement>(null);
@@ -278,6 +280,7 @@ export function LogView({ log, filtered, scrollKey, onClearFilter, highlight, se
         className={"crow" + (c.id === selected || multi.has(c.id) ? " sel" : "")}
         style={{ ...style, gridTemplateColumns: compact ? `${graphW}px minmax(0,1fr) 0px 44px` : `${graphW}px minmax(0,1fr) 72px 118px` }}
         onClick={(e) => onSelect(c, i, { toggle: e.metaKey || e.ctrlKey, range: e.shiftKey })}
+        onDoubleClick={(e) => !(e.metaKey || e.ctrlKey || e.shiftKey) && onOpen?.(c)}
         onContextMenu={(e) => {
           e.preventDefault();
           onMenu(c, e.clientX, e.clientY);

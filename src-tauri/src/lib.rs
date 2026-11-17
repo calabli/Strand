@@ -553,6 +553,19 @@ fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The window title: the repository and branch, so windows can be told apart in the Dock, the taskbar and window lists
+#[tauri::command]
+fn window_set_title(window: tauri::Window, title: String) -> CmdResult<()> {
+    window.set_title(&title).map_err(|e| CoreError::git("设置窗口标题失败", e))
+}
+
+/// A system notification (a long operation finished while the window was in the background)
+#[tauri::command]
+fn notify(app: AppHandle, title: String, body: String) -> CmdResult<()> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification().builder().title(title).body(body).show().map_err(|e| CoreError::git("发送通知失败", e))
+}
+
 /// Close the main window (⌘W with no file tab shown)
 #[tauri::command]
 fn window_close(window: tauri::Window) -> CmdResult<()> {
@@ -821,6 +834,31 @@ async fn remote_push(app: AppHandle, state: State<'_, AppState>, task_id: String
 async fn tag_push(app: AppHandle, state: State<'_, AppState>, task_id: String, name: String) -> CmdResult<Written<()>> {
     let log = NetLog::Push(format!("推送标签 {name}"));
     net_task(app, &state, task_id, log, move |p, c, pr| remote::tag_push(p, &name, c, pr)).await
+}
+
+/// Delete a branch on the remote (e.g. origin/feature); recorded on the timeline, can't be undone
+#[tauri::command]
+async fn remote_branch_delete(app: AppHandle, state: State<'_, AppState>, task_id: String, name: String) -> CmdResult<Written<()>> {
+    let log = NetLog::Push(format!("删除远程分支 {name}"));
+    net_task(app, &state, task_id, log, move |p, c, pr| remote::remote_branch_delete(p, &name, c, pr)).await
+}
+
+/// Delete a tag on the remote; the local tag stays
+#[tauri::command]
+async fn remote_tag_delete(app: AppHandle, state: State<'_, AppState>, task_id: String, name: String) -> CmdResult<Written<()>> {
+    let log = NetLog::Push(format!("删除远程标签 {name}"));
+    net_task(app, &state, task_id, log, move |p, c, pr| remote::remote_tag_delete(p, &name, c, pr)).await
+}
+
+/// Set (or clear, with upstream empty) the remote branch a local branch tracks
+#[tauri::command]
+async fn branch_set_upstream(state: State<'_, AppState>, branch: String, upstream: Option<String>) -> CmdResult<RepoState> {
+    with_repo(&state, move |s| {
+        s.branch_set_upstream(&branch, upstream.as_deref())?;
+        s.reload()?;
+        s.state()
+    })
+    .await
 }
 
 // ---------- Managing remotes ----------
@@ -1207,6 +1245,30 @@ async fn untracked_ignore(state: State<'_, AppState>, path: String) -> CmdResult
 }
 
 /// Delete an untracked file: moved to the Trash and recoverable from there (not recorded in the op log)
+/// Move every untracked file to the trash in one step (undo brings them back)
+#[tauri::command]
+async fn untracked_delete_all(state: State<'_, AppState>) -> CmdResult<Written<Vec<String>>> {
+    let files = with_repo(&state, |s| Ok(s.status()?.untracked)).await?;
+    let label = format!("把 {} 个未跟踪的文件移到废纸篓", files.len());
+    let scope = OpScope { files, ..Default::default() };
+    logged_op_scoped(&state, label, OpKind::Other, scope, |s| s.untracked_delete_all()).await
+}
+
+/// Create a branch where a stash was made and bring the stash back there (git stash branch)
+#[tauri::command]
+async fn stash_branch(state: State<'_, AppState>, index: usize, name: String) -> CmdResult<Written<()>> {
+    let (label, files) = with_repo(&state, {
+        let name = name.clone();
+        move |s| {
+            let m = s.stash_list().ok().and_then(|l| l.into_iter().find(|e| e.index == index)).map(|e| short(&e.message)).unwrap_or_default();
+            Ok((format!("从贮藏“{m}”新建分支 {name}"), s.stash_untracked_files(index).unwrap_or_default()))
+        }
+    })
+    .await?;
+    let scope = OpScope { files, ..Default::default() };
+    logged_op_scoped(&state, label, OpKind::Stash, scope, move |s| s.stash_branch(index, &name)).await
+}
+
 #[tauri::command]
 async fn untracked_delete(state: State<'_, AppState>, path: String) -> CmdResult<Written<()>> {
     let scope = OpScope { files: vec![path.clone()], ..Default::default() };
@@ -1528,6 +1590,9 @@ async fn update_install(app: AppHandle, state: State<'_, AppState>) -> CmdResult
 pub fn run(adopted: Option<u128>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Remember the window's size, position and maximized state between launches
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
@@ -1659,6 +1724,13 @@ pub fn run(adopted: Option<u128>) {
             lfs_installed,
             lfs_pull,
             window_close,
+            notify,
+            untracked_delete_all,
+            stash_branch,
+            window_set_title,
+            remote_branch_delete,
+            remote_tag_delete,
+            branch_set_upstream,
             file_reveal,
             file_open,
             repo_terminal,

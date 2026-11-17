@@ -6,7 +6,7 @@ import { api, errOf, onTaskProgress } from "../api/commands";
 import type { OpInfo, PullMode, PullPreview, PushPreview, RepoState, Written } from "../api/types";
 import { shortId } from "./format";
 import { settings } from "../settings";
-import { t, withNote } from "../i18n";
+import { t, tr, withNote } from "../i18n";
 
 export type RemoteKind = "fetch" | "pull" | "push";
 
@@ -25,6 +25,19 @@ interface Deps {
   failed: (message: string) => void;
   /** Only show a notice, no refresh */
   say: (message: string) => void;
+}
+
+/** Notification titles for network operations that finish while the window is in the background */
+const NOTIFY_TITLE: Record<RemoteKind, (ok: boolean) => string> = {
+  fetch: (ok) => (ok ? t("抓取完成") : t("抓取失败")),
+  pull: (ok) => (ok ? t("拉取完成") : t("拉取失败")),
+  push: (ok) => (ok ? t("推送完成") : t("推送失败")),
+};
+
+/** A system notification when an operation that took a while (over 3 seconds) finishes while Strand isn't the front window */
+export function notifyIfAway(started: number, title: string, body: string) {
+  if (document.hasFocus() || Date.now() - started < 3000 || !body) return;
+  void api.notify(title, body).catch(() => {});
 }
 
 export function useRemoteOps({ repo, done, failed, say }: Deps) {
@@ -70,15 +83,21 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       keepLog?: (r: T) => boolean,
     ) => {
       const task = `${kind}-${Date.now()}`;
+      const started = Date.now();
       setRunning({ kind, task, text: "" });
       try {
         const w = await f(task);
-        done(w.state, withNote(ok(w.result), w.note), w.op?.kind === "push" ? undefined : w.op, keepLog?.(w.result));
+        const msg = withNote(ok(w.result), w.note);
+        done(w.state, msg, w.op?.kind === "push" ? undefined : w.op, keepLog?.(w.result));
+        notifyIfAway(started, NOTIFY_TITLE[kind](true), msg);
         return true;
       } catch (e) {
         const err = errOf(e);
         if (err.code === "CANCELLED") failed("");
-        else if (!onError?.(err)) failed(err.message);
+        else if (!onError?.(err)) {
+          failed(err.message);
+          notifyIfAway(started, NOTIFY_TITLE[kind](false), tr(err.message));
+        }
         return false;
       } finally {
         setRunning(null);
@@ -269,8 +288,10 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       (task) => api.submoduleUpdate(task, paths),
       () => (paths.length ? t("已更新子模块 {0}", paths.join(", ")) : t("已更新全部子模块")),
     );
+  const deleteRemoteBranch = (name: string) => runTask("push", (task) => api.remoteBranchDelete(task, name), () => t("已删除远程分支 {0}", name));
+  const deleteRemoteTag = (name: string) => runTask("push", (task) => api.remoteTagDelete(task, name), () => t("已删除远程标签 {0}", name));
   const lfsPull = () => runTask("fetch", (task) => api.lfsPull(task), () => t("已下载 LFS 文件"));
-  return { running, submoduleUpdate, lfsPull, fetch, pull, pullPanel, previewMode, startPull, abortPull, pullMode, setPullMode, openPush, doPush, pickPushRemote, pushTag, pushAfterCommit, cancel, push, closePush: () => setPush(null) };
+  return { running, submoduleUpdate, lfsPull, deleteRemoteBranch, deleteRemoteTag, fetch, pull, pullPanel, previewMode, startPull, abortPull, pullMode, setPullMode, openPush, doPush, pickPushRemote, pushTag, pushAfterCommit, cancel, push, closePush: () => setPush(null) };
 }
 
 export type RemoteOps = ReturnType<typeof useRemoteOps>;

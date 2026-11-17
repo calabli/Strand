@@ -373,3 +373,35 @@ fn shelf_with_untracked_files() {
     assert_eq!(read(p, "a.txt"), "a2\n");
     assert!(git(p, &["status", "--porcelain"]).contains("?? sub/"), "restored as untracked again");
 }
+
+/// A stash that no longer applies cleanly goes to a new branch made where it was stashed
+#[test]
+fn stash_to_new_branch() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    let git = |args: &[&str]| {
+        let o = std::process::Command::new("git").args(args).current_dir(p).env("GIT_CONFIG_GLOBAL", "/dev/null").output().unwrap();
+        assert!(o.status.success(), "{args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.name", "林夏"]);
+    git(&["config", "user.email", "l@x.cn"]);
+    std::fs::write(p.join("a.txt"), "1\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "一"]);
+    let base = git(&["rev-parse", "HEAD"]);
+    std::fs::write(p.join("a.txt"), "1 贮藏里的改动\n").unwrap();
+    git(&["stash", "push", "-q", "-m", "试验"]);
+    // main moves on and changes the same line: applying here would conflict
+    std::fs::write(p.join("a.txt"), "1 main 上的改动\n").unwrap();
+    git(&["commit", "-q", "-am", "二"]);
+
+    let s = strand_core::Session::open(p).unwrap();
+    assert_eq!(s.stash_branch(0, "main").unwrap_err().code, strand_core::ErrorCode::InvalidName);
+    s.stash_branch(0, "试验分支").unwrap();
+    assert_eq!(git(&["branch", "--show-current"]), "试验分支");
+    assert_eq!(git(&["rev-parse", "HEAD"]), base);
+    assert_eq!(std::fs::read_to_string(p.join("a.txt")).unwrap(), "1 贮藏里的改动\n");
+    assert!(git(&["stash", "list"]).is_empty());
+}

@@ -41,6 +41,7 @@ export function branchActions(b: Branch, ops: BranchOps, fav: boolean, toggleFav
       ? { label: t("打开它所在的工作目录"), icon: I.folder, run: () => ops.worktree?.open(b.worktree!), disabled: !ops.worktree }
       : { label: t("在新工作目录中检出…"), icon: I.folder, run: () => ops.worktree?.add(b.name), disabled: b.is_current || !ops.worktree, why: t("这就是当前分支") },
     { label: fav ? t("取消收藏") : t("收藏"), icon: I.star, run: () => toggleFav(b.name) },
+    { label: b.upstream ? t("更改跟踪的远程分支…") : t("设置跟踪的远程分支…"), icon: I.fetch, run: () => ops.remote?.setUpstream(b), disabled: !ops.remote },
     { label: t("重命名…"), icon: I.reword, run: () => ops.rename(b) },
     "-",
     { label: t("删除…"), icon: I.drop, run: () => ops.remove(b), disabled: b.is_current, why: t("不能删除当前分支"), danger: true },
@@ -218,6 +219,12 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                         why: merging ? t("合并还没完成") : !ops.current ? t("现在不在任何分支上") : r.rebase_block,
                       },
                       { label: t("从这里新建分支…"), run: () => ops.create({ rev: r.name, label: r.name }) },
+                      ...(ops.remote
+                        ? [
+                            "-" as const,
+                            { label: t("删除远程分支…"), icon: I.drop, danger: true, disabled: ops.remote.busy || r.name.endsWith("/HEAD"), why: ops.remote.busy ? t("网络操作进行中") : t("不能删除远程的 HEAD"), run: () => ops.remote?.deleteBranch(r.name) },
+                          ]
+                        : []),
                     ];
   const tagMenu = (tg: NonNullable<typeof refs>["tags"][number]): MenuEntry[] => [
                   { label: t("检出这个标签"), icon: I.checkout, run: () => ops.checkoutRev(tg.name), disabled: merging, why: t("合并还没完成") },
@@ -225,6 +232,9 @@ export function BranchTree({ refs, ops, favs, toggleFav, merging, picked, onPick
                   ...(onPushTag ? [{ label: t("推送标签"), icon: I.push, run: () => onPushTag(tg.name) }] : []),
                   "-",
                   { label: t("删除标签…"), icon: I.drop, run: () => ops.deleteTag(tg.name, !tg.unpushed), danger: true },
+                  ...(ops.remote && !tg.unpushed
+                    ? [{ label: t("删除远程标签…"), icon: I.drop, danger: true, disabled: ops.remote.busy, why: t("网络操作进行中"), run: () => ops.remote?.deleteTag(tg.name) }]
+                    : []),
                 ];
 
   const head = refs?.head;

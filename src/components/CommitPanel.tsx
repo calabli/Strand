@@ -53,6 +53,8 @@ interface Props {
   onBlame: (path: string) => void;
   /** File context menu (spec §12.2) */
   onFileMenu: (path: string, x: number, y: number) => void;
+  /** Move every untracked file to the trash (asks first) */
+  onUntrackedAll?: () => void;
   /** Refresh in the tool row: re-read worktree status */
   onRefresh: () => void;
   /** Changes when the settings window closes: re-read the commit identity */
@@ -88,7 +90,7 @@ const DIFF_ICON = "M3.5 1.5h7v11h-7zM5.5 5h3M7 3.5v3M5.5 9.5h3";
 const GROUP_ICON = "M1.5 3h4l1 1.5h6V12h-11zM4 7.5h6M4 9.5h4";
 const QUICK_SHELF_ICON = "M1.5 7h11M1.5 10.5h11M3 7v3.5M11 7v3.5M7 1v4M5 3l2 2 2-2";
 
-export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onRefresh, configKey, onOpenGitSettings }: Props) {
+export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onUntrackedAll, onRefresh, configKey, onOpenGitSettings }: Props) {
   const groupDir = useSettings().groupByDir;
   // Whether the "Changes" node is expanded or collapsed (spec §4.1)
   const [changesOpen, setChangesOpen] = useState(true);
@@ -517,12 +519,62 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
   })();
 
   /** A file row under "Changes"; depth is the level in tree view (only the file name is shown) */
+  // Multi-selection (⌘ / Shift click, like a file list): right-click acts on all selected files
+  const [msel, setMsel] = useState<Set<string>>(new Set());
+  const anchor = useRef<string | null>(null);
+  const shownOrder = groupDir ? treeOrder(changes, (c) => c.path).map((c) => c.path) : changes.map((c) => c.path);
+  useEffect(() => {
+    // Drop files that are no longer changed
+    setMsel((m) => (m.size && [...m].some((p) => !shownOrder.includes(p)) ? new Set([...m].filter((p) => shownOrder.includes(p))) : m));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  const rowClick = (path: string, e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey) {
+      setMsel((m) => {
+        const n = new Set(m.size ? m : activePath && shownOrder.includes(activePath) ? [activePath] : []);
+        if (n.has(path)) n.delete(path);
+        else n.add(path);
+        return n;
+      });
+      anchor.current = path;
+      return;
+    }
+    if (e.shiftKey) {
+      const from = shownOrder.indexOf(anchor.current ?? activePath ?? path);
+      const to = shownOrder.indexOf(path);
+      const [a, b] = from < 0 ? [to, to] : [Math.min(from, to), Math.max(from, to)];
+      setMsel(new Set(shownOrder.slice(a, b + 1)));
+      return;
+    }
+    setMsel(new Set());
+    anchor.current = path;
+    onOpenDiff(path);
+  };
+  const multiMenu = (x: number, y: number) => {
+    const list = changes.filter((c) => msel.has(c.path));
+    const paths = list.flatMap((c) => (c.old_path ? [c.path, c.old_path] : [c.path]));
+    const n = list.length;
+    setMoveMenu({
+      x,
+      y,
+      items: [
+        { label: t("勾选这 {0} 个文件", n), run: () => setUnchecked((u) => new Set([...u].filter((p) => !msel.has(p)))) },
+        { label: t("取消勾选这 {0} 个文件", n), run: () => setUnchecked((u) => new Set([...u, ...msel])) },
+        "-",
+        { label: t("搁置这 {0} 个文件…", n), disabled: disabled, why: t("合并或变基还没完成"), run: () => onShelve(list.map((c) => c.path), true) },
+        { label: t("为这 {0} 个文件创建补丁…", n), run: () => onPatch({ files: list.map((c) => ({ path: c.path, old_path: c.old_path, whole: true })) }) },
+        "-",
+        { label: t("丢弃这 {0} 个文件的改动…", n), danger: true, disabled: disabled, why: t("合并或变基还没完成"), run: () => onDiscard(paths) },
+      ],
+    });
+  };
   const changeRow = (c: (typeof changes)[number], depth?: number) => (
               <div
                 key={c.path}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  onFileMenu(c.path, e.clientX, e.clientY);
+                  if (msel.size > 1 && msel.has(c.path)) multiMenu(e.clientX, e.clientY);
+                  else onFileMenu(c.path, e.clientX, e.clientY);
                 }}
                 // When focus is on this row (file button or checkbox), Shift+F10 or the menu key opens the context menu (spec §12.4)
                 onKeyDown={(e) => {
@@ -537,7 +589,8 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
                 depth={depth}
                 f={c}
                 active={activePath === c.path}
-                onOpen={() => onOpenDiff(c.path)}
+                selected={msel.size > 1 && msel.has(c.path)}
+                onOpen={(e) => rowClick(c.path, e)}
                 lead={
                   <input
                     type="checkbox"
@@ -803,7 +856,16 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
         )}
         {untracked.length > 0 && (
           <>
-            <div className="cp-group dim">{t("未跟踪的文件")} {untracked.length}</div>
+            <div className="cp-group dim cp-group-row">
+              <span>
+                {t("未跟踪的文件")} {untracked.length}
+              </span>
+              {onUntrackedAll && untracked.length > 1 && (
+                <button type="button" className="ib sm" title={t("把所有未跟踪的文件移到废纸篓…")} aria-label={t("把所有未跟踪的文件移到废纸篓")} onClick={onUntrackedAll}>
+                  <BoxIcon d={DISCARD_ICON} />
+                </button>
+              )}
+            </div>
             {untracked.map((p) => (
               <div
                 key={p}

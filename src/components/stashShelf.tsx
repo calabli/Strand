@@ -17,6 +17,9 @@ interface Deps {
   say: (message: string) => void;
 }
 
+/** A branch forking off */
+const BRANCH_ICON = "M4 2v10M4 9c0-3 6-2 6-5M10 2.5v2";
+
 export function useStashShelf({ refreshKey, ask, done, failed, say }: Deps) {
   const [stashes, setStashes] = useState<StashEntry[]>([]);
   const [shelves, setShelves] = useState<ShelfEntry[]>([]);
@@ -128,7 +131,19 @@ export function useStashShelf({ refreshKey, ask, done, failed, say }: Deps) {
     [ask, run],
   );
 
-  return { stashes, shelves, refresh, stash, shelve, restore, restoreFiles, removeShelf, rename, pop, apply, drop };
+  /** Bring a stash back on a new branch made where it was stashed (git stash branch): for a stash that no longer applies cleanly */
+  const branch = useCallback(
+    (e: StashEntry) =>
+      ask({
+        title: t("从贮藏新建分支"),
+        message: t("在贮藏时所在的提交上新建分支并切换过去，再把这条贮藏取回到那里，取回后删除这条贮藏。贮藏和现在的代码冲突时用这个。可以在操作时间线里撤销。"),
+        input: { initial: "", placeholder: t("新分支名") },
+        confirm: t("新建分支并取回"),
+        onSubmit: (name) => run(api.stashBranch(e.index, name.trim()), t("已在新分支 {0} 上取回贮藏", name.trim())),
+      }),
+    [ask, run],
+  );
+  return { stashes, shelves, refresh, stash, shelve, restore, restoreFiles, removeShelf, rename, pop, apply, drop, branch };
 }
 
 export type StashShelf = ReturnType<typeof useStashShelf>;
@@ -299,6 +314,9 @@ export function StashPanel({ ops, disabled, onOpenDiff, activePath }: { ops: Sta
               </button>
               <button type="button" className="ib sm" title={why ?? t("取回但保留")} aria-label={t("取回但保留")} disabled={disabled} onClick={() => ops.apply(e)}>
                 <Ico d={I.apply} />
+              </button>
+              <button type="button" className="ib sm" title={why ?? t("新建分支并取回（贮藏和现在的代码冲突时用）")} aria-label={t("从贮藏新建分支")} disabled={disabled} onClick={() => ops.branch(e)}>
+                <Ico d={BRANCH_ICON} />
               </button>
               <button type="button" className="ib sm x" title={t("丢弃")} aria-label={t("丢弃")} onClick={() => ops.drop(e)}>
                 <Ico d={I.drop} />

@@ -215,6 +215,29 @@ impl Session {
         self.git(&["branch", "--delete", "--force", name])
     }
 
+    /// Set the remote branch a local branch tracks (`git branch --set-upstream-to`), or stop tracking when `upstream` is None.
+    /// It's branch configuration, not a change to commits or refs, so it isn't an undo step.
+    pub fn branch_set_upstream(&self, branch: &str, upstream: Option<&str>) -> Result<()> {
+        let refs = self.refs_list()?;
+        if !refs.branches.iter().any(|b| b.name == branch) {
+            return Err(CoreError::new(ErrorCode::NotFound, format!("分支 {branch} 不存在")));
+        }
+        match upstream {
+            Some(up) => {
+                if !refs.remotes.iter().any(|r| r.name == up) {
+                    return Err(CoreError::new(ErrorCode::NotFound, format!("远程分支 {up} 不存在，先抓取一下")));
+                }
+                self.git(&["branch", &format!("--set-upstream-to={up}"), branch])
+            }
+            None => {
+                if refs.branches.iter().any(|b| b.name == branch && b.upstream.is_none()) {
+                    return Ok(());
+                }
+                self.git(&["branch", "--unset-upstream", branch])
+            }
+        }
+    }
+
     /// Local branches whose commits are all in `into` (a branch name or revision): candidates for "clean up merged
     /// branches". Leaves out the current branch, `into` itself and branches checked out in another worktree.
     pub fn merged_branches(&self, into: &str) -> Result<Vec<MergedBranch>> {
@@ -534,7 +557,7 @@ impl Session {
     }
 
     /// Name validation when creating or renaming branches (spec §6.3).
-    fn check_branch_name(&self, name: &str) -> Result<()> {
+    pub(crate) fn check_branch_name(&self, name: &str) -> Result<()> {
         let n = name.trim();
         if n.is_empty() {
             return Err(CoreError::new(ErrorCode::InvalidName, "分支名不能为空"));

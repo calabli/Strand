@@ -601,3 +601,43 @@ fn repo_without_remotes_says_so() {
     let e = remote::fetch(d.path(), &Cancel::default(), &none).unwrap_err();
     assert_eq!(e.code, ErrorCode::NotFound);
 }
+
+/// Remote cleanup: fetch drops remote branches deleted on the remote; delete a remote branch or tag; set or clear the upstream
+#[test]
+fn remote_cleanup_and_upstream() {
+    let w = world();
+    let (me, other) = (w.me.as_path(), w.other.as_path());
+    let none = |_: remote::Progress| {};
+    // Someone pushes a branch, I fetch it, they delete it on the remote: my next fetch prunes it
+    git(other, &["push", "-q", "origin", "main:gone"]);
+    remote::fetch(me, &Cancel::default(), &none).unwrap();
+    assert!(git(me, &["branch", "-r"]).contains("origin/gone"));
+    git(other, &["push", "-q", "origin", "--delete", "gone"]);
+    remote::fetch(me, &Cancel::default(), &none).unwrap();
+    assert!(!git(me, &["branch", "-r"]).contains("origin/gone"));
+
+    // Delete a remote branch from here
+    git(me, &["push", "-q", "origin", "main:feature/x"]);
+    git(me, &["fetch", "-q"]);
+    remote::remote_branch_delete(me, "origin/feature/x", &Cancel::default(), &none).unwrap();
+    assert!(!git(me, &["branch", "-r"]).contains("origin/feature/x"));
+    assert!(!git(other, &["ls-remote", "--heads", "origin"]).contains("feature/x"));
+    assert_eq!(remote::remote_branch_delete(me, "nowhere/x", &Cancel::default(), &none).unwrap_err().code, ErrorCode::NotFound);
+
+    // Delete a remote tag; the local tag stays
+    git(me, &["tag", "v1"]);
+    git(me, &["push", "-q", "origin", "v1"]);
+    remote::remote_tag_delete(me, "v1", &Cancel::default(), &none).unwrap();
+    assert!(git(me, &["ls-remote", "--tags", "origin"]).is_empty());
+    assert_eq!(git(me, &["tag"]), "v1");
+
+    // Upstream: set to another remote branch, then clear it
+    git(me, &["push", "-q", "origin", "main:other-line"]);
+    git(me, &["fetch", "-q"]);
+    let s = strand_core::Session::open(me).unwrap();
+    s.branch_set_upstream("main", Some("origin/other-line")).unwrap();
+    assert_eq!(git(me, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/other-line");
+    s.branch_set_upstream("main", None).unwrap();
+    assert!(Command::new("git").args(["rev-parse", "--abbrev-ref", "main@{upstream}"]).current_dir(me).output().unwrap().stdout.is_empty());
+    assert_eq!(s.branch_set_upstream("main", Some("origin/nope")).unwrap_err().code, ErrorCode::NotFound);
+}

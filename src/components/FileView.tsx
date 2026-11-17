@@ -18,6 +18,7 @@ import { api, errOf, wholeFile } from "../api/commands";
 import type { FileDiff, FileHistory, FileText } from "../api/types";
 import { DiffView, blameSide, type BSide } from "./DiffView";
 import { Menu, type MenuState } from "./Menu";
+import { FindBar, goToLine, useFind } from "./FindBar";
 import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
 import { findRegExp, formatTime, relTime, shortId } from "./format";
@@ -387,7 +388,7 @@ function VersionRow({ k, sel, onPick, first, last, children }: { k: string; sel:
 function TextView({
   load,
   focus,
-  find,
+  find: findProp,
   blame,
   onToggleBlame,
   onLocate,
@@ -406,6 +407,10 @@ function TextView({
   onLfsPull?: () => void;
 }) {
   const f = load.data;
+  // ⌘F finds in the text, ⌘L goes to a line (only the file tab on screen answers)
+  const box = useRef<HTMLDivElement>(null);
+  const finder = useFind(box, true);
+  const find = finder.re ?? findProp;
   // Blame the whole file once per revision; lines are matched by number
   const blameKey = blame ? JSON.stringify(blame) : "";
   const [bl, setBl] = useState<{ key: string; side: BSide | null } | null>(null);
@@ -469,7 +474,6 @@ function TextView({
       ],
     });
   };
-  const box = useRef<HTMLDivElement>(null);
   // Jump to the given line
   useEffect(() => {
     if (!focus || load.loading) return;
@@ -499,6 +503,8 @@ function TextView({
   return (
     <>
     {f?.text !== undefined && lines.length > 0 && <Crumbs path={f.path} get={get} top={top} box={box} />}
+    <div className="fv-textwrap">
+    <FindBar f={finder} host={box} onLine={(n) => goToLine(box.current, n)} />
     <div className="fv-text" ref={box} onContextMenu={onMenu}>
       {load.loading && !f && <p className="pad dim">{t("正在读取…")}</p>}
       {load.error && <p className="pad err">{tr(load.error)}</p>}
@@ -528,6 +534,7 @@ function TextView({
           {(lines.length > MAX_LINES || f.truncated) && <p className="pad dim">{t("文件太大，只显示了前面一部分")}</p>}
         </div>
       )}
+    </div>
     </div>
     {menu && <Menu menu={menu} onClose={() => setMenu(null)} />}
     </>

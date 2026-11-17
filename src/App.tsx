@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
 import { treeOrder, TypeIcon } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
-import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Submodule, Worktree, WorktreeStatus } from "./api/types";
+import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Submodule, Branch, Worktree, WorktreeStatus } from "./api/types";
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
 import { useRebase } from "./components/RebaseWindow";
 import { CompareView, PatchWindow, TreeWindow } from "./components/compareTools";
@@ -83,6 +83,12 @@ const joinPath = (root: string, rel: string) => {
   const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
   return root.replace(/[\\/]+$/, "") + sep + rel.split("/").join(sep);
 };
+
+/** Identifies a diff tab: what is compared and which file */
+const diffKey = (d: DiffTarget) =>
+  d.kind === "worktree" ? `w:${d.path}` : d.kind === "commit" ? `c:${d.id}:${d.path}` : d.kind === "compare" ? `p:${d.from}:${d.to}:${d.path}` : d.kind === "shelf" ? `s:${d.id}:${d.path}` : `x:${d.left.label}:${d.right.label}`;
+/** Open diff tabs at most */
+const MAX_DIFF_TABS = 10;
 
 /** One file open in the middle: where to jump (from search results) and whether the change chain opens with it */
 type FileTab = { path: string; pinned?: boolean; at: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null; chain: boolean };
@@ -209,6 +215,8 @@ export default function App() {
   /** Console, file view and diff tab use the middle plus right width without commit details (diffs compare side by side and would wrap if narrow) */
   const wide = tab === "console" || tab === "file" || tab === "diff";
   const [target, setTarget] = useState<DiffTarget | null>(null);
+  /** Open diff tabs (like file tabs); target is the one shown */
+  const [diffTabs, setDiffTabs] = useState<DiffTarget[]>([]);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null; pickKeys?: Map<string, string> }>({
     data: null,
     loading: false,
@@ -222,6 +230,11 @@ export default function App() {
   const [jump, setJump] = useState<{ row: number; n: number } | null>(null);
   const [refs, setRefs] = useState<RefsList | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  /** Choosing the remote branch a local branch tracks (a palette), with its search text */
+  const [upstreamFor, setUpstreamFor] = useState<Branch | null>(null);
+  /** A file tab being dragged to a new place, and the tab it's over */
+  const [dragTab, setDragTab] = useState<{ path: string; over: string | null } | null>(null);
+  const [upQ, setUpQ] = useState("");
   /** Clean up merged branches: the target branch, or null when the dialog is closed */
   const [cleanInto, setCleanInto] = useState<string | null>(null);
   const [popup, setPopup] = useState(false);
@@ -338,10 +351,41 @@ export default function App() {
     );
   }, []);
 
-  const openDiff = (t: DiffTarget) => {
+  /** Open a diff in its own tab, or show it again when already open. replace: show it in the current diff tab instead
+   * (stepping through the files of one commit with ⌥← ⌥→ stays in one tab) */
+  const openDiff = (t: DiffTarget, replace = false) => {
+    const k = diffKey(t);
+    setDiffTabs((ts) => {
+      if (ts.some((x) => diffKey(x) === k)) return ts;
+      const at = target ? ts.findIndex((x) => diffKey(x) === diffKey(target)) : -1;
+      if (replace && at >= 0) return ts.map((x, i) => (i === at ? t : x));
+      const next = [...ts];
+      next.splice(at >= 0 ? at + 1 : ts.length, 0, t);
+      // At most 10: drop the oldest other one
+      if (next.length <= MAX_DIFF_TABS) return next;
+      const drop = next.findIndex((x) => x !== t);
+      return next.filter((_, i) => i !== drop);
+    });
     setTarget(t);
     setTab("diff");
     loadDiff(t);
+  };
+  /** Close diff tabs; when the shown one closes, show its neighbour, or go back to the log when none is left */
+  const closeDiffs = (gone: DiffTarget[]) => {
+    const keys = new Set(gone.map(diffKey));
+    const rest = diffTabs.filter((x) => !keys.has(diffKey(x)));
+    setDiffTabs(rest);
+    if (target && keys.has(diffKey(target))) {
+      const i = diffTabs.findIndex((x) => diffKey(x) === diffKey(target));
+      const next = rest[Math.min(i, rest.length - 1)];
+      if (next) {
+        setTarget(next);
+        loadDiff(next);
+      } else {
+        setTarget(null);
+        setTab((tb) => (tb === "diff" ? "log" : tb));
+      }
+    }
   };
 
   // The diff tab switches between files in one group (extension of spec §10.1): the same commit, the same comparison, the same shelf entry, worktree changes
@@ -373,7 +417,7 @@ export default function App() {
           go: (d: number) => {
             const i = filesInGroup.indexOf(target.path);
             const next = filesInGroup[(i + d + filesInGroup.length) % filesInGroup.length];
-            openDiff({ ...target, path: next } as DiffTarget);
+            openDiff({ ...target, path: next } as DiffTarget, true);
           },
         }
       : null;
@@ -387,6 +431,7 @@ export default function App() {
       setRepo(st);
       setSelected(null);
       setTarget(null);
+      setDiffTabs([]);
       setFiles([]);
       setFileOpen(null);
       fileUsed.current.clear();
@@ -667,6 +712,12 @@ export default function App() {
   useEffect(() => setCompareBase(null), [repo?.path]);
   // Read the settings window's Git settings ahead, so it opens complete without the page jumping
   useEffect(() => prefetchSettings(!!repo), [repo?.path]);
+  // Window title: repository and branch (shown in the Dock / taskbar and window lists)
+  const titleText = repo ? `${repo.name} — ${repo.head.kind === "branch" && repo.head.branch ? repo.head.branch : repo.head.commit ? shortId(repo.head.commit) : ""}` : "Strand";
+  useEffect(() => {
+    document.title = titleText;
+    void api.windowSetTitle(titleText).catch(() => {});
+  }, [titleText]);
   // "Compare with current branch" on a branch: from the current branch's latest commit to that branch's latest commit
   const branchOps = {
     ...ops,
@@ -677,6 +728,26 @@ export default function App() {
       locate(name);
     },
     cleanMerged: (into?: string) => setCleanOpen(into),
+    remote: {
+      deleteBranch: (name: string) =>
+        ask({
+          title: t("删除远程分支 {0}", name),
+          message: t("远程上的这个分支会被删除，其他人抓取后也就没有了。本地分支不受影响。这一步不能撤销。"),
+          confirm: t("删除"),
+          danger: true,
+          onSubmit: () => void remote.deleteRemoteBranch(name),
+        }),
+      deleteTag: (name: string) =>
+        ask({
+          title: t("删除远程标签 {0}", name),
+          message: t("只删除远程上的标签，本地的标签保留，之后还能重新推送。这一步不能撤销。"),
+          confirm: t("删除"),
+          danger: true,
+          onSubmit: () => void remote.deleteRemoteTag(name),
+        }),
+      setUpstream: (b: Branch) => (setUpQ(""), setUpstreamFor(b)),
+      busy: !!remote.running,
+    },
     submodule: {
       update: (paths: string[]) => void remote.submoduleUpdate(paths),
       open: (path: string) => repo && open(joinPath(repo.path, path)),
@@ -883,10 +954,9 @@ export default function App() {
     setSelectAfterLoad({ row: 0, id: r.id });
     refreshStatus();
     refreshRefs();
-    if (target?.kind === "worktree") {
-      setTarget(null);
-      setTab("log");
-    }
+    // The worktree diffs just committed are stale: close them
+    const stale = diffTabs.filter((x) => x.kind === "worktree");
+    if (stale.length) closeDiffs(stale);
     say(amend ? t("已修订上一次提交") : t("已提交 {0} 个文件", files), r.op);
     if (push) remote.pushAfterCommit();
   };
@@ -1020,6 +1090,8 @@ export default function App() {
     closedRef.current = closedRef.current.slice(0, -1);
     openFile(last);
   };
+  const closeDiffRef = useRef(() => {});
+  closeDiffRef.current = () => target && closeDiffs([target]);
   const reopenRef = useRef(reopenFile);
   reopenRef.current = reopenFile;
   useEffect(() => {
@@ -1032,7 +1104,7 @@ export default function App() {
       if (k === "w" && !e.shiftKey) {
         e.preventDefault();
         if (tabRef.current === "file" && fileOpenRef.current) closeFiles([fileOpenRef.current]);
-        else if (tabRef.current === "diff") (setTarget(null), setTab("log"));
+        else if (tabRef.current === "diff") closeDiffRef.current();
         // Closing the window with ⌘W is a macOS habit; on Windows and Linux Ctrl+W only closes tabs, so a stray press can't close the app
         else if (isMac) void api.windowClose();
       } else if (k === "t" && e.shiftKey && repo) {
@@ -1457,8 +1529,8 @@ export default function App() {
             label={t("调整提交详情的宽度")}
           />
         )}
-        {panelOpen && (
-        <aside className="commit-panel">
+        {/* Stays mounted while hidden or on another tab, so a half-written commit message and the checked files survive (it only resets per repository) */}
+        <aside className="commit-panel" hidden={!panelOpen}>
           <div className="ptabs" role="tablist">
             {(
               [
@@ -1500,8 +1572,9 @@ export default function App() {
               onOpenDiff={(id, path) => openDiff({ kind: "commit", id, path })}
             />
           )}
-          {panel === "commit" && (
+          <div className="ppane" hidden={panel !== "commit"}>
           <CommitPanel
+            key={repo.path}
             configKey={configKey}
             onOpenGitSettings={() => (setSettingsSection("git"), setSettingsOpen(true))}
             repoPath={repo.path}
@@ -1521,6 +1594,17 @@ export default function App() {
             onUntracked={onUntracked}
             onBlame={(path) => setBlame({ path, rev: null })}
             onFileMenu={fileMenu}
+            onUntrackedAll={() => {
+              const n = status?.untracked.length ?? 0;
+              ask({
+                title: t("删除所有未跟踪的文件"),
+                message: t("{0} 个未跟踪的文件会移到系统的废纸篓，被 .gitignore 忽略的文件不受影响。可以在操作时间线里撤销，也能从废纸篓里找回。", n),
+                items: (status?.untracked ?? []).slice(0, 12).concat(n > 12 ? [t("… 还有 {0} 个", n - 12)] : []),
+                confirm: t("移到废纸篓"),
+                danger: true,
+                onSubmit: () => runWrite(api.untrackedDeleteAll(), t("已把 {0} 个未跟踪的文件移到废纸篓", n)),
+              });
+            }}
             onApplyPatch={() => setApplying({ text: "" })}
             onPatch={(sel) => openPatch(t("{0} 个文件的补丁", sel.files.length), api.patchWorktree(sel), "changes.patch")}
             onStash={() => ss.stash(status?.untracked ?? [])}
@@ -1530,9 +1614,8 @@ export default function App() {
             onOpenDiff={(path) => openDiff({ kind: "worktree", path })}
             onCommitted={committed}
           />
-          )}
+          </div>
         </aside>
-        )}
         <main className="main">
           <div className="tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === "log"} onClick={() => setTab("log")}>
@@ -1553,8 +1636,38 @@ export default function App() {
                   role="tab"
                   tabIndex={0}
                   aria-selected={on}
-                  className={"ftab" + (on ? " on" : "") + (f.pinned ? " pinned" : "")}
+                  className={"ftab" + (on ? " on" : "") + (f.pinned ? " pinned" : "") + (dragTab?.over === f.path ? " drop" : "")}
                   title={f.path}
+                  // Drag to reorder (pinned tabs stay among pinned ones, the rest after them)
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", f.path);
+                    setDragTab({ path: f.path, over: null });
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragTab || dragTab.path === f.path || !!files.find((g) => g.path === dragTab.path)?.pinned !== !!f.pinned) return;
+                    e.preventDefault();
+                    if (dragTab.over !== f.path) setDragTab({ ...dragTab, over: f.path });
+                  }}
+                  onDragLeave={() => dragTab?.over === f.path && setDragTab({ ...dragTab, over: null })}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const from = dragTab?.path;
+                    setDragTab(null);
+                    if (!from || from === f.path) return;
+                    setFiles((fs) => {
+                      const moving = fs.find((g) => g.path === from);
+                      if (!moving) return fs;
+                      const rest = fs.filter((g) => g !== moving);
+                      const at = rest.findIndex((g) => g.path === f.path);
+                      const fromIdx = fs.indexOf(moving);
+                      // Dropped on a tab to the right: go after it; to the left: before it
+                      rest.splice(fromIdx < fs.indexOf(f) ? at + 1 : at, 0, moving);
+                      return rest;
+                    });
+                  }}
+                  onDragEnd={() => setDragTab(null)}
                   onClick={() => showFile(f.path)}
                   onMouseDown={(e) => {
                     if (e.button === 1) {
@@ -1634,11 +1747,57 @@ export default function App() {
                 </div>
               );
             })}
-            {target && (
-              <button type="button" role="tab" aria-selected={tab === "diff"} onClick={() => setTab("diff")}>
-                {t("差异 ·")} {target.path.split("/").pop()}
-              </button>
-            )}
+            {diffTabs.map((d) => {
+              const on = tab === "diff" && !!target && diffKey(d) === diffKey(target);
+              const name = d.path.split("/").pop();
+              const where = d.kind === "worktree" ? t("工作区") : d.kind === "commit" ? shortId(d.id) : d.kind === "compare" ? `${shortId(d.from)}→${shortId(d.to)}` : d.kind === "shelf" ? d.name : t("对比");
+              return (
+                <div
+                  key={diffKey(d)}
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={on}
+                  className={"ftab dtab" + (on ? " on" : "")}
+                  title={`${d.path} · ${where}`}
+                  onClick={() => (on ? undefined : openDiff(d))}
+                  onMouseDown={(e) => e.button === 1 && (e.preventDefault(), closeDiffs([d]))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") (e.preventDefault(), openDiff(d));
+                    if (e.key === "Delete" || e.key === "Backspace") (e.preventDefault(), closeDiffs([d]));
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      items: [
+                        { label: t("关闭"), hint: keys("⌘W"), run: () => closeDiffs([d]) },
+                        { label: t("关闭其他差异"), disabled: diffTabs.length < 2, run: () => closeDiffs(diffTabs.filter((x) => x !== d)) },
+                        { label: t("关闭全部差异"), run: () => closeDiffs(diffTabs) },
+                      ],
+                    });
+                  }}
+                >
+                  <span className="ftab-name">{t("差异 ·")} {name}</span>
+                  <span className="ftab-dir dim">{where}</span>
+                  <button
+                    type="button"
+                    className="ftab-x"
+                    tabIndex={-1}
+                    title={t("关闭（鼠标中键）")}
+                    aria-label={t("关闭 {0}", `${name}`)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeDiffs([d]);
+                    }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                      <path d="M2.5 2.5l5 5M7.5 2.5l-5 5" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
           </div>
           <div className="tabpanel log-split" ref={logSplitRef} hidden={tab !== "log"}>
             {treeOpen && (
@@ -1708,6 +1867,7 @@ export default function App() {
               selected={selected?.id ?? null}
               multi={new Set(multi)}
               onSelect={pick}
+              onOpen={(c) => void diffSelected(c)}
               jump={jump}
               onJumpRow={goRow}
               headId={repo.head.commit ?? null}
@@ -1780,10 +1940,7 @@ export default function App() {
                     }
                   : undefined
               }
-              onClose={() => {
-                setTarget(null);
-                setTab("log");
-              }}
+              onClose={() => target && closeDiffs([target])}
               find={ui.searchIn === "changes" && ui.text ? findRegExp(ui.text, ui.regex, ui.caseSensitive) : null}
               files={fileNav}
               readOnly={target.kind !== "worktree"}
@@ -1917,6 +2074,32 @@ export default function App() {
       {pickFiles && <PickFiles {...pickFiles} onClose={() => setPickFiles(null)} done={doneCb} failed={failedCb} say={say} />}
       {applying && <ApplyPatch initial={applying} onClose={() => setApplying(null)} done={doneCb} failed={failedCb} say={say} />}
       {patch && <PatchWindow title={patch.title} text={patch.text} name={patch.name} onClose={() => setPatch(null)} say={say} />}
+      {upstreamFor && repo && (
+        <Palette
+          label={t("跟踪的远程分支")}
+          placeholder={t("{0} 跟踪哪个远程分支", upstreamFor.name)}
+          query={upQ}
+          onQuery={setUpQ}
+          empty={t("没有远程分支，先抓取一下")}
+          onClose={() => setUpstreamFor(null)}
+          rows={(() => {
+            const b = upstreamFor;
+            const q = upQ.trim().toLowerCase();
+            const pick = (up: string | null) => {
+              setUpstreamFor(null);
+              api.branchSetUpstream(b.name, up).then(
+                (st) => doneCb(st, up ? t("{0} 现在跟踪 {1}", b.name, up) : t("{0} 不再跟踪远程分支", b.name)),
+                (e) => setError(errOf(e).message),
+              );
+            };
+            const remotes = (refs?.remotes ?? []).filter((r) => !r.name.endsWith("/HEAD") && (!q || r.name.toLowerCase().includes(q)));
+            return [
+              ...remotes.map((r) => ({ key: r.name, section: t("远程分支"), label: r.name, icon: COMMIT_ICONS.fetch, detail: r.name === b.upstream ? t("现在跟踪的") : "", run: () => pick(r.name) })),
+              ...(b.upstream && (!q || t("不跟踪").includes(q)) ? [{ key: "\u0000none", section: t("其他"), label: t("不跟踪"), icon: COMMIT_ICONS.cancel, detail: t("取消跟踪 {0}", b.upstream), run: () => pick(null) }] : []),
+            ];
+          })()}
+        />
+      )}
       {cleanInto && repo && (
         <CleanBranches branches={refs?.branches ?? []} into={cleanInto} onClose={() => setCleanInto(null)} done={doneCb} />
       )}
