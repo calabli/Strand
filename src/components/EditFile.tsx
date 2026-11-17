@@ -1,30 +1,34 @@
-// Edit a worktree file directly in the diff: load the current content into the editor; on save the core layer checks the file on disk wasn't changed elsewhere before writing it back.
-// Opens at the change being viewed; ⌘S saves, Esc closes (asking first if there are unsaved edits). Tab inserts a tab or spaces following this file's indentation.
+// Edit a worktree file: in a file tab (FileEditor, in place of the text) or from a diff (EditFile, a dialog around it).
+// The current content is loaded into the code editor; on save the core layer checks the file on disk wasn't changed
+// elsewhere before writing it back (keeping CRLF line endings). ⌘S saves; closing with unsaved edits asks first.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { api, errOf } from "../api/commands";
 import { indentUnit } from "./inlineDiff";
+import { setDirty } from "../editState";
 import { t, tr } from "../i18n";
 
-const LH = 20;
+const CodeEditor = lazy(() => import("./CodeEditor"));
 
 interface Props {
   path: string;
   /** Put the cursor on this line when opening (1-based) */
   line?: number;
+  /** Leave the editor (after asking when there are unsaved edits) */
   onClose: () => void;
-  /** After a successful save (re-read the diff, refresh status) */
+  /** After a successful save (re-read the text or diff, refresh status) */
   onSaved: () => void;
+  /** Saving closes the editor (the diff dialog); in a file tab editing goes on after saving */
+  closeOnSave?: boolean;
 }
 
-export function EditFile({ path, line, onClose, onSaved }: Props) {
+export function FileEditor({ path, line, onClose, onSaved, closeOnSave }: Props) {
   const [orig, setOrig] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
-  const area = useRef<HTMLTextAreaElement>(null);
-  const gutter = useRef<HTMLDivElement>(null);
+  const [savedNote, setSavedNote] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -45,21 +49,13 @@ export function EditFile({ path, line, onClose, onSaved }: Props) {
     };
   }, [path]);
 
-  // Once the content is loaded, put the cursor on the target line and scroll it to the upper third
+  const base = orig?.replace(/\r\n/g, "\n") ?? "";
+  const dirty = orig != null && text !== base;
   useEffect(() => {
-    const el = area.current;
-    if (orig == null || !el) return;
-    const n = Math.max(1, line ?? 1);
-    let at = 0;
-    for (let i = 1; i < n && at >= 0; i++) at = text.indexOf("\n", at) + 1 || -1;
-    if (at < 0) at = 0;
-    el.focus();
-    el.setSelectionRange(at, at);
-    el.scrollTop = Math.max(0, (n - 1) * LH - el.clientHeight / 3);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orig]);
+    setDirty(path, dirty);
+  }, [path, dirty]);
+  useEffect(() => () => setDirty(path, false), [path]);
 
-  const dirty = orig != null && text !== orig.replace(/\r\n/g, "\n");
   const lines = useMemo(() => text.split("\n").length, [text]);
   const indent = useMemo(() => {
     if (orig == null) return "    ";
@@ -70,106 +66,82 @@ export function EditFile({ path, line, onClose, onSaved }: Props) {
   }, [orig]);
 
   const save = async () => {
-    if (orig == null || busy) return;
+    if (orig == null || busy || !dirty) return;
     setBusy(true);
     setError(null);
     try {
       await api.saveWorktreeFile(path, text, orig);
+      // What's on disk now: the saved text (the core keeps CRLF when the file used it)
+      setOrig(orig.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text);
+      setBusy(false);
+      setSavedNote(true);
+      window.setTimeout(() => setSavedNote(false), 1500);
       onSaved();
-      onClose();
+      if (closeOnSave) onClose();
     } catch (e) {
       setError(errOf(e).message);
       setBusy(false);
     }
   };
   const close = () => (dirty ? setAsking(true) : onClose());
-  const keepEditing = () => {
-    setAsking(false);
-    area.current?.focus();
-  };
-
-  // ⌘S save, Esc close: attached to the window (works even when focus isn't in the editor)
-  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
-  keys.current = (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (asking) keepEditing();
-      else close();
-    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-      e.preventDefault();
-      save();
-    }
-  };
-  useEffect(() => {
-    const f = (e: KeyboardEvent) => keys.current(e);
-    window.addEventListener("keydown", f, true);
-    return () => window.removeEventListener("keydown", f, true);
-  }, []);
 
   return (
-    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div
-        className="modal blame editf"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("编辑 {0}", path)}
-      >
-        <div className="blame-head">
-          <h2>{t("编辑")}</h2>
-          <span className="mono">{path}</span>
-          <span className="dim">{t("工作区")}</span>
-          {dirty && <span className="editf-dirty">{t("未保存")}</span>}
+    <div className="editf-wrap">
+      <div className="editf-bar">
+        {dirty ? <span className="editf-dirty">{t("未保存")}</span> : savedNote ? <span className="dim small">{t("已保存")}</span> : <span className="dim small">{t("工作区")}</span>}
+        <span className="grow" />
+        <span className="dim small">{t("{0} 行", lines)}</span>
+        <button type="button" className="btn sm primary" onClick={save} disabled={!dirty || busy} title={t("保存（⌘S）")}>
+          {busy ? t("正在保存…") : t("保存")}
+        </button>
+        <button type="button" className="btn sm" onClick={close} title={t("结束编辑（Esc）")}>
+          {t("结束编辑")}
+        </button>
+      </div>
+      {asking && (
+        <div className="editf-ask" role="alert">
+          <span>{t("有没保存的修改，放弃吗？")}</span>
           <span className="grow" />
-          <span className="dim small">{t("{0} 行", lines)}</span>
-          <button type="button" className="btn primary" onClick={save} disabled={!dirty || busy} title={t("保存（⌘S）")}>
-            {busy ? t("正在保存…") : t("保存")}
+          <button type="button" className="btn sm" onClick={() => setAsking(false)} autoFocus>
+            {t("继续编辑")}
           </button>
-          <button type="button" className="ib" title={t("关闭（Esc）")} aria-label={t("关闭")} onClick={close}>
-            ×
+          <button type="button" className="btn sm danger" onClick={() => (setDirty(path, false), onClose())}>
+            {t("放弃修改")}
           </button>
         </div>
-        {asking && (
-          <div className="editf-ask">
-            <span>{t("有没保存的修改，放弃吗？")}</span>
-            <span className="grow" />
-            <button type="button" className="btn" onClick={keepEditing} autoFocus>
-              {t("继续编辑")}
-            </button>
-            <button type="button" className="btn danger" onClick={onClose}>
-              {t("放弃修改")}
-            </button>
-          </div>
-        )}
-        {error && <p className="err pad">{tr(error)}</p>}
-        {orig == null && !error && <p className="dim pad">{t("正在读取…")}</p>}
-        {orig != null && (
-          <div className="editf-body mono">
-            <div className="editf-ln dim" ref={gutter} aria-hidden="true">
-              {Array.from({ length: lines }, (_, i) => (
-                <div key={i}>{i + 1}</div>
-              ))}
-            </div>
-            <textarea
-              ref={area}
-              value={text}
-              wrap="off"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              aria-label={t("文件内容")}
-              onChange={(e) => setText(e.target.value)}
-              onScroll={(e) => gutter.current && (gutter.current.scrollTop = e.currentTarget.scrollTop)}
-              onKeyDown={(e) => {
-                // Tab inserts indentation (via insertText so undo still works)
-                if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                  e.preventDefault();
-                  document.execCommand("insertText", false, indent);
-                }
-              }}
+      )}
+      {error && <p className="err pad">{tr(error)}</p>}
+      {orig == null && !error && <p className="dim pad">{t("正在读取…")}</p>}
+      {orig != null && (
+        <div className="editf-body">
+          <Suspense fallback={<p className="dim pad">{t("正在打开编辑器…")}</p>}>
+            <CodeEditor
+              path={path}
+              value={base}
+              line={line}
+              indent={indent}
+              label={t("编辑 {0}", path)}
+              onChange={setText}
+              onSave={save}
+              onEscape={() => (close(), true)}
             />
-          </div>
-        )}
+          </Suspense>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Editing from a diff: the editor in a dialog; closes after saving */
+export function EditFile(props: Omit<Props, "closeOnSave">) {
+  return (
+    <div className="modal-back">
+      <div className="modal blame editf" role="dialog" aria-modal="true" aria-label={t("编辑 {0}", props.path)}>
+        <div className="blame-head">
+          <h2>{t("编辑")}</h2>
+          <span className="mono">{props.path}</span>
+        </div>
+        <FileEditor {...props} closeOnSave />
       </div>
     </div>
   );

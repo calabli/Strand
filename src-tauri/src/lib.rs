@@ -639,6 +639,15 @@ async fn branches_delete(state: State<'_, AppState>, names: Vec<String>) -> CmdR
     logged_op(&state, label, OpKind::Branch, move |s| s.branches_delete(&names)).await
 }
 
+/// Contribution statistics of the current branch since a time (Unix seconds; None = all history); runs without holding the repository
+#[tauri::command]
+async fn contributions(state: State<'_, AppState>, since: Option<i64>) -> CmdResult<strand_core::stats::Contributions> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::stats::contributions(&path, since))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
 // ---------- Pull / merge requests (GitHub, GitLab) ----------
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
@@ -1806,6 +1815,7 @@ pub fn run(adopted: Option<u128>) {
             file_open,
             repo_terminal,
             merged_branches,
+            contributions,
             hosting_info,
             hosting_set_token,
             pr_list,

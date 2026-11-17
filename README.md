@@ -20,7 +20,8 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Stash to a new branch, move all untracked files to the trash (undoable), system notifications when long network operations finish in the background; the window remembers its size and shows the repository and branch in its title.
 - Reveal files in the file manager, open them with the default app, open the repository in a terminal; copy a commit's full hash, short hash or message.
 - Pull requests (GitHub) and merge requests (GitLab): list the open ones with their CI checks, check out their branch, open them in the browser, and create one from the current branch. The access token comes from Git's credential helper; Strand never stores it.
-- Edit files right in the file view (the Edit button, or double-click a line); open repositories in new windows; change keyboard shortcuts in Settings.
+- Edit files right in their tab with a code editor: syntax colors, find and replace, go to line, undo; unsaved changes are marked and kept from being lost. Open repositories in new windows; change keyboard shortcuts in Settings.
+- Contribution statistics for the current branch: commits and changed lines per author and per month, and a weekday × hour activity map.
 - Submodules in the branch tree with their state; update (initializing when needed) or open one in Strand.
 - Git LFS: diffs, file views and image comparisons show the downloaded content instead of pointer files; files not downloaded yet can be fetched with `git lfs pull` (needs git-lfs installed).
 - Bisect with a progress bar above the log, and a reflog window to recover lost commits.

@@ -19,7 +19,7 @@ import type { FileDiff, FileHistory, FileText } from "../api/types";
 import { DiffView, blameSide, type BSide } from "./DiffView";
 import { Menu, type MenuState } from "./Menu";
 import { FindBar, goToLine, useFind } from "./FindBar";
-import { EditFile } from "./EditFile";
+import { FileEditor } from "./EditFile";
 import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
 import { findRegExp, formatTime, relTime, shortId } from "./format";
@@ -54,7 +54,7 @@ const idle = { data: null, loading: false, error: null };
 export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, onLfsPull }: Props) {
   /** Blame annotations on the left of the full text (per tab, off by default) */
   const [annot, setAnnot] = useState(false);
-  /** Editing the worktree file: the line to open at; null when not editing */
+  /** Editing the worktree file in place of the text: the line to open at; null when not editing */
   const [editAt, setEditAt] = useState<number | null>(null);
   /** Bumped after saving, so the text is read again */
   const [saved, setSaved] = useState(0);
@@ -196,6 +196,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           type="button"
           className={"btn sm fv-chain" + (chain ? " pressed" : "")}
           aria-pressed={chain}
+          disabled={editAt != null}
           title={chain ? t("收起修改链") : t("显示修改链：改过这个文件的提交，可以看每次的修改、某个版本的内容，或比较两个版本")}
           onClick={() => {
             if (chain) {
@@ -213,7 +214,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           {t("修改链")}
           {hist.data && <span className="dim">{versions.length + (hist.data.truncated ? "+" : "")}</span>}
         </button>
-        {req?.kind === "text" && req.rev === null && !!text.data?.text && !text.data.lfs_missing && (
+        {editAt == null && req?.kind === "text" && req.rev === null && !!text.data?.text && !text.data.lfs_missing && (
           <button type="button" className="btn sm" title={t("编辑这个文件（也可以双击某一行）")} onClick={() => setEditAt(1)}>
             {t("编辑")}
           </button>
@@ -222,6 +223,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           type="button"
           className={"ib" + (annot ? " pressed" : "")}
           aria-pressed={annot}
+          disabled={editAt != null}
           title={annot ? t("隐藏每行的修改人") : t("逐行追溯：每行左边显示最后改它的日期和作者")}
           aria-label={t("逐行追溯")}
           onClick={() => {
@@ -235,7 +237,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
         </button>
       </div>
       <div className="fv-body">
-        {chain && (
+        {chain && editAt == null && (
         <div
           className="fv-list"
           ref={list}
@@ -298,7 +300,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           {hist.data && !versions.length && <p className="dim pad small">{t("这个文件还没有提交过（未跟踪的新文件）")}</p>}
         </div>
         )}
-        {chain && (
+        {chain && editAt == null && (
         <Splitter
           name="paneHistory"
           host={host}
@@ -310,6 +312,10 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
         />
         )}
         <div className="fv-main">
+          {editAt != null ? (
+            <FileEditor path={path} line={editAt} onClose={() => setEditAt(null)} onSaved={() => setSaved((n) => n + 1)} />
+          ) : (
+          <>
           {jump?.rev && (
             <div className="fv-mode">
               {jump.blame ? (
@@ -370,9 +376,10 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
               onEditLine={req?.kind === "text" && req.rev === null && !text.data?.lfs_missing ? (n) => setEditAt(n) : undefined}
             />
           )}
+          </>
+          )}
         </div>
       </div>
-      {editAt != null && <EditFile path={path} line={editAt} onClose={() => setEditAt(null)} onSaved={() => setSaved((n) => n + 1)} />}
     </div>
   );
 }

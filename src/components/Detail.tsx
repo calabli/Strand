@@ -433,7 +433,7 @@ export function Detail({ commit, caps, ops, branch, extra, onJump, multi, multiP
  * Author avatars (spec §5.5): no network fetch (works offline and doesn't send emails to third parties); Chinese names use the last two characters, others the initials of the first two words,
  * and the circle color is derived from the email so the same person always looks the same.
  */
-function Avatar({ name, email }: { name: string; email: string }) {
+export function Avatar({ name, email }: { name: string; email: string }) {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const text = /[\u3400-\u9fff]/.test(name) ? [...name.trim()].slice(-2).join("") || "?" : words.slice(0, 2).map((w) => [...w][0]?.toUpperCase() ?? "").join("") || "?";
   let h = 0;

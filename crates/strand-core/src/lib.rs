@@ -22,6 +22,7 @@ pub mod graph;
 mod history;
 pub mod lfs;
 pub mod hosting;
+pub mod stats;
 pub mod log_filter;
 pub mod model;
 pub mod oplog;

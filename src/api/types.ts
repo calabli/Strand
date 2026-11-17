@@ -863,3 +863,34 @@ export interface Checks {
   failed: number;
   pending: number;
 }
+
+export interface AuthorStats {
+  name: string;
+  email: string;
+  commits: number;
+  added: number;
+  deleted: number;
+  first: number;
+  last: number;
+}
+
+export interface MonthStats {
+  /** "2026-11" */
+  month: string;
+  commits: number;
+  added: number;
+  deleted: number;
+}
+
+/** Contribution statistics of the current branch */
+export interface Contributions {
+  authors: AuthorStats[];
+  months: MonthStats[];
+  /** Commits by weekday (0 = Monday) × hour, in the author's time zone */
+  heat: number[][];
+  commits: number;
+  added: number;
+  deleted: number;
+  /** Lines weren't counted (partial clone) */
+  no_lines: boolean;
+}

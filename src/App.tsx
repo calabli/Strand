@@ -39,6 +39,8 @@ import { ACTIONS, matches, hintOf, useKeymap } from "./keymap";
 import { CleanBranches, defaultCleanTarget } from "./components/CleanBranches";
 import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
+import { dirtyPaths, isDirty, setDirty, useDirty } from "./editState";
+import { StatsWindow } from "./components/StatsWindow";
 import { CreatePr, PullRequestsView, prGoLabel, prNewLabel, prNo, prWord } from "./components/PullRequests";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
 import { Toolbar } from "./components/Toolbar";
@@ -243,6 +245,8 @@ export default function App() {
   const [hosting, setHosting] = useState<Hosting | null>(null);
   const [newPr, setNewPr] = useState<{ title: string; body: string } | null>(null);
   const [prKey, setPrKey] = useState(0);
+  /** Contribution statistics window */
+  const [statsOpen, setStatsOpen] = useState(false);
   const remoteCount = refs?.remotes.length ?? 0;
   useEffect(() => {
     if (!repo?.path) return setHosting(null);
@@ -271,6 +275,52 @@ export default function App() {
   const [cleanInto, setCleanInto] = useState<string | null>(null);
   const [popup, setPopup] = useState(false);
   const [dialog, ask] = useDialog();
+  /** Files with unsaved edits (a dot on their tab) */
+  const dirtyList = useDirty();
+  /** Ask before throwing away unsaved edits in these files; resolves true when there are none or the user agrees (never when canceled) */
+  const confirmDiscard = useCallback(
+    (paths: string[]) =>
+      new Promise<boolean>((resolve) => {
+        if (!paths.length) return resolve(true);
+        ask({
+          title: t("放弃没保存的修改？"),
+          message: t("这些文件有没保存的修改，继续的话修改会丢掉。"),
+          items: paths,
+          confirm: t("放弃修改"),
+          danger: true,
+          onSubmit: () => {
+            paths.forEach((p) => setDirty(p, false));
+            resolve(true);
+          },
+        });
+      }),
+    [ask],
+  );
+  /** Close file tabs, asking first when one has unsaved edits */
+  const closeFilesSafe = useCallback(
+    (paths: string[]) => void confirmDiscard(paths.filter(isDirty)).then(() => closeFiles(paths)),
+    [confirmDiscard, closeFiles],
+  );
+  // Closing the window with unsaved edits asks first
+  useEffect(() => {
+    if (!inTauri) return;
+    let off: (() => void) | undefined;
+    let live = true;
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+      getCurrentWindow()
+        .onCloseRequested(async (e) => {
+          const d = dirtyPaths();
+          if (!d.length) return;
+          e.preventDefault();
+          if (await confirmDiscard(d)) void api.windowClose();
+        })
+        .then((f) => (live ? (off = f) : f())),
+    );
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [confirmDiscard]);
   // Conflict session: read while the repository is mid merge, rebase, etc.; hidden first on "continue later"
   const [session, setSession] = useState<MergeSession | null>(null);
   const [conflictHidden, setConflictHidden] = useState(false);
@@ -455,6 +505,8 @@ export default function App() {
       : null;
 
   const open = useCallback(async (path: string) => {
+    // Switching repositories closes the file tabs: unsaved edits would be lost
+    if (!(await confirmDiscard(dirtyPaths()))) return;
     setBusy(true);
     setError(null);
     try {
@@ -1136,7 +1188,7 @@ export default function App() {
       if (document.querySelector(".modal-back, .palette, .menu")) return;
       if (close) {
         e.preventDefault();
-        if (tabRef.current === "file" && fileOpenRef.current) closeFiles([fileOpenRef.current]);
+        if (tabRef.current === "file" && fileOpenRef.current) closeFilesSafe([fileOpenRef.current]);
         else if (tabRef.current === "diff") closeDiffRef.current();
         // Closing the window with ⌘W is a macOS habit; on Windows and Linux Ctrl+W only closes tabs, so a stray press can't close the app
         else if (isMac) void api.windowClose();
@@ -1151,7 +1203,7 @@ export default function App() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [repo, closeFiles]);
+  }, [repo, closeFilesSafe]);
 
   // ⌘Z undo, ⇧⌘Z redo (left to input boxes inside inputs; the conflict view has its own undo)
   const undoKeys = !!repo && !(session && !conflictHidden) && !undoBlocked;
@@ -1315,6 +1367,7 @@ export default function App() {
         run: () => void pickFolder(t("在新窗口中打开仓库")).then((p) => (p ? api.openNewWindow(p) : undefined)).catch((e) => setError(errOf(e).message)),
       },
       { id: "terminal", section: m, icon: COMMIT_ICONS.console, label: t("在终端中打开"), run: openTerminal },
+      { id: "stats", section: m, icon: COMMIT_ICONS.history, label: t("贡献统计…"), run: () => setStatsOpen(true) },
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
       { id: "reopen-file", section: m, icon: COMMIT_ICONS.history, label: t("重新打开关掉的标签页"), hint: hintOf("reopenTab"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
       { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: hintOf("settings"), run: () => setSettingsOpen(true) },
@@ -1725,12 +1778,12 @@ export default function App() {
                   onMouseDown={(e) => {
                     if (e.button === 1) {
                       e.preventDefault();
-                      closeFiles([f.path]);
+                      closeFilesSafe([f.path]);
                     }
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") (e.preventDefault(), showFile(f.path));
-                    if (e.key === "Delete" || e.key === "Backspace") (e.preventDefault(), closeFiles([f.path]));
+                    if (e.key === "Delete" || e.key === "Backspace") (e.preventDefault(), closeFilesSafe([f.path]));
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -1743,11 +1796,11 @@ export default function App() {
                       x: e.clientX,
                       y: e.clientY,
                       items: [
-                        { label: t("关闭"), hint: hintOf("closeTab"), run: () => closeFiles([f.path]) },
-                        { label: t("关闭其他标签页"), disabled: !others.length, run: () => closeFiles(others) },
-                        { label: t("关闭左侧的标签页"), disabled: !left.length, run: () => closeFiles(left) },
-                        { label: t("关闭右侧的标签页"), disabled: !right.length, run: () => closeFiles(right) },
-                        { label: t("关闭全部文件"), disabled: !loose(files).length, why: t("只剩固定的标签页"), run: () => closeFiles(loose(files)) },
+                        { label: t("关闭"), hint: hintOf("closeTab"), run: () => closeFilesSafe([f.path]) },
+                        { label: t("关闭其他标签页"), disabled: !others.length, run: () => closeFilesSafe(others) },
+                        { label: t("关闭左侧的标签页"), disabled: !left.length, run: () => closeFilesSafe(left) },
+                        { label: t("关闭右侧的标签页"), disabled: !right.length, run: () => closeFilesSafe(right) },
+                        { label: t("关闭全部文件"), disabled: !loose(files).length, why: t("只剩固定的标签页"), run: () => closeFilesSafe(loose(files)) },
                         { label: t("重新打开关掉的标签页"), hint: hintOf("reopenTab"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
                         "-",
                         f.pinned
@@ -1764,6 +1817,11 @@ export default function App() {
                   <TypeIcon path={f.path} />
                   <span className="ftab-name">{name}</span>
                   {dup && dir && <span className="ftab-dir dim">{dir.slice(dir.lastIndexOf("/") + 1)}</span>}
+                  {dirtyList.includes(f.path) && (
+                    <span className="ftab-dirty" title={t("有没保存的修改")} aria-label={t("有没保存的修改")}>
+                      ●
+                    </span>
+                  )}
                   {f.pinned ? (
                     <button
                       type="button"
@@ -1789,7 +1847,7 @@ export default function App() {
                     aria-label={t("关闭 {0}", name)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      closeFiles([f.path]);
+                      closeFilesSafe([f.path]);
                     }}
                   >
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
@@ -2168,6 +2226,7 @@ export default function App() {
           onBrowse={choose}
           onClone={() => setCloneOpen(true)}
           onTerminal={openTerminal}
+          onStats={() => setStatsOpen(true)}
           onOpenNew={(p) => void api.openNewWindow(p).catch((e) => setError(errOf(e).message))}
           onReveal={() => void revealPath(repo.path).catch((e) => setError(errOf(e).message))}
           onClose={() => setRepoPop(null)}
@@ -2215,6 +2274,17 @@ export default function App() {
       {palette && <CommandPalette commands={paletteCommands()} onPickCommit={(id) => locate(id)} onClose={() => setPalette(false)} />}
       {blame && <BlameWindow path={blame.path} rev={blame.rev} onClose={() => setBlame(null)} onJump={(id) => locate(id)} />}
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
+      {statsOpen && repo && (
+        <StatsWindow
+          branch={repo.head.branch ?? t("分离头指针")}
+          onClose={() => setStatsOpen(false)}
+          onAuthor={(a) => {
+            setStatsOpen(false);
+            setTab("log");
+            setUi((u) => ({ ...u, authors: [{ name: a.name, email: a.email, count: a.commits }], authorRule: null }));
+          }}
+        />
+      )}
       {newPr && hosting && (
         <CreatePr
           hosting={hosting}

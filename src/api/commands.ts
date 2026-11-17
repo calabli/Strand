@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Contributions,
   Hosting,
   PullRequest,
   Checks,
@@ -228,6 +229,7 @@ export const api = {
   /** Open a terminal in the repository folder */
   repoTerminal: (): Promise<void> => (inTauri ? call("repo_terminal") : Promise.resolve()),
   mergedBranches: (into: string): Promise<MergedBranch[]> => (inTauri ? call("merged_branches", { into }) : mock.mergedBranches(into)),
+  contributions: (since: number | null): Promise<Contributions> => (inTauri ? call("contributions", { since }) : mock.contributions(since)),
   /** Where origin is hosted; null when it isn't GitHub or GitLab */
   hostingInfo: (): Promise<Hosting | null> => (inTauri ? call("hosting_info") : mock.hostingInfo()),
   hostingSetToken: (token: string): Promise<void> => (inTauri ? call("hosting_set_token", { token }) : mock.hostingSetToken(token)),

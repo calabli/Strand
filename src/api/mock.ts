@@ -1,7 +1,7 @@
 // Sample data for the browser preview. Only used when running without Tauri.
 
 import { authorRule } from "./authorRule";
-import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule, MergedBranch, Hosting, PullRequest, Checks } from "./types";
+import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule, MergedBranch, Hosting, PullRequest, Checks, Contributions } from "./types";
 
 const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(v), 60));
 
@@ -1175,4 +1175,57 @@ export const prCreate = (title: string, head: string, base: string, draft: boole
   const p: PullRequest = { number: 43, title, author: "you", head, head_sha: "f".repeat(40), base, draft, url: "https://github.com/strand-demo/strand/pull/43", updated: nowS() };
   mockPrs.unshift(p);
   return delay(p);
+};
+
+// Contribution statistics: generated sample data (a few authors over two years, working hours heavier)
+export const contributions = (since: number | null) => {
+  const people = [
+    { name: "林夏", email: "linxia@example.com", w: 9 },
+    { name: "周远", email: "zhou@example.com", w: 6 },
+    { name: "Mei Chen", email: "mei@example.com", w: 3 },
+    { name: "Alex Park", email: "alex@example.com", w: 1.5 },
+    { name: "dependabot[bot]", email: "bot@example.com", w: 0.6 },
+  ];
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const now = Math.floor(Date.now() / 1000);
+  const from = since ?? now - 730 * 86400;
+  const authors = people.map((p) => ({ name: p.name, email: p.email, commits: 0, added: 0, deleted: 0, first: now, last: from }));
+  const months = new Map<string, { month: string; commits: number; added: number; deleted: number }>();
+  const heat = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
+  const total = people.reduce((a, p) => a + p.w, 0);
+  for (let t = from; t < now; t += 3600 * (2 + rnd() * 10)) {
+    const d = new Date(t * 1000);
+    const wd = (d.getDay() + 6) % 7;
+    const h = d.getHours();
+    const busy = (wd < 5 ? 1 : 0.25) * (h >= 9 && h <= 19 ? 1 : h >= 21 || h < 7 ? 0.08 : 0.4);
+    if (rnd() > busy) continue;
+    let r = rnd() * total;
+    const i = people.findIndex((p) => (r -= p.w) < 0);
+    const a = authors[i < 0 ? 0 : i];
+    const add = Math.floor(rnd() ** 3 * 400) + 1;
+    const del = Math.floor(rnd() ** 3 * 200);
+    a.commits++;
+    a.added += add;
+    a.deleted += del;
+    a.first = Math.min(a.first, t);
+    a.last = Math.max(a.last, t);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const m = months.get(k) ?? { month: k, commits: 0, added: 0, deleted: 0 };
+    m.commits++;
+    m.added += add;
+    m.deleted += del;
+    months.set(k, m);
+    heat[wd][h]++;
+  }
+  const list = authors.filter((a) => a.commits).sort((a, b) => b.commits - a.commits);
+  return delay<Contributions>({
+    authors: list,
+    months: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
+    heat,
+    commits: list.reduce((n, a) => n + a.commits, 0),
+    added: list.reduce((n, a) => n + a.added, 0),
+    deleted: list.reduce((n, a) => n + a.deleted, 0),
+    no_lines: false,
+  });
 };

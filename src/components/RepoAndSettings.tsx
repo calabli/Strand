@@ -180,8 +180,11 @@ export function RepoPopup({
   onTerminal,
   onReveal,
   onOpenNew,
+  onStats,
   onClose,
 }: {
+  /** Contribution statistics of the current repository */
+  onStats?: () => void;
   /** Open a repository in a new window */
   onOpenNew?: (path: string) => void;
   x: number;
@@ -267,6 +270,18 @@ export function RepoPopup({
           }}
         >
           {t("在文件管理器中显示")}
+        </button>
+      )}
+      {onStats && (
+        <button
+          type="button"
+          className="repo-browse"
+          onClick={() => {
+            onClose();
+            onStats();
+          }}
+        >
+          {t("贡献统计…")}
         </button>
       )}
     </div>
