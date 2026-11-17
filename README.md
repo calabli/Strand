@@ -15,6 +15,9 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Blame, file history that follows renames, comparing any two versions of a file.
 - Files open in tabs, one per file: close, close others, close left/right, close all, pin, ⌘W, ⇧⌘T to reopen and ⌘E for recent files. The file view can show who last changed each line on the left and follow a line back to the version before the change.
 - Clean up merged branches: list the local branches already merged into main (or any branch), delete them in one undoable step.
+- Remote cleanup: fetch prunes branches deleted on the remote; delete remote branches and tags; set or change a branch's upstream.
+- Find (⌘F) and go to line (⌘L) in diffs and file views; several diff tabs; double-click a commit to open its changes; multi-select files in the commit panel; drag file tabs to reorder.
+- Stash to a new branch, move all untracked files to the trash (undoable), system notifications when long network operations finish in the background; the window remembers its size and shows the repository and branch in its title.
 - Reveal files in the file manager, open them with the default app, open the repository in a terminal; copy a commit's full hash, short hash or message.
 - Submodules in the branch tree with their state; update (initializing when needed) or open one in Strand.
 - Git LFS: diffs, file views and image comparisons show the downloaded content instead of pointer files; files not downloaded yet can be fetched with `git lfs pull` (needs git-lfs installed).
