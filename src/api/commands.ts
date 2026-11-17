@@ -230,6 +230,12 @@ export const api = {
   /** Open a terminal in the repository folder */
   repoTerminal: (): Promise<void> => (inTauri ? call("repo_terminal") : Promise.resolve()),
   mergedBranches: (into: string): Promise<MergedBranch[]> => (inTauri ? call("merged_branches", { into }) : mock.mergedBranches(into)),
+  /** Record the repository open in this window, for restoring windows on the next launch */
+  sessionRegister: (path: string): Promise<void> => (inTauri ? call("session_register", { path }) : Promise.resolve()),
+  /** At startup: the repository the last session left open in this window (the others open in new windows) */
+  sessionRestore: (reopen: boolean): Promise<string | null> => (inTauri ? call("session_restore", { reopen }) : Promise.resolve(null)),
+  /** Quit the app (after unsaved edits were dealt with); this window comes back on the next launch */
+  appQuit: (): Promise<void> => (inTauri ? call("app_quit") : Promise.resolve()),
   repoSize: (): Promise<RepoSize> => (inTauri ? call("repo_size") : mock.repoSize()),
   /** git gc; taskCancel stops it */
   repoGc: (taskId: string, aggressive: boolean): Promise<Written<null>> => (inTauri ? call("repo_gc", { taskId, aggressive }) : mock.repoGc()),

@@ -304,6 +304,21 @@ export default function App() {
     (paths: string[]) => void confirmDiscard(paths.filter(isDirty)).then(() => closeFiles(paths)),
     [confirmDiscard, closeFiles],
   );
+  // Quitting (⌘Q, the Dock): ask about unsaved edits first, then quit
+  useEffect(() => {
+    if (!inTauri) return;
+    let off: (() => void) | undefined;
+    let live = true;
+    import("@tauri-apps/api/event").then(({ listen }) =>
+      listen("quit_requested", async () => {
+        if (await confirmDiscard(dirtyPaths())) void api.appQuit();
+      }).then((f) => (live ? (off = f) : f())),
+    );
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [confirmDiscard]);
   // Closing the window with unsaved edits asks first
   useEffect(() => {
     if (!inTauri) return;
@@ -528,6 +543,7 @@ export default function App() {
       setUi(EMPTY_UI);
       setLogKey(`${st.path}#${Date.now()}`);
       writeLast(path);
+      void api.sessionRegister(st.path).catch(() => {});
       api.statusGet().then(setStatus, (e) => setError(msgOf(e)));
       api.refsList().then(setRefs, (e) => setError(msgOf(e)));
     } catch (e) {
@@ -539,10 +555,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    Promise.all([api.gitCheck(), api.launchPath()]).then(([g, launch]) => {
+    const reopen = settings().reopenLast;
+    Promise.all([api.gitCheck(), api.launchPath(), api.sessionRestore(reopen).catch(() => null)]).then(([g, launch, restored]) => {
       setGit(g);
-      // The repository from the launch arguments first, then the last opened one
-      const target = launch ?? (settings().reopenLast ? readLast() : null) ?? (inTauri ? null : "/示例/strand-app");
+      // The repository from the launch arguments first, then the windows the last session left open (the others
+      // reopen in their own windows), then the last opened one
+      const target = launch ?? restored ?? (reopen ? readLast() : null) ?? (inTauri ? null : "/示例/strand-app");
       if (g.ok && target) open(target);
     });
   }, [open]);

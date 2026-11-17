@@ -21,7 +21,10 @@ use strand_core::oplog::{OpInfo, OpKind, OpList, OpScope, Snapshot};
 use strand_core::conflict::{ChangeMark, FinishResult, MergeSession, Side};
 use strand_core::remote::{self, Cancel, FetchResult, PullMode, PullResult, PushOptions, PushPreview};
 use strand_core::{CoreError, ErrorCode, Session};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+mod windows;
+use windows::WindowSession;
 
 #[derive(Default)]
 struct AppState {
@@ -536,21 +539,54 @@ where
 /// The default menu, minus "Close Window" (⌘W): the page handles ⌘W, closing the open file tab first, like an IDE's
 /// editor tabs, and the window (window_close) only when no file tab is shown
 fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItemKind};
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
     let menu = Menu::default(app)?;
     for item in menu.items()? {
         if let MenuItemKind::Submenu(sub) = item {
-            for it in sub.items()? {
-                if let MenuItemKind::Predefined(p) = &it
-                    && p.text().is_ok_and(|t| t == "Close Window")
-                {
+            for (i, it) in sub.items()?.into_iter().enumerate() {
+                let MenuItemKind::Predefined(p) = &it else { continue };
+                let text = p.text().unwrap_or_default();
+                if text == "Close Window" {
                     sub.remove(p)?;
+                } else if text.starts_with("Quit") {
+                    // Strand's own Quit (same name and ⌘Q): the window asks about unsaved edits before the app exits
+                    sub.remove(p)?;
+                    let quit = MenuItem::with_id(app, "strand-quit", text, true, Some("CmdOrCtrl+Q"))?;
+                    sub.insert(&quit, i)?;
                 }
             }
         }
     }
     app.set_menu(menu)?;
+    app.on_menu_event(|app, e| {
+        if e.id() == "strand-quit" {
+            windows::request_quit(app);
+        }
+    });
     Ok(())
+}
+
+/// Record the repository open in this window (restored on the next launch)
+#[tauri::command]
+fn session_register(app: AppHandle, path: String) {
+    app.state::<WindowSession>().register(&app, path);
+}
+
+/// At startup: the repository to open in this window from the last session, opening the others in new windows.
+/// None when launched with a folder (a window opened from another one) or nothing was left open.
+#[tauri::command]
+fn session_restore(app: AppHandle, reopen: bool) -> Option<String> {
+    if launch_path().is_some() {
+        return None;
+    }
+    app.state::<WindowSession>().restore(&app, reopen)
+}
+
+/// Quit after the window has dealt with unsaved edits; the open repository comes back on the next launch
+#[tauri::command]
+fn app_quit(app: AppHandle) {
+    app.state::<WindowSession>().quitting.store(true, Ordering::SeqCst);
+    app.exit(0);
 }
 
 /// The window title: the repository and branch, so windows can be told apart in the Dock, the taskbar and window lists
@@ -1706,10 +1742,17 @@ pub fn run(adopted: Option<u128>) {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
+        .manage(WindowSession::default())
+        .on_window_event(|w, e| match e {
+            tauri::WindowEvent::Focused(true) => w.app_handle().state::<WindowSession>().focused(w.app_handle()),
+            tauri::WindowEvent::Destroyed => w.app_handle().state::<WindowSession>().leave(w.app_handle()),
+            _ => {}
+        })
         .setup(move |app| {
             setup_askpass(app.handle().clone());
             setup_console(app.handle().clone());
             setup_menu(app.handle())?;
+            WindowSession::start(app.handle());
             if let Some(ms) = adopted {
                 strand_core::console::note(&format!("从访达启动：使用登录 shell 的 PATH（读取用了 {ms} ms）"));
             }
@@ -1868,7 +1911,21 @@ pub fn run(adopted: Option<u128>) {
             merge_finish,
             merge_skip,
             auth_reply,
+            session_register,
+            session_restore,
+            app_quit,
         ])
-        .run(tauri::generate_context!())
-        .expect("启动 Strand 失败");
+        .build(tauri::generate_context!())
+        .expect("启动 Strand 失败")
+        .run(|app, event| {
+            // Quitting from the Dock or the system while a window is open: let the window ask about unsaved edits.
+            // (Closing the last window, or app_quit, exits normally.)
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event
+                && !app.webview_windows().is_empty()
+                && !app.state::<WindowSession>().quitting.load(Ordering::SeqCst)
+            {
+                api.prevent_exit();
+                windows::request_quit(app);
+            }
+        });
 }

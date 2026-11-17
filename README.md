@@ -23,6 +23,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Edit files right in their tab with a code editor: syntax colors, find and replace, go to line, undo; unsaved changes are marked and kept from being lost. Open repositories in new windows; change keyboard shortcuts in Settings.
 - Contribution statistics for the current branch: commits and changed lines per author and per month, and a weekday × hour activity map.
 - Repository maintenance: see what takes space in .git, clean up with `git gc` (stoppable), and turn on rerere so repeated conflicts are resolved the way you resolved them before. Edited files are auto-saved (can be turned off); the save shortcut is configurable.
+- Quitting asks about unsaved edits first, and the next launch reopens every repository window that was open.
 - Submodules in the branch tree with their state; update (initializing when needed) or open one in Strand.
 - Git LFS: diffs, file views and image comparisons show the downloaded content instead of pointer files; files not downloaded yet can be fetched with `git lfs pull` (needs git-lfs installed).
 - Bisect with a progress bar above the log, and a reflog window to recover lost commits.
