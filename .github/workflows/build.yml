@@ -49,8 +49,16 @@ jobs:
 
       - run: cargo test -p strand-core
 
+      # The desktop shell still has to compile on every push; installers are only built for releases (below).
+      # It embeds the built frontend, so build that first.
+      - run: pnpm build
+
+      - run: cargo check -p strand --locked
+
   build:
     name: Build (${{ matrix.name }})
+    # Installers only for release tags (and when started by hand); pushes and pull requests stop at the test job
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -145,7 +153,7 @@ jobs:
           {
             echo "## What's changed"
             echo
-            git log "$range" --no-merges --format='- %s' | grep -v -E '^- (Release [0-9]|Website: download links)' || true
+            git log "$range" --no-merges --format='- %s' | grep -v -E '^- (Release [0-9]|Website( and manual)?: download links)' || true
             if [ -n "$prev" ]; then
               echo
               echo "Full list: https://github.com/${{ github.repository }}/compare/$prev...$TAG"
