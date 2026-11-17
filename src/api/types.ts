@@ -894,3 +894,17 @@ export interface Contributions {
   /** Lines weren't counted (partial clone) */
   no_lines: boolean;
 }
+
+/** Repository size (bytes) for maintenance */
+export interface RepoSize {
+  git_dir: number;
+  loose_count: number;
+  loose_bytes: number;
+  packed_count: number;
+  pack_bytes: number;
+  packs: number;
+  cleanable_bytes: number;
+  lfs_bytes: number;
+  strand_bytes: number;
+  suggest_gc: boolean;
+}

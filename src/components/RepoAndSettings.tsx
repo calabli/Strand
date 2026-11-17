@@ -30,7 +30,7 @@ import {
   type Settings,
 } from "../settings";
 import { formatTime } from "./format";
-import { ACTIONS, type ActionId, comboFromEvent, comboOf, conflictOf, labelOf, resetAll, setCombo, showCombo, usable, useKeymap } from "../keymap";
+import { ACTIONS, type ActionId, comboFromEvent, comboOf, conflictOf, hintOf, labelOf, resetAll, setCombo, showCombo, usable, useKeymap } from "../keymap";
 
 const isMacOs = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -181,8 +181,11 @@ export function RepoPopup({
   onReveal,
   onOpenNew,
   onStats,
+  onMaintenance,
   onClose,
 }: {
+  /** Repository maintenance (size, cleanup, rerere) */
+  onMaintenance?: () => void;
   /** Contribution statistics of the current repository */
   onStats?: () => void;
   /** Open a repository in a new window */
@@ -284,6 +287,18 @@ export function RepoPopup({
           {t("贡献统计…")}
         </button>
       )}
+      {onMaintenance && (
+        <button
+          type="button"
+          className="repo-browse"
+          onClick={() => {
+            onClose();
+            onMaintenance();
+          }}
+        >
+          {t("仓库维护…")}
+        </button>
+      )}
     </div>
   );
 }
@@ -315,7 +330,7 @@ function Choice<T extends string | number>({
   );
 }
 
-function Toggle({
+export function Toggle({
   on,
   onChange,
   label,
@@ -470,6 +485,11 @@ export function SettingsWindow({
               onChange={(v) => set({ exactDates: v })}
             />,
             t("关闭后日志里显示“3 小时前”这样的相对时间"),
+          )}
+          {row(
+            t("编辑文件时自动保存"),
+            <Toggle on={s.autoSave} label={t("编辑文件时自动保存")} onChange={(v) => set({ autoSave: v })} />,
+            t("停止输入 1 秒后、结束编辑或离开编辑器时保存；关闭后用 {0} 手动保存", hintOf("save")),
           )}
           <div className="set-sec dim">{t("远程")}</div>
           {repoOpen &&

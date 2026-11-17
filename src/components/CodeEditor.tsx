@@ -3,7 +3,7 @@
 // Loaded on demand (React.lazy) so the editor code only arrives when someone edits a file.
 
 import { useEffect, useRef } from "react";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
   crosshairCursor,
@@ -23,6 +23,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { languages } from "@codemirror/language-data";
 import { classHighlighter } from "@lezer/highlight";
 import { lang } from "../i18n";
+import { matches } from "../keymap";
 
 export interface CodeEditorProps {
   /** Picks the syntax colors by file name */
@@ -35,6 +36,8 @@ export interface CodeEditorProps {
   indent: string;
   onChange: (text: string) => void;
   onSave: () => void;
+  /** Focus left the editor (auto-save) */
+  onBlur?: () => void;
   /** Esc when no panel of the editor is open; return true when handled */
   onEscape?: () => boolean;
   label: string;
@@ -92,11 +95,11 @@ const theme = EditorView.theme({
   ".cm-tooltip": { backgroundColor: "var(--win)", border: "1px solid var(--line)", borderRadius: "6px" },
 });
 
-export default function CodeEditor({ path, value, line, indent, onChange, onSave, onEscape, label }: CodeEditorProps) {
+export default function CodeEditor({ path, value, line, indent, onChange, onSave, onBlur, onEscape, label }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   // Callbacks change on every render; the editor reads the latest through refs
-  const cb = useRef({ onChange, onSave, onEscape });
-  cb.current = { onChange, onSave, onEscape };
+  const cb = useRef({ onChange, onSave, onBlur, onEscape });
+  cb.current = { onChange, onSave, onBlur, onEscape };
 
   useEffect(() => {
     const el = host.current;
@@ -127,7 +130,6 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
         language.of([]),
         lang === "zh" ? EditorState.phrases.of(ZH) : [],
         keymap.of([
-          { key: "Mod-s", preventDefault: true, run: () => (cb.current.onSave(), true) },
           { key: "Mod-l", run: gotoLine },
           ...closeBracketsKeymap,
           ...defaultKeymap,
@@ -138,6 +140,21 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
           // Last: only when the search panel or another part of the editor didn't take Esc
           { key: "Escape", run: () => cb.current.onEscape?.() ?? false },
         ]),
+        // Save with the shortcut set in Settings (⌘S / Ctrl+S by default), before the editor's own keys
+        Prec.highest(
+          EditorView.domEventHandlers({
+            keydown: (e) => {
+              if (!matches(e, "save")) return false;
+              e.preventDefault();
+              cb.current.onSave();
+              return true;
+            },
+            blur: () => {
+              cb.current.onBlur?.();
+              return false;
+            },
+          }),
+        ),
         EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
         EditorView.updateListener.of((u) => u.docChanged && cb.current.onChange(u.state.doc.toString())),
         theme,

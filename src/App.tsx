@@ -41,6 +41,7 @@ import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
 import { dirtyPaths, isDirty, setDirty, useDirty } from "./editState";
 import { StatsWindow } from "./components/StatsWindow";
+import { MaintenanceWindow } from "./components/MaintenanceWindow";
 import { CreatePr, PullRequestsView, prGoLabel, prNewLabel, prNo, prWord } from "./components/PullRequests";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
 import { Toolbar } from "./components/Toolbar";
@@ -247,6 +248,8 @@ export default function App() {
   const [prKey, setPrKey] = useState(0);
   /** Contribution statistics window */
   const [statsOpen, setStatsOpen] = useState(false);
+  /** Repository maintenance window */
+  const [maintOpen, setMaintOpen] = useState(false);
   const remoteCount = refs?.remotes.length ?? 0;
   useEffect(() => {
     if (!repo?.path) return setHosting(null);
@@ -1368,6 +1371,7 @@ export default function App() {
       },
       { id: "terminal", section: m, icon: COMMIT_ICONS.console, label: t("在终端中打开"), run: openTerminal },
       { id: "stats", section: m, icon: COMMIT_ICONS.history, label: t("贡献统计…"), run: () => setStatsOpen(true) },
+      { id: "maintenance", section: m, icon: COMMIT_ICONS.gear, label: t("仓库维护（清理、冲突记忆）…"), run: () => setMaintOpen(true) },
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
       { id: "reopen-file", section: m, icon: COMMIT_ICONS.history, label: t("重新打开关掉的标签页"), hint: hintOf("reopenTab"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
       { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: hintOf("settings"), run: () => setSettingsOpen(true) },
@@ -2227,6 +2231,7 @@ export default function App() {
           onClone={() => setCloneOpen(true)}
           onTerminal={openTerminal}
           onStats={() => setStatsOpen(true)}
+          onMaintenance={() => setMaintOpen(true)}
           onOpenNew={(p) => void api.openNewWindow(p).catch((e) => setError(errOf(e).message))}
           onReveal={() => void revealPath(repo.path).catch((e) => setError(errOf(e).message))}
           onClose={() => setRepoPop(null)}
@@ -2274,6 +2279,7 @@ export default function App() {
       {palette && <CommandPalette commands={paletteCommands()} onPickCommit={(id) => locate(id)} onClose={() => setPalette(false)} />}
       {blame && <BlameWindow path={blame.path} rev={blame.rev} onClose={() => setBlame(null)} onJump={(id) => locate(id)} />}
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
+      {maintOpen && repo && <MaintenanceWindow onClose={() => setMaintOpen(false)} onToast={say} />}
       {statsOpen && repo && (
         <StatsWindow
           branch={repo.head.branch ?? t("分离头指针")}

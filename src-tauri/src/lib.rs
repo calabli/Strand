@@ -648,6 +648,37 @@ async fn contributions(state: State<'_, AppState>, since: Option<i64>) -> CmdRes
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
+/// How big the repository is (objects, packs, what gc would clean, LFS, Strand's own data)
+#[tauri::command]
+async fn repo_size(state: State<'_, AppState>) -> CmdResult<strand_core::maintenance::RepoSize> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::maintenance::size(&path))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+/// Clean up the repository (git gc); runs like a network task so it can be stopped
+#[tauri::command]
+async fn repo_gc(app: AppHandle, state: State<'_, AppState>, task_id: String, aggressive: bool) -> CmdResult<Written<()>> {
+    net_task(app, &state, task_id, NetLog::None, move |p, c, pr| strand_core::maintenance::gc(p, aggressive, c, pr)).await
+}
+
+#[tauri::command]
+async fn rerere_get(state: State<'_, AppState>) -> CmdResult<bool> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(strand_core::maintenance::rerere(&path)))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+#[tauri::command]
+async fn rerere_set(state: State<'_, AppState>, on: bool) -> CmdResult<()> {
+    let path = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::maintenance::set_rerere(&path, on))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
 // ---------- Pull / merge requests (GitHub, GitLab) ----------
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
@@ -1816,6 +1847,10 @@ pub fn run(adopted: Option<u128>) {
             repo_terminal,
             merged_branches,
             contributions,
+            repo_size,
+            repo_gc,
+            rerere_get,
+            rerere_set,
             hosting_info,
             hosting_set_token,
             pr_list,

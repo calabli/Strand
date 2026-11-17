@@ -2,10 +2,12 @@
 // The current content is loaded into the code editor; on save the core layer checks the file on disk wasn't changed
 // elsewhere before writing it back (keeping CRLF line endings). ⌘S saves; closing with unsaved edits asks first.
 
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
 import { indentUnit } from "./inlineDiff";
 import { setDirty } from "../editState";
+import { hintOf, useKeymap } from "../keymap";
+import { useSettings } from "../settings";
 import { t, tr } from "../i18n";
 
 const CodeEditor = lazy(() => import("./CodeEditor"));
@@ -28,7 +30,11 @@ export function FileEditor({ path, line, onClose, onSaved, closeOnSave }: Props)
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
-  const [savedNote, setSavedNote] = useState(false);
+  const [savedNote, setSavedNote] = useState<"saved" | "auto" | null>(null);
+  /** Auto-save failed (the file changed on disk, or can't be written): wait for a manual save */
+  const [autoOff, setAutoOff] = useState(false);
+  const { autoSave } = useSettings();
+  useKeymap();
 
   useEffect(() => {
     let live = true;
@@ -65,33 +71,63 @@ export function FileEditor({ path, line, onClose, onSaved, closeOnSave }: Props)
     return tabs > spaces ? "\t" : " ".repeat(indentUnit(ls));
   }, [orig]);
 
-  const save = async () => {
-    if (orig == null || busy || !dirty) return;
+  /** Save what's in the editor now; auto when triggered by auto-save (stays in the editor, stops auto-saving on failure) */
+  const save = async (auto = false): Promise<boolean> => {
+    if (orig == null || busy || !dirty) return !dirty;
+    const snapshot = text;
     setBusy(true);
     setError(null);
     try {
-      await api.saveWorktreeFile(path, text, orig);
+      await api.saveWorktreeFile(path, snapshot, orig);
       // What's on disk now: the saved text (the core keeps CRLF when the file used it)
-      setOrig(orig.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text);
+      setOrig(orig.includes("\r\n") ? snapshot.replace(/\n/g, "\r\n") : snapshot);
       setBusy(false);
-      setSavedNote(true);
-      window.setTimeout(() => setSavedNote(false), 1500);
+      setAutoOff(false);
+      setSavedNote(auto ? "auto" : "saved");
       onSaved();
-      if (closeOnSave) onClose();
+      if (closeOnSave && !auto) onClose();
+      return true;
     } catch (e) {
       setError(errOf(e).message);
       setBusy(false);
+      if (auto) setAutoOff(true);
+      return false;
     }
   };
-  const close = () => (dirty ? setAsking(true) : onClose());
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const auto = autoSave && !autoOff;
+  // Auto-save a second after typing stops (again after a save if more was typed meanwhile)
+  useEffect(() => {
+    if (!auto || !dirty || busy) return;
+    const id = window.setTimeout(() => void saveRef.current(true), 1000);
+    return () => window.clearTimeout(id);
+  }, [auto, dirty, busy, text]);
+  useEffect(() => {
+    if (!savedNote) return;
+    const id = window.setTimeout(() => setSavedNote(null), 1500);
+    return () => window.clearTimeout(id);
+  }, [savedNote]);
+  // Leaving: with auto-save, save first (ask only if that fails); without it, ask about unsaved edits
+  const close = () => {
+    if (!dirty) return onClose();
+    if (auto) void save(true).then((ok) => (ok ? onClose() : setAsking(true)));
+    else setAsking(true);
+  };
 
   return (
     <div className="editf-wrap">
       <div className="editf-bar">
-        {dirty ? <span className="editf-dirty">{t("未保存")}</span> : savedNote ? <span className="dim small">{t("已保存")}</span> : <span className="dim small">{t("工作区")}</span>}
+        {dirty ? (
+          <span className="editf-dirty">{auto ? t("等待自动保存") : t("未保存")}</span>
+        ) : savedNote ? (
+          <span className="dim small">{savedNote === "auto" ? t("已自动保存") : t("已保存")}</span>
+        ) : (
+          <span className="dim small">{auto ? t("自动保存") : t("工作区")}</span>
+        )}
         <span className="grow" />
         <span className="dim small">{t("{0} 行", lines)}</span>
-        <button type="button" className="btn sm primary" onClick={save} disabled={!dirty || busy} title={t("保存（⌘S）")}>
+        <button type="button" className="btn sm primary" onClick={() => void save()} disabled={!dirty || busy} title={t("保存（{0}）", hintOf("save"))}>
           {busy ? t("正在保存…") : t("保存")}
         </button>
         <button type="button" className="btn sm" onClick={close} title={t("结束编辑（Esc）")}>
@@ -122,7 +158,8 @@ export function FileEditor({ path, line, onClose, onSaved, closeOnSave }: Props)
               indent={indent}
               label={t("编辑 {0}", path)}
               onChange={setText}
-              onSave={save}
+              onSave={() => void save()}
+              onBlur={() => auto && dirty && void saveRef.current(true)}
               onEscape={() => (close(), true)}
             />
           </Suspense>

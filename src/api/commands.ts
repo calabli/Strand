@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Contributions,
+  RepoSize,
   Hosting,
   PullRequest,
   Checks,
@@ -229,6 +230,11 @@ export const api = {
   /** Open a terminal in the repository folder */
   repoTerminal: (): Promise<void> => (inTauri ? call("repo_terminal") : Promise.resolve()),
   mergedBranches: (into: string): Promise<MergedBranch[]> => (inTauri ? call("merged_branches", { into }) : mock.mergedBranches(into)),
+  repoSize: (): Promise<RepoSize> => (inTauri ? call("repo_size") : mock.repoSize()),
+  /** git gc; taskCancel stops it */
+  repoGc: (taskId: string, aggressive: boolean): Promise<Written<null>> => (inTauri ? call("repo_gc", { taskId, aggressive }) : mock.repoGc()),
+  rerereGet: (): Promise<boolean> => (inTauri ? call("rerere_get") : mock.rerereGet()),
+  rerereSet: (on: boolean): Promise<void> => (inTauri ? call("rerere_set", { on }) : mock.rerereSet(on)),
   contributions: (since: number | null): Promise<Contributions> => (inTauri ? call("contributions", { since }) : mock.contributions(since)),
   /** Where origin is hosted; null when it isn't GitHub or GitLab */
   hostingInfo: (): Promise<Hosting | null> => (inTauri ? call("hosting_info") : mock.hostingInfo()),

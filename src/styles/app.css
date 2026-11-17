@@ -1327,3 +1327,19 @@ mark.find.find-cur { outline: 2px solid var(--accent); outline-offset: 0; }
 .stats-mail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .stats-tip { position: absolute; transform: translate(-50%, calc(-100% - 6px)); pointer-events: none; background: var(--win); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow);
   padding: 4px 8px; font-size: 12px; white-space: nowrap; z-index: 2; }
+
+/* Repository maintenance */
+.modal.maint-win { width: min(560px, 100%); }
+.maint-sec { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.maint-sec:first-of-type { border-top: 0; padding-top: 0; }
+.maint-sec h3 { margin: 0; font-size: 13px; }
+.maint-total { display: flex; align-items: baseline; gap: 10px; }
+.maint-num { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.maint-hint { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--pend-bg); color: var(--pend-ink); }
+.maint-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.maint-table th { text-align: left; font-weight: 500; padding: 3px 8px 3px 0; white-space: nowrap; }
+.maint-table td { padding: 3px 8px; }
+.maint-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: 0; }
+.maint-row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.maint-row .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line2); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+.ok-text { color: var(--ok-ink); }

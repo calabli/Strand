@@ -1,7 +1,7 @@
 // Sample data for the browser preview. Only used when running without Tauri.
 
 import { authorRule } from "./authorRule";
-import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule, MergedBranch, Hosting, PullRequest, Checks, Contributions } from "./types";
+import type { RebasePlan, CheckKind, CheckRun, ChecksConfig, ChecksInfo, Commit, GitInfo, GraphRow, LogAuthor, LogFilter, LogPage, LogSort, OpInfo, OpKind, OpList, RepoState, Submodule, MergedBranch, Hosting, PullRequest, Checks, Contributions, RepoSize } from "./types";
 
 const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(v), 60));
 
@@ -1229,3 +1229,17 @@ export const contributions = (since: number | null) => {
     no_lines: false,
   });
 };
+
+// Repository maintenance: sizes shrink after a (pretend) cleanup
+let mockGcDone = false;
+let mockRerere = false;
+const MB = 1 << 20;
+export const repoSize = () =>
+  delay<RepoSize>(
+    mockGcDone
+      ? { git_dir: 182 * MB, loose_count: 0, loose_bytes: 0, packed_count: 412_880, pack_bytes: 168 * MB, packs: 1, cleanable_bytes: 0, lfs_bytes: 12 * MB, strand_bytes: 340 * 1024, suggest_gc: false }
+      : { git_dir: 236 * MB, loose_count: 8_412, loose_bytes: 41 * MB, packed_count: 404_468, pack_bytes: 171 * MB, packs: 27, cleanable_bytes: 9 * MB, lfs_bytes: 12 * MB, strand_bytes: 340 * 1024, suggest_gc: true },
+  );
+export const repoGc = () => slow(null).then((w) => ((mockGcDone = true), w));
+export const rerereGet = () => delay(mockRerere);
+export const rerereSet = (on: boolean) => delay(void (mockRerere = on));

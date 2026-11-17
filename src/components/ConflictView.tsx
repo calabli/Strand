@@ -181,14 +181,18 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
     }
   }, [key, onDone, onChanged, onError, session.kind]);
 
-  // Finish automatically once the last file is resolved (spec §8.2)
+  // Finish automatically once the last file is resolved here (spec §8.2). Not when the session starts with every
+  // file already resolved (by rerere's recorded resolutions, or on the command line): those get checked first.
   const autoFinished = useRef(false);
+  const hadOpen = useRef(false);
   useEffect(() => {
-    if (files.length === 0 && doneFiles.length > 0 && !autoFinished.current && !busy) {
+    if (files.length > 0) {
+      hadOpen.current = true;
+      autoFinished.current = false;
+    } else if (hadOpen.current && doneFiles.length > 0 && !autoFinished.current && !busy) {
       autoFinished.current = true;
       finish();
     }
-    if (files.length > 0) autoFinished.current = false;
   }, [files.length, doneFiles.length, busy, finish]);
 
   const skip = async () => {
@@ -393,6 +397,9 @@ export function ConflictView({ session, repo, onDone, onChanged, onLater, onAbor
             <span className="cf-a" />
           </div>
         ))}
+        {files.length === 0 && doneFiles.length > 0 && !hadOpen.current && (
+          <p className="pad small cf-prefilled">{t("这些文件已经解决了（比如按记住的解决方法自动改好的），检查一下，没问题就点“完成”。")}</p>
+        )}
         {files.length === 0 && doneFiles.length === 0 && <p className="pad dim">{t("冲突都已经解决了，点“完成”结束这次{0}。", KIND_TEXT[session.kind])}</p>}
         <div className="cf-foot">
           {checked && files.length > 0 ? (
