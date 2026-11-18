@@ -194,5 +194,7 @@ Everything can be done with the keyboard: icon buttons have accessible names mat
 - Cloning uses system Git only; authentication relies on SSH keys and credential helpers.
 - Pull and merge requests can be listed and created, but not reviewed, commented on or merged inside Strand. Hosts are recognized by having "github" or "gitlab" in their name.
 - Pre-commit check settings live in each repository's Git config and can't be shared through the repository.
+- Code navigation finds definitions by text search plus imports, not by a language server: when several definitions share a name they are all listed, and it needs a Git built with PCRE (`git grep -P`). Definitions in dependencies outside the repository aren't found.
+- Trying a hook from the hooks window needs Git 2.36 or later.
 - The graph is drawn as one SVG per row.
 - The core layer's messages are in Chinese and are translated for display by template matching.
