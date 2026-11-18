@@ -176,10 +176,10 @@ async fn diff_worktree(state: State<'_, AppState>, path: String, ignore_ws: Opti
 
 /// Commit the checked files and refresh the log. Returns the new commit's id and the repository state.
 #[tauri::command]
-async fn commit_create(state: State<'_, AppState>, message: String, selection: Selection, sign_off: Option<bool>, author: Option<String>) -> CmdResult<CommitCreated> {
+async fn commit_create(state: State<'_, AppState>, message: String, selection: Selection, sign_off: Option<bool>, author: Option<String>, no_verify: Option<bool>) -> CmdResult<CommitCreated> {
     with_repo(&state, move |s| {
         let title = message.lines().next().unwrap_or("").trim().to_string();
-        let r = s.run_op_reload(&format!("提交“{}”", short(&title)), OpKind::Commit, |s| s.commit_create(&message, &selection, sign_off.unwrap_or(false), author.as_deref()));
+        let r = s.run_op_reload(&format!("提交“{}”", short(&title)), OpKind::Commit, |s| s.commit_create_with(&message, &selection, sign_off.unwrap_or(false), author.as_deref(), no_verify.unwrap_or(false)));
         let (id, op) = r?;
         Ok(CommitCreated { id, state: s.state()?, op })
     })
@@ -188,11 +188,11 @@ async fn commit_create(state: State<'_, AppState>, message: String, selection: S
 
 /// Amend the last commit (spec §4.5): an empty message keeps the original
 #[tauri::command]
-async fn commit_amend(state: State<'_, AppState>, message: Option<String>, selection: Selection, sign_off: Option<bool>, author: Option<String>) -> CmdResult<CommitCreated> {
+async fn commit_amend(state: State<'_, AppState>, message: Option<String>, selection: Selection, sign_off: Option<bool>, author: Option<String>, no_verify: Option<bool>) -> CmdResult<CommitCreated> {
     with_repo(&state, move |s| {
         let head = s.state()?.head.commit.unwrap_or_default();
         let label = format!("修订{}", title_of(s, &head));
-        let r = s.run_op_reload(&label, OpKind::Commit, |s| s.commit_amend(message.as_deref(), &selection, sign_off.unwrap_or(false), author.as_deref()));
+        let r = s.run_op_reload(&label, OpKind::Commit, |s| s.commit_amend_with(message.as_deref(), &selection, sign_off.unwrap_or(false), author.as_deref(), no_verify.unwrap_or(false)));
         let (id, op) = r?;
         Ok(CommitCreated { id, state: s.state()?, op })
     })
@@ -713,6 +713,39 @@ async fn rerere_set(state: State<'_, AppState>, on: bool) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || strand_core::maintenance::set_rerere(&path, on))
         .await
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+// ---------- Git hooks ----------
+
+#[tauri::command]
+async fn hooks_list(state: State<'_, AppState>) -> CmdResult<strand_core::hooks::Hooks> {
+    let path = repo_path(&state)?;
+    blocking(move || strand_core::hooks::list(&path)).await
+}
+
+#[tauri::command]
+async fn hook_read(state: State<'_, AppState>, name: String) -> CmdResult<String> {
+    let path = repo_path(&state)?;
+    blocking(move || strand_core::hooks::read(&path, &name)).await
+}
+
+#[tauri::command]
+async fn hook_write(state: State<'_, AppState>, name: String, text: String) -> CmdResult<()> {
+    let path = repo_path(&state)?;
+    blocking(move || strand_core::hooks::write(&path, &name, &text)).await
+}
+
+#[tauri::command]
+async fn hook_enable(state: State<'_, AppState>, name: String, on: bool) -> CmdResult<()> {
+    let path = repo_path(&state)?;
+    blocking(move || strand_core::hooks::set_enabled(&path, &name, on)).await
+}
+
+/// Run a hook now without committing (git hook run)
+#[tauri::command]
+async fn hook_try(state: State<'_, AppState>, name: String) -> CmdResult<strand_core::hooks::HookRun> {
+    let path = repo_path(&state)?;
+    blocking(move || strand_core::hooks::try_run(&path, &name)).await
 }
 
 // ---------- Pull / merge requests (GitHub, GitLab) ----------
@@ -1890,6 +1923,11 @@ pub fn run(adopted: Option<u128>) {
             repo_terminal,
             merged_branches,
             contributions,
+            hooks_list,
+            hook_read,
+            hook_write,
+            hook_enable,
+            hook_try,
             repo_size,
             repo_gc,
             rerere_get,

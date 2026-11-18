@@ -6,6 +6,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Contributions,
+  HookRun,
+  Hooks,
   RepoSize,
   Hosting,
   PullRequest,
@@ -129,11 +131,18 @@ export const api = {
   diffWorktree: (path: string, ignoreWs = false, context = 3): Promise<FileDiff> =>
     inTauri ? call("diff_worktree", { path, ignoreWs, context }) : mock.diffFile(path, context),
   /** author: "Name <email>"; empty uses the identity from Git config */
-  commitCreate: (message: string, selection: Selection, signOff = false, author: string | null = null): Promise<CommitCreated> =>
-    inTauri ? call("commit_create", { message, selection, signOff, author }) : mock.commitCreate(message, selection),
+  /** noVerify: skip the pre-commit and commit-msg hooks; a hook stopping the commit gives HOOK_FAILED with its output */
+  commitCreate: (message: string, selection: Selection, signOff = false, author: string | null = null, noVerify = false): Promise<CommitCreated> =>
+    inTauri ? call("commit_create", { message, selection, signOff, author, noVerify }) : mock.commitCreate(message, selection, noVerify),
   /** Amend the last commit; an empty message keeps the original */
-  commitAmend: (message: string | null, selection: Selection, signOff = false, author: string | null = null): Promise<CommitCreated> =>
-    inTauri ? call("commit_amend", { message, selection, signOff, author }) : mock.commitAmend(message),
+  commitAmend: (message: string | null, selection: Selection, signOff = false, author: string | null = null, noVerify = false): Promise<CommitCreated> =>
+    inTauri ? call("commit_amend", { message, selection, signOff, author, noVerify }) : mock.commitAmend(message),
+  hooksList: (): Promise<Hooks> => (inTauri ? call("hooks_list") : mock.hooksList()),
+  hookRead: (name: string): Promise<string> => (inTauri ? call("hook_read", { name }) : mock.hookRead(name)),
+  hookWrite: (name: string, text: string): Promise<void> => (inTauri ? call("hook_write", { name, text }) : mock.hookWrite(name, text)),
+  hookEnable: (name: string, on: boolean): Promise<void> => (inTauri ? call("hook_enable", { name, on }) : mock.hookEnable(name, on)),
+  /** Run a hook now without committing */
+  hookTry: (name: string): Promise<HookRun> => (inTauri ? call("hook_try", { name }) : mock.hookTry(name)),
   /** Cherry-pick or revert only some files of a commit, leaving the result in the worktree; returns CONFLICTS on conflicts */
   commitFilesApply: (id: string, paths: string[], revert: boolean): Promise<Written<null>> =>
     inTauri ? call("commit_files_apply", { id, paths, revert }) : mock.commitOp(revert ? t("还原部分文件") : t("拣选部分文件")),

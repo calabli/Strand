@@ -89,6 +89,10 @@ export function ChecksOptions({ info, onSave, onRunNow, running }: { info: Check
       </div>
       {cmdRow(chk, setChk, "check_command", info.suggest_check, t("检查命令"))}
       <div className="cpo-row">
+        <span title={t("关掉后提交时加 --no-verify，不运行 pre-commit 和 commit-msg 钩子")}>{t("运行 Git 钩子")}</span>
+        <Switch on={s.runHooks} label={t("运行 Git 钩子")} onChange={(v) => setSettings({ runHooks: v })} />
+      </div>
+      <div className="cpo-row">
         <span>{t("加签名行")}</span>
         <Switch on={s.signOff} label={t("加签名行")} onChange={(v) => setSettings({ signOff: v })} />
       </div>

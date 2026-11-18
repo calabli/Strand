@@ -28,6 +28,8 @@ pub enum ErrorCode {
     NotFound,
     Cancelled,
     GitFailed,
+    /// A Git hook (pre-commit, commit-msg…) stopped the operation; detail has the hook names and their output
+    HookFailed,
     /// Added in the skeleton stage: the chosen folder isn't a Git repository
     NotARepo,
     /// Added in the skeleton stage: a command that needs a repository was called before one was opened

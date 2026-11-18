@@ -43,6 +43,12 @@ impl Session {
     /// Calls system `git commit --only`: commits only these paths' worktree content regardless of what's staged,
     /// and runs hooks, signing and line-ending conversion as usual. Call `reload` afterwards to refresh the log.
     pub fn commit_create(&self, message: &str, selection: &Selection, sign_off: bool, author: Option<&str>) -> Result<String> {
+        self.commit_create_with(message, selection, sign_off, author, false)
+    }
+
+    /// [`commit_create`](Self::commit_create) with `no_verify`: skip the pre-commit and commit-msg hooks (`--no-verify`).
+    /// When a hook stops the commit, the error is `HOOK_FAILED` with the hook's output.
+    pub fn commit_create_with(&self, message: &str, selection: &Selection, sign_off: bool, author: Option<&str>, no_verify: bool) -> Result<String> {
         let author = author.map(str::trim).filter(|a| !a.is_empty());
         if let Some(a) = author {
             crate::compose::check_ident(a)?;
@@ -54,7 +60,7 @@ impl Session {
             return Err(CoreError::new(ErrorCode::EmptyMessage, "先写一句提交说明"));
         }
         if selection.files.iter().any(|f| !f.whole) {
-            return self.commit_partial(Some(message), selection, sign_off, author, false);
+            return self.commit_partial(Some(message), selection, sign_off, author, false, no_verify);
         }
         let mut paths: Vec<&str> = Vec::new();
         for f in &selection.files {
@@ -70,13 +76,16 @@ impl Session {
         if sign_off {
             args.push("--signoff");
         }
+        if no_verify {
+            args.push("--no-verify");
+        }
         let author_arg = author.map(|a| format!("--author={a}"));
         if let Some(a) = &author_arg {
             args.push(a);
         }
         args.push("--");
         args.extend(paths);
-        git_cli::run(self.path(), &args, Some(message))?;
+        git_cli::run(self.path(), &args, Some(message)).map_err(|e| crate::hooks::explain_commit_error(self.path(), e))?;
         let id = git_cli::run(self.path(), &["rev-parse", "HEAD"], None)?;
         Ok(id.trim().to_string())
     }
@@ -84,6 +93,11 @@ impl Session {
     /// Amend the last commit (spec §4.5): fold the checked changes into it; a non-empty `message` replaces the original, an empty one keeps it.
     /// Returns `ALREADY_PUSHED` when the last commit was already pushed. With no files checked, only the message changes.
     pub fn commit_amend(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>) -> Result<String> {
+        self.commit_amend_with(message, selection, sign_off, author, false)
+    }
+
+    /// [`commit_amend`](Self::commit_amend) with `no_verify`: skip the commit hooks
+    pub fn commit_amend_with(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>, no_verify: bool) -> Result<String> {
         let author = author.map(str::trim).filter(|a| !a.is_empty());
         if let Some(a) = author {
             crate::compose::check_ident(a)?;
@@ -104,12 +118,15 @@ impl Session {
             return Err(CoreError::new(ErrorCode::NothingSelected, "勾选要并入的文件，或者写一段新的说明"));
         }
         if selection.files.iter().any(|f| !f.whole) {
-            return self.commit_partial(msg, selection, sign_off, author, true);
+            return self.commit_partial(msg, selection, sign_off, author, true, no_verify);
         }
         let mut args = vec!["commit", "--amend", "--only", "--quiet"];
         args.push(if msg.is_some() { "--file=-" } else { "--no-edit" });
         if sign_off {
             args.push("--signoff");
+        }
+        if no_verify {
+            args.push("--no-verify");
         }
         let author_arg = author.map(|a| format!("--author={a}"));
         if let Some(a) = &author_arg {
@@ -122,7 +139,7 @@ impl Session {
                 args.push(old);
             }
         }
-        git_cli::run(self.path(), &args, msg)?;
+        git_cli::run(self.path(), &args, msg).map_err(|e| crate::hooks::explain_commit_error(self.path(), e))?;
         let id = git_cli::run(self.path(), &["rev-parse", "HEAD"], None)?;
         Ok(id.trim().to_string())
     }
@@ -132,7 +149,7 @@ impl Session {
     /// Some files commit only part of their lines: build the content to commit from HEAD in a temporary index and commit that;
     /// the real index and worktree are untouched (only the committed paths are synced to the new HEAD in the index), and unchecked lines stay in the worktree.
     /// `amend` true amends the last commit; an empty `message` keeps the original (amend only).
-    fn commit_partial(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>, amend: bool) -> Result<String> {
+    fn commit_partial(&self, message: Option<&str>, selection: &Selection, sign_off: bool, author: Option<&str>, amend: bool, no_verify: bool) -> Result<String> {
         let repo = self.git2()?;
         let dir = repo.path().join("strand");
         std::fs::create_dir_all(&dir).map_err(|e| CoreError::git("准备提交失败", e))?;
@@ -148,11 +165,14 @@ impl Session {
             if sign_off {
                 args.push("--signoff");
             }
+            if no_verify {
+                args.push("--no-verify");
+            }
             let author_arg = author.map(|a| format!("--author={a}"));
             if let Some(a) = &author_arg {
                 args.push(a);
             }
-            git_cli::run_env(self.path(), &args, message, &[("GIT_INDEX_FILE", idx.as_str())])?;
+            git_cli::run_env(self.path(), &args, message, &[("GIT_INDEX_FILE", idx.as_str())]).map_err(|e| crate::hooks::explain_commit_error(self.path(), e))?;
             // In the real index, align committed paths with the new HEAD; remaining changes of partially committed files stay in the worktree
             let mut reset = vec!["reset", "--quiet", "--"];
             reset.extend(paths.iter().map(String::as_str));

@@ -159,7 +159,7 @@ export const logAuthors = () =>
 
 // ---------- Sample data for the worktree and diffs ----------
 
-import type { BlamePage, CommitCaps, CommitCreated, CommitDetail, FileChange, FileDiff, RebaseRange, RebaseResult, RebaseStep, Selection, ShelfEntry, StashEntry, WorktreeStatus } from "./types";
+import type { HookInfo, BlamePage, CommitCaps, CommitCreated, CommitDetail, FileChange, FileDiff, RebaseRange, RebaseResult, RebaseStep, Selection, ShelfEntry, StashEntry, WorktreeStatus } from "./types";
 
 let mockStatus: WorktreeStatus = {
   changes: [
@@ -211,7 +211,14 @@ export function diffFile(path: string, context = 3): Promise<FileDiff> {
   });
 }
 
-export function commitCreate(_message: string, sel: Selection): Promise<CommitCreated> {
+export function commitCreate(_message: string, sel: Selection, noVerify = false): Promise<CommitCreated> {
+  // The sample pre-commit hook fails until it's switched off or skipped
+  if (!noVerify && mockHooks.find((h) => h.name === "pre-commit")?.state === "active")
+    return Promise.reject({
+      code: "HOOK_FAILED",
+      message: "pre-commit 钩子拦下了这次提交",
+      detail: { hooks: ["pre-commit"], output: "> strand-app@0.4.0 lint\n> eslint src\n\nsrc/graph/layout.ts\n  42:7  error  'tmp' is assigned a value but never used  no-unused-vars\n  57:1  error  Expected indentation of 4 spaces          indent\n\n✖ 2 problems (2 errors, 0 warnings)\nhusky - pre-commit hook exited with code 1 (error)" },
+    });
   const picked = new Set(sel.files.map((f) => f.path));
   mockStatus = { ...mockStatus, changes: mockStatus.changes.filter((c) => !picked.has(c.path)) };
   const title = _message.split("\n")[0];
@@ -1253,3 +1260,46 @@ export const repoSize = () =>
 export const repoGc = () => slow(null).then((w) => ((mockGcDone = true), w));
 export const rerereGet = () => delay(mockRerere);
 export const rerereSet = (on: boolean) => delay(void (mockRerere = on));
+
+// Git hooks: a husky-style pre-commit that runs lint, a commit-msg, samples for the rest
+const HOOK_DESC: Record<string, string> = {
+  "pre-commit": "提交前运行，常用来跑格式检查、lint 和测试；失败就不提交",
+  "prepare-commit-msg": "打开提交说明之前运行，可以预先填好说明（比如加上分支名或任务号）",
+  "commit-msg": "检查提交说明的格式；失败就不提交",
+  "post-commit": "提交完成后运行，常用来发通知",
+  "pre-merge-commit": "合并生成合并提交之前运行；失败就不合并",
+  "pre-rebase": "变基之前运行；失败就不变基",
+  "post-checkout": "切换分支或检出文件之后运行",
+  "post-merge": "合并（包括拉取）完成之后运行，常用来重新安装依赖",
+  "post-rewrite": "修订、变基改写了提交之后运行",
+  "pre-push": "推送之前运行，常用来跑测试；失败就不推送",
+};
+const mockHookText: Record<string, string> = {
+  "pre-commit": "#!/usr/bin/env sh\n. \"$(dirname -- \"$0\")/_/husky.sh\"\n\npnpm lint\n",
+  "commit-msg": "#!/bin/sh\n# 说明的第一行不能超过 72 个字\nhead -1 \"$1\" | awk 'length > 72 { exit 1 }'\n",
+  "pre-push": "#!/bin/sh\n# Git 自带的示例：不让推送标题以 WIP 开头的提交\n",
+};
+let mockHooks: HookInfo[] = Object.entries(HOOK_DESC).map(([name, description]) => ({
+  name,
+  description,
+  state: name === "pre-commit" || name === "commit-msg" ? "active" : name === "pre-push" || name === "pre-rebase" ? "sample" : "missing",
+  interpreter: name === "pre-commit" || name === "commit-msg" ? "sh" : undefined,
+  not_executable: false,
+}));
+export const hooksList = () => delay({ dir: "/示例/strand-app/.husky", hooks_path: ".husky", manager: "husky", hooks: mockHooks });
+export const hookRead = (name: string) => delay(mockHookText[name] ?? "");
+export const hookWrite = (name: string, text: string) => {
+  mockHookText[name] = text;
+  mockHooks = mockHooks.map((h) => (h.name === name && h.state !== "disabled" ? { ...h, state: "active", interpreter: "sh" } : h));
+  return delay(undefined);
+};
+export const hookEnable = (name: string, on: boolean) => {
+  const h = mockHooks.find((x) => x.name === name);
+  if (on && h?.state === "missing") return Promise.reject({ code: "NOT_FOUND", message: `还没有 ${name} 钩子，先写好内容再保存` });
+  mockHooks = mockHooks.map((x) => (x.name === name ? { ...x, state: on ? "active" : x.state === "active" ? "disabled" : x.state } : x));
+  return delay(undefined);
+};
+export const hookTry = (name: string) =>
+  name === "pre-commit" && mockHooks.find((h) => h.name === name)?.state === "active"
+    ? delay({ ok: false, output: "> eslint src\n\nsrc/graph/layout.ts\n  42:7  error  'tmp' is assigned a value but never used\n\n✖ 1 problem (1 error, 0 warnings)" })
+    : delay({ ok: true, output: "" });

@@ -182,8 +182,11 @@ export function RepoPopup({
   onOpenNew,
   onStats,
   onMaintenance,
+  onHooks,
   onClose,
 }: {
+  /** The repository's Git hooks */
+  onHooks?: () => void;
   /** Repository maintenance (size, cleanup, rerere) */
   onMaintenance?: () => void;
   /** Contribution statistics of the current repository */
@@ -297,6 +300,18 @@ export function RepoPopup({
           }}
         >
           {t("仓库维护…")}
+        </button>
+      )}
+      {onHooks && (
+        <button
+          type="button"
+          className="repo-browse"
+          onClick={() => {
+            onClose();
+            onHooks();
+          }}
+        >
+          {t("Git 钩子…")}
         </button>
       )}
     </div>

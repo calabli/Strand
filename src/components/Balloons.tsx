@@ -2,7 +2,7 @@
 // history window.
 
 import type { ReactNode } from "react";
-import { clearHistory, hide, hold, useNotes, type Note } from "../notify";
+import { clearHistory, closeOutput, hide, hold, useNotes, useOutput, type Note } from "../notify";
 import { useReturnFocus } from "./focus";
 import { formatTime } from "./format";
 import { t, tr } from "../i18n";
@@ -63,12 +63,38 @@ function Balloon({ n }: { n: Note }) {
 /** Fixed in the bottom-right; `after` (the update card) sits below the balloons */
 export function Balloons({ after }: { after?: ReactNode }) {
   const shown = useNotes().filter((n) => n.shown);
+  const out = useOutput();
   return (
-    <div className="balloons" aria-live="polite">
-      {shown.map((n) => (
-        <Balloon key={n.id} n={n} />
-      ))}
-      {after}
+    <>
+      <div className="balloons" aria-live="polite">
+        {shown.map((n) => (
+          <Balloon key={n.id} n={n} />
+        ))}
+        {after}
+      </div>
+      {out && <OutputWindow title={out.title} text={out.text} />}
+    </>
+  );
+}
+
+/** A long text from a balloon (a hook's full output), selectable and copyable */
+function OutputWindow({ title, text }: { title: string; text: string }) {
+  useReturnFocus();
+  return (
+    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && closeOutput()}>
+      <div className="modal out-win" role="dialog" aria-modal="true" aria-label={tr(title)} onKeyDown={(e) => e.key === "Escape" && closeOutput()}>
+        <h2>{tr(title)}</h2>
+        <pre className="out-text mono">{text || t("（没有输出）")}</pre>
+        <div className="modal-btns">
+          <button type="button" className="btn" onClick={() => void navigator.clipboard.writeText(text).catch(() => {})}>
+            {t("复制")}
+          </button>
+          <span className="grow" />
+          <button type="button" className="btn primary" onClick={closeOutput} autoFocus>
+            {t("关闭")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -88,3 +88,26 @@ export function useNotes(): Note[] {
   }, []);
   return v;
 }
+
+// A window with a long text (a hook's full output), opened from a balloon's link
+let output: { title: string; text: string } | null = null;
+const outListeners = new Set<() => void>();
+export function showOutput(title: string, text: string) {
+  output = { title, text };
+  outListeners.forEach((f) => f());
+}
+export function closeOutput() {
+  output = null;
+  outListeners.forEach((f) => f());
+}
+export function useOutput() {
+  const [v, set] = useState(output);
+  useEffect(() => {
+    const f = () => set(output);
+    outListeners.add(f);
+    return () => {
+      outListeners.delete(f);
+    };
+  }, []);
+  return v;
+}

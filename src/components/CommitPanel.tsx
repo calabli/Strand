@@ -13,7 +13,7 @@
 // Changelists (like JetBrains changelists): group changes; new changes go into the "active" list; with only one list it looks as before with just "Changes".
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api } from "../api/commands";
+import { ApiError, api, errOf } from "../api/commands";
 import type { Changelists, CheckRun, ChecksInfo, CommitCreated, ComposeInfo, OpInfo, RangeCommit, RepoState, Selection, WorktreeStatus } from "../api/types";
 import { Menu, type MenuState } from "./Menu";
 import { AuthorOptions, coAuthorsOf, identOk } from "./compose";
@@ -22,6 +22,7 @@ import { setSettings, settings, useSettings } from "../settings";
 import { t, tr } from "../i18n";
 import { hintOf, matches, useKeymap } from "../keymap";
 import { ChecksOptions, ChecksReport } from "./checks";
+import { notify, showOutput } from "../notify";
 
 interface Props {
   /** Current repository path (message history is kept per repository) */
@@ -409,14 +410,36 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     return true;
   };
 
-  const commit = async (push = false) => {
+  /**
+   * A hook stopped the commit: a red balloon with the end of its output and ways on — the whole output, committing
+   * once without hooks, copying the output
+   */
+  const hookFailed = (e: ApiError, retry: () => void) => {
+    const d = (e.detail ?? {}) as { output?: string };
+    const out = (d.output ?? "").trimEnd();
+    const lines = out.split("\n");
+    const tail = lines.slice(-12).join("\n");
+    notify({
+      kind: "error",
+      title: e.message,
+      body: (lines.length > 12 ? "…\n" : "") + (tail || t("钩子没有输出")),
+      actions: [
+        { label: t("查看完整输出"), run: () => showOutput(e.message, out) },
+        { label: t("跳过钩子再提交"), run: retry },
+        { label: t("复制"), run: () => void navigator.clipboard.writeText(out).catch(() => {}) },
+      ],
+    });
+  };
+  const commitRef = useRef<(push?: boolean, skipHooks?: boolean) => void>(() => {});
+
+  const commit = async (push = false, skipHooks = false) => {
     if (phase) {
       api.taskCancel(phase.task);
       return;
     }
     if (busy || disabled) return;
     setError(null);
-    if (amend) return doAmend();
+    if (amend) return doAmend(skipHooks);
     if (picked.length === 0) return setError(t("至少勾选一个文件"));
     if (author.trim() && !identOk(author)) return setError(t("作者要写成“名字 <邮箱>”"));
     if (template && msg.trim() === template.trim()) {
@@ -432,20 +455,24 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     setBusy(true);
     try {
       if (!(await preCommit(picked))) return;
-      const r = await api.commitCreate(msg, selectionOf(picked), settings().signOff, author.trim() || null);
+      const r = await api.commitCreate(msg, selectionOf(picked), settings().signOff, author.trim() || null, skipHooks || !settings().runHooks);
       remember(msg.trim());
       afterCommit();
       onCommitted(r, picked.length, push);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      const err = errOf(e);
+      if (err.code === "HOOK_FAILED") hookFailed(err, () => commitRef.current(push, true));
+      setError(err.message);
       if (e instanceof ApiError && e.code === "EMPTY_MESSAGE") input.current?.focus();
     } finally {
       setBusy(false);
     }
   };
 
+  commitRef.current = (push, skip) => void commit(push, skip);
+
   /** Amend: the last commit uses git commit --amend; earlier commits use Fixup (Squash Into when there's a message) */
-  const doAmend = async () => {
+  const doAmend = async (skipHooks = false) => {
     if (!target) return setError(targets && targets.length === 0 ? t("当前分支上没有还没推送的提交，不能修订") : t("正在读取可以修订的提交…"));
     const m = msg.trim() && msg.trim() !== template?.trim() ? msg : null;
     if (author.trim() && !identOk(author)) return setError(t("作者要写成“名字 <邮箱>”"));
@@ -454,7 +481,7 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     try {
       if (picked.length && !(await preCommit(picked))) return;
       if (target === targets?.[0]?.id) {
-        const r = await api.commitAmend(m, selectionOf(picked), settings().signOff, author.trim() || null);
+        const r = await api.commitAmend(m, selectionOf(picked), settings().signOff, author.trim() || null, skipHooks || !settings().runHooks);
         if (m) remember(m.trim());
         afterCommit();
         setAmend(false);
@@ -475,7 +502,9 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
         onWritten(w.state, t("已把改动并入“{0}”", targets?.find((x) => x.id === target)?.title ?? ""), w.op);
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      const err = errOf(e);
+      if (err.code === "HOOK_FAILED") hookFailed(err, () => commitRef.current(false, true));
+      setError(err.message);
     } finally {
       setBusy(false);
     }

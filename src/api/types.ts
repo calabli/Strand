@@ -142,6 +142,7 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "CANCELLED"
   | "GIT_FAILED"
+  | "HOOK_FAILED"
   | "NOT_A_REPO"
   | "NO_REPO"
   | "GIT_MISSING"
@@ -916,4 +917,31 @@ export interface RepoSize {
   lfs_bytes: number;
   strand_bytes: number;
   suggest_gc: boolean;
+}
+
+/** Git hooks of the repository */
+export type HookState = "active" | "disabled" | "sample" | "missing";
+
+export interface HookInfo {
+  name: string;
+  state: HookState;
+  description: string;
+  /** From the script's #! line: sh, bash, node, python3… */
+  interpreter?: string;
+  /** Active but not executable: Git skips it */
+  not_executable: boolean;
+}
+
+export interface Hooks {
+  dir: string;
+  /** core.hooksPath */
+  hooks_path?: string;
+  /** husky, lefthook, pre-commit… */
+  manager?: string;
+  hooks: HookInfo[];
+}
+
+export interface HookRun {
+  ok: boolean;
+  output: string;
 }
