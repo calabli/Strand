@@ -67,7 +67,7 @@ export function BlameWindow({ path, rev, onClose, onJump }: { path: string; rev:
   useEffect(() => {
     if (!loaded || !syntax) return;
     let live = true;
-    highlight(langOf(path), [lines.map((l) => l.text).join("\n")]).then(([x]) => live && setToks(x));
+    highlight(langOf(path), [lines.map((l) => l.text).join("\n")], true).then(([x]) => live && setToks(x));
     return () => {
       live = false;
     };

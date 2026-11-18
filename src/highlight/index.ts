@@ -32,8 +32,12 @@ let worker: Worker | null = null;
 let seq = 0;
 const waiting = new Map<number, (out: (Tok[][] | null)[]) => void>();
 
-/** Color some texts; returns per-line colored runs for each (null for unknown languages or texts too large) */
-export function highlight(lang: string | null, texts: string[]): Promise<(Tok[][] | null)[]> {
+/**
+ * Color some texts; returns per-line colored runs for each (null for unknown languages or texts too large).
+ * `complete`: the texts are whole files, so a bracket without its partner is marked as an error (in pieces of a file,
+ * like a diff that shows only the changes, the partner may be outside the piece).
+ */
+export function highlight(lang: string | null, texts: string[], complete = false): Promise<(Tok[][] | null)[]> {
   const big = texts.reduce((n, t) => n + t.length, 0) > MAX_CHARS || texts.some((t) => t.split("\n", MAX_LINES + 1).length > MAX_LINES);
   if (!lang || big || typeof Worker === "undefined") return Promise.resolve(texts.map(() => null));
   if (!worker) {
@@ -46,6 +50,6 @@ export function highlight(lang: string | null, texts: string[]): Promise<(Tok[][
   const id = ++seq;
   return new Promise((resolve) => {
     waiting.set(id, resolve);
-    worker!.postMessage({ id, lang, texts });
+    worker!.postMessage({ id, lang, texts, complete });
   });
 }

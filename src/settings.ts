@@ -57,9 +57,11 @@ export interface Settings {
   runHooks: boolean;
   /** The preview last chosen per file extension ("text" for the plain text, a built-in kind, or "plugin:<id>") */
   previewChoice: Record<string, string>;
+  /** Color (), [] and {} by nesting depth in code (diffs, file text, the editor) */
+  rainbowBrackets: boolean;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {} };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {}, rainbowBrackets: true };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();
@@ -105,6 +107,9 @@ export function applyTheme() {
   const r = document.documentElement;
   if (current.theme === "auto") delete r.dataset.theme;
   else r.dataset.theme = current.theme;
+  // Bracket colors are classes on every bracket; turning them off is one switch on the root
+  if (current.rainbowBrackets) delete r.dataset.rainbow;
+  else r.dataset.rainbow = "off";
 }
 applyTheme();
 

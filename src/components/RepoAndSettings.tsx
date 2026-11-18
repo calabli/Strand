@@ -506,6 +506,11 @@ export function SettingsWindow({
             <Toggle on={s.autoSave} label={t("编辑文件时自动保存")} onChange={(v) => set({ autoSave: v })} />,
             t("停止输入 1 秒后、结束编辑或离开编辑器时保存；关闭后用 {0} 手动保存", hintOf("save")),
           )}
+          {row(
+            t("彩虹括号"),
+            <Toggle on={s.rainbowBrackets} label={t("彩虹括号")} onChange={(v) => set({ rainbowBrackets: v })} />,
+            t("代码里成对的 ()、[]、{} 按嵌套层级用不同颜色，配不上的标红；文件、差异和编辑器里都生效"),
+          )}
           <div className="set-sec dim">{t("远程")}</div>
           {repoOpen &&
             onRemotes &&

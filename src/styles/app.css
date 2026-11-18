@@ -981,6 +981,10 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .tk-type, .tk-built_in, .tk-class, .tk-params, .tk-variable, .tk-template-variable { color: var(--sx-type); }
 .tk-tag, .tk-name, .tk-selector-pseudo { color: var(--sx-tag); }
 .tk-attr, .tk-attribute, .tk-property, .tk-meta, .tk-link { color: var(--sx-attr); }
+/* Rainbow brackets (file text, diffs, the editor); data-rainbow="off" on the root turns them back to plain text */
+.tk-br0 { color: var(--br0); } .tk-br1 { color: var(--br1); } .tk-br2 { color: var(--br2); } .tk-br3 { color: var(--br3); }
+.tk-br-bad { color: var(--br-bad); text-decoration: wavy underline var(--br-bad); text-underline-offset: 3px; }
+:root[data-rainbow="off"] :is(.tk-br0, .tk-br1, .tk-br2, .tk-br3, .tk-br-bad) { color: inherit; text-decoration: none; }
 .tk-emphasis { font-style: italic; }
 .tk-strong { font-weight: 700; }
 .tk-addition { color: var(--ok-ink); }

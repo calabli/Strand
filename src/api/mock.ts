@@ -790,6 +790,7 @@ const PROJECT = [
 /** Sample contents for previews (Markdown, CSV, JSON) */
 const SAMPLES: Record<string, string> = {
   "README.md": `# strand-app\n\n一个 **Git 图谱** 示例项目，用来演示 [Strand](https://github.com/calabli/Strand) 的预览。\n\n## 功能\n\n- 提交图谱和过滤\n- 行级提交\n- [设计文档](docs/design.md)\n\n![图谱](docs/images/graph.png)\n\n| 命令 | 说明 |\n| --- | --- |\n| \`cargo run\` | 启动 |\n| \`cargo test\` | 测试 |\n\n\`\`\`rust\nfn main() {\n    println!("hello");\n}\n\`\`\`\n\n> 引用：大仓库也要秒开。\n\n<script>alert("不会运行")</script>\n`,
+  "src/lib.rs": `// 彩虹括号示例 (注释里的括号不算)\npub fn layout(rows: &[Row]) -> Vec<Lane> {\n    let s = "字符串里的 ( 也不算";\n    rows.iter().map(|r| lanes(&r.parents[0..(r.n + 1)])).collect()\n}\n\nfn broken() {\n    let x = (1 + 2;\n}\n`,
   "docs/design.md": `# 设计\n\n回到 [README](../README.md)。\n\n1. 读日志\n2. 算图谱\n`,
   "data/regions.csv": `城市,人口（万）,备注\n上海,2487,"直辖市, 沿海"\n北京,2185,首都\n深圳,1768,"""鹏城"""\n成都,2140,\n`,
   "data/settings.json": `{"name":"strand-app","version":"0.4.0","features":{"graph":true,"lanes":[1,2,3],"theme":null},"authors":[{"name":"A","email":"a@example.com"},{"name":"B"}]}\n`,

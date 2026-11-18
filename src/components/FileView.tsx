@@ -573,7 +573,7 @@ function TextView({
   useEffect(() => {
     if (!f?.text || !syntax) return;
     let live = true;
-    highlight(langOf(f.path), [f.text]).then(([t]) => live && t && setToks({ f, lines: t }));
+    highlight(langOf(f.path), [f.text], !f.truncated).then(([t]) => live && t && setToks({ f, lines: t }));
     return () => {
       live = false;
     };

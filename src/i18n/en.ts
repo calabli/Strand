@@ -2088,4 +2088,6 @@ export const en: Record<string, string> = {
   "预览插件": "Preview plugins",
   "预览插件…": "Preview plugins…",
   "预览：{0}": "Preview: {0}",
+  "彩虹括号": "Rainbow brackets",
+  "代码里成对的 ()、[]、{} 按嵌套层级用不同颜色，配不上的标红；文件、差异和编辑器里都生效": "Color (), [] and {} pairs in code by nesting depth and mark ones without a partner in red, in file text, diffs and the editor",
 };

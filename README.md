@@ -58,7 +58,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Aborting a merge, rebase or pull can itself be undone.
 
 **Diffs and files**
-- Unified or side-by-side diffs of whole files with unchanged parts folded, connecting ribbons, a change position strip, syntax highlighting, indent guides, breadcrumbs and blame.
+- Unified or side-by-side diffs of whole files with unchanged parts folded, connecting ribbons, a change position strip, syntax highlighting, rainbow brackets (pairs colored by nesting depth, a bracket without its partner marked in red; also in file views and the editor), indent guides, breadcrumbs and blame.
 - Edit worktree files directly in the diff.
 - Image diffs, comparing any two files, comparing with the clipboard.
 - Cherry-pick or revert only some files of a commit; get a file from any revision.

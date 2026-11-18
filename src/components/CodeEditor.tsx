@@ -27,6 +27,7 @@ import { classHighlighter } from "@lezer/highlight";
 import { lang } from "../i18n";
 import { matches } from "../keymap";
 import { navigateAt } from "../nav";
+import { rainbowBrackets } from "./rainbow";
 import { isMac } from "./format";
 
 export interface CodeEditorProps {
@@ -153,6 +154,7 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
         indentOnInput(),
         syntaxHighlighting(classHighlighter),
         bracketMatching(),
+        rainbowBrackets(path),
         closeBrackets(),
         rectangularSelection(),
         crosshairCursor(),

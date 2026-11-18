@@ -12,6 +12,8 @@
   --add-bg: #E6F4EA; --del-bg: #FDECEA; --add-strong: #B5E0C1; --del-strong: #F7C3BD;
   --l0: #0064E0; --l1: #C2540A; --l2: #7A3FD0; --l3: #0A7C86;
   /* Syntax highlighting: darker colors on light backgrounds, readable on the red and green diff backgrounds too */
+  /* Bracket pairs by nesting depth (cycling), and a bracket without its partner */
+  --br0: #8A5D00; --br1: #A626A4; --br2: #0969DA; --br3: #1A7F37; --br-bad: #CF222E;
   --sx-kw: #CF222E; --sx-str: #0A3069; --sx-com: #6E7781; --sx-num: #0550AE; --sx-fn: #8250DF; --sx-type: #953800; --sx-tag: #116329; --sx-attr: #0550AE;
   --shadow: 0 18px 48px rgba(0,0,0,0.18);
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
@@ -26,6 +28,7 @@
   --pend-bg: #453B14; --pend-ink: #F2D675; --ok-bg: #1C3A27; --ok-ink: #7FD49A; --danger: #FF8A80; --danger-btn: #C62828;
   --add-bg: #1C3A27; --del-bg: #4A2422; --add-strong: #2D6B41; --del-strong: #7D3530;
   --l0: #5B9BFF; --l1: #E08A4F; --l2: #B48CF2; --l3: #4FC3CC;
+  --br0: #E3B341; --br1: #F778BA; --br2: #79C0FF; --br3: #56D364; --br-bad: #FF7B72;
   --sx-kw: #FF7B72; --sx-str: #A5D6FF; --sx-com: #8B949E; --sx-num: #79C0FF; --sx-fn: #D2A8FF; --sx-type: #FFA657; --sx-tag: #7EE787; --sx-attr: #79C0FF;
   --shadow: 0 18px 48px rgba(0,0,0,0.6); color-scheme: dark } }
 :root[data-theme="dark"] {
@@ -37,5 +40,6 @@
   --pend-bg: #453B14; --pend-ink: #F2D675; --ok-bg: #1C3A27; --ok-ink: #7FD49A; --danger: #FF8A80; --danger-btn: #C62828;
   --add-bg: #1C3A27; --del-bg: #4A2422; --add-strong: #2D6B41; --del-strong: #7D3530;
   --l0: #5B9BFF; --l1: #E08A4F; --l2: #B48CF2; --l3: #4FC3CC;
+  --br0: #E3B341; --br1: #F778BA; --br2: #79C0FF; --br3: #56D364; --br-bad: #FF7B72;
   --sx-kw: #FF7B72; --sx-str: #A5D6FF; --sx-com: #8B949E; --sx-num: #79C0FF; --sx-fn: #D2A8FF; --sx-type: #FFA657; --sx-tag: #7EE787; --sx-attr: #79C0FF;
   --shadow: 0 18px 48px rgba(0,0,0,0.6); color-scheme: dark }
