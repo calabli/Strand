@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口的权限：基础能力、打开外部链接、选择文件夹",
+  "description": "主窗口的权限：基础能力、打开外部链接、选择文件夹；关窗口前的检查（没保存的修改）由页面接管，检查完要能销毁窗口",
   "windows": [
     "main"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-destroy",
     "opener:default",
     "dialog:allow-open",
     "dialog:allow-save"
