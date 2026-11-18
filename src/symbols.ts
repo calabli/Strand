@@ -15,7 +15,9 @@ export interface Loc {
 }
 
 const KEYWORDS =
-  "fn|func|function|def|class|struct|enum|trait|interface|type|typedef|mod|module|namespace|const|let|var|val|impl|union|macro_rules!|object|record|protocol|extension|package|sub|proc|defn|defmacro";
+  "fn|func|fun|function|def|defp|class|struct|enum|trait|interface|type|typedef|mod|module|namespace|const|let|var|val|impl|union|macro_rules!|object|record|protocol|extension|package|sub|proc|defn|defmacro|defmacrop|defmodule|defprotocol|defimpl|defdelegate|defguard";
+/** "keyword [Type] [Receiver.]NAME": Kotlin extension functions (fun String.NAME), Elixir modules (defmodule App.NAME) */
+const kwRe = (n: string) => `\\b(${KEYWORDS})\\s+(?:[\\w:<>,\\s*&]+\\s+)?(?:[\\w<>?]+\\.)*${n}\\b`;
 /** Words that precede a call or an expression, not a declaration */
 const NOT_DECL = /^(return|new|await|throw|else|case|yield|typeof|delete|in|of|if|for|while|switch|catch|do|echo|print|assert)$/;
 
@@ -31,20 +33,32 @@ export function defPattern(name: string): string {
   const n = esc(name);
   return [
     // keyword NAME, keyword Type NAME (e.g. "const int NAME"), Go methods "func (r *T) NAME"
-    `\\b(?:${KEYWORDS})\\s+(?:[\\w:<>,\\s*&]+\\s+)?${n}\\b`,
+    kwRe(n),
     `\\bfunc\\s*\\([^)]*\\)\\s*${n}\\b`,
     // A line starting with (modifiers / a return type and) NAME( — functions and methods in C-like languages, JS classes
     `^\\s*(?:[A-Za-z_][\\w<>,\\[\\]:*&.]*\\s+)*[*&]*(?:\\w+::)*${n}\\s*(?:<[^>]*>)?\\s*\\(`,
     // Class fields and object properties holding functions: NAME = (…) =>, NAME: function
     `^\\s*(?:(?:public|private|protected|static|readonly|async|export|override)\\s+)*${n}\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\(|<)`,
+    // C macros and typedefs: #define NAME, typedef struct { … } NAME;, a multi-line typedef's closing "} NAME;"
+    `^\\s*#\\s*define\\s+${n}\\b`,
+    `\\btypedef\\b.*\\b${n}\\s*;\\s*(?://.*|/\\*.*)?$`,
+    `^\\s*\\}\\s*${n}\\s*;`,
+    // Module-level assignments without a keyword (Python, Ruby constants): NAME = …, NAME: T = …
+    `^${n}\\s*(?::[^=]*)?=(?:[^=]|$)`,
   ].join("|");
 }
 
-/** Whether a candidate line really declares the name, and how strongly */
-export function classify(text: string, name: string): Loc["kind"] | null {
+/** Whether a candidate line really declares the name, and how strongly (path: for language-specific forms) */
+export function classify(text: string, name: string, path = ""): Loc["kind"] | null {
   const n = esc(name);
   const t = text.trim();
-  const kw = t.match(new RegExp(`\\b(${KEYWORDS})\\s+(?:[\\w:<>,\\s*&]+\\s+)?${n}\\b`));
+  // Prose (READMEs, notes): words like "type", "class", "fun" there aren't declarations
+  if (/\.(md|markdown|mdx|txt|rst|adoc|org)$/i.test(path)) return null;
+  if (new RegExp(`^#\\s*define\\s+${n}\\b`).test(t) || new RegExp(`\\btypedef\\b.*\\b${n}\\s*;\\s*(?://.*|/\\*.*)?$`).test(t)) return "def";
+  if (new RegExp(`^\\}\\s*${n}\\s*;`).test(t)) return "method";
+  // Unindented "NAME = …": a module constant in Python and Ruby; elsewhere a weaker match (a top-level reassignment)
+  if (new RegExp(`^${n}\\s*(?::[^=]*)?=(?:[^=]|$)`).test(text)) return /\.(py|pyi|rb)$/.test(path) ? "def" : "method";
+  const kw = t.match(new RegExp(kwRe(n)));
   if (kw) {
     // "f(let NAME…)", "x = class NAME" sit inside an expression
     const before = t.slice(0, kw.index).trim();
@@ -87,7 +101,7 @@ export async function findDefinitions(name: string, from?: { path: string; line:
   const fam = from ? family(from.path) : null;
   const locs: Loc[] = [];
   for (const h of flatten(r)) {
-    const kind = classify(h.text, name);
+    const kind = classify(h.text, name, h.path);
     // The line being looked up from is not its own definition (unless it is one)
     if (kind) locs.push({ ...h, kind });
   }
@@ -100,7 +114,7 @@ export async function findDefinitions(name: string, from?: { path: string; line:
 /** Every line mentioning the name as a whole word (case-sensitive), same file first */
 export async function findUsages(name: string, from?: { path: string }): Promise<{ locs: Loc[]; truncated: boolean }> {
   const r = await api.projectSearch(`\\b${esc(name)}\\b`, true, true, null);
-  const locs: Loc[] = flatten(r).map((h) => ({ ...h, kind: classify(h.text, name) ? "def" : "use" }));
+  const locs: Loc[] = flatten(r).map((h) => ({ ...h, kind: classify(h.text, name, h.path) ? "def" : "use" }));
   locs.sort((a, b) => (from ? Number(b.path === from.path) - Number(a.path === from.path) : 0) || a.path.localeCompare(b.path) || a.line - b.line);
   return { locs, truncated: r.truncated };
 }
