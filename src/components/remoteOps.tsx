@@ -134,12 +134,20 @@ export function useRemoteOps({ repo, done, failed, say, locate }: Deps) {
       return runTask(
         "fetch",
         (t) => api.remoteFetch(t, quiet),
-        (r): string | NoteSpec =>
-          quiet
-            ? ""
-            : r.behind > 0
-              ? { title: t("抓取完成"), body: t("远程有 {0} 个新提交还没拉取", r.behind), actions: [{ label: t("拉取"), run: () => pullRef.current() }] }
-              : { kind: "info", title: t("抓取完成"), body: t("远程没有新提交") },
+        (r): string | NoteSpec => {
+          if (quiet) return "";
+          const main = r.behind > 0 ? t("远程有 {0} 个新提交还没拉取", r.behind) : t("远程没有新提交");
+          const pullAction = r.behind > 0 ? [{ label: t("拉取"), run: () => pullRef.current() }] : [];
+          // Another remote couldn't be reached: the fetch still counts, with a warning naming it
+          if (r.failed?.length)
+            return {
+              kind: "warning",
+              title: t("抓取完成，但有 {0} 个远程连不上", r.failed.length),
+              body: [main, ...r.failed.map(([name, why]) => `${name}：${tr(why)}`)].join("\n"),
+              actions: pullAction,
+            };
+          return r.behind > 0 ? { title: t("抓取完成"), body: main, actions: pullAction } : { kind: "info", title: t("抓取完成"), body: main };
+        },
         // Auto-fetch failures (e.g. offline) don't bother the user
         () => quiet,
         // Nothing new fetched: don't re-read the log, so the (filtered) list being viewed isn't interrupted
@@ -180,7 +188,8 @@ export function useRemoteOps({ repo, done, failed, say, locate }: Deps) {
       setRunning({ kind: "pull", task, text: "" });
       let fetched: Written<{ behind: number; refs_changed?: boolean }>;
       try {
-        fetched = await api.remoteFetch(task);
+        // Only the upstream's remote: another unreachable remote shouldn't stop the pull
+        fetched = await api.remoteFetch(task, false, true);
       } catch (e) {
         setRunning(null);
         const err = errOf(e);

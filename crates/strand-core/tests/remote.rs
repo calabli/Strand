@@ -644,3 +644,23 @@ fn remote_cleanup_and_upstream() {
     assert!(Command::new("git").args(["rev-parse", "--abbrev-ref", "main@{upstream}"]).current_dir(me).output().unwrap().stdout.is_empty());
     assert_eq!(s.branch_set_upstream("main", Some("origin/nope")).unwrap_err().code, ErrorCode::NotFound);
 }
+
+#[test]
+fn unreachable_extra_remote_does_not_stop_fetch_or_pull() {
+    let w = world();
+    git(&w.me, &["remote", "add", "broken", "/nonexistent/strand-test-remote"]);
+    commit(&w.other, "c.txt", "新的\n", "别人又提交了");
+    git(&w.other, &["push", "-q"]);
+
+    // Fetching everything: origin is fetched, the broken remote is reported instead of failing the whole fetch
+    let r = remote::fetch(&w.me, &Cancel::default(), &none).unwrap();
+    assert_eq!(r.behind, 1);
+    assert_eq!(r.failed.len(), 1);
+    assert_eq!(r.failed[0].0, "broken");
+
+    // Fetching for a pull only touches the upstream's remote
+    let r = remote::fetch_with(&w.me, true, &Cancel::default(), &none).unwrap();
+    assert!(r.failed.is_empty());
+    let p = remote::pull(&w.me, PullMode::Merge, &Cancel::default(), &none).unwrap();
+    assert_eq!((p.outcome, p.incoming), (PullOutcome::FastForward, 1));
+}

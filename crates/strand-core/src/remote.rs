@@ -59,6 +59,9 @@ pub struct FetchResult {
     pub incoming: u32,
     /// The fetch changed refs (remote branches, tags): the UI uses this to decide whether to re-read the log
     pub refs_changed: bool,
+    /// Other remotes that couldn't be fetched (the main one was): name and Git's first error line
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
@@ -162,13 +165,26 @@ pub struct PushOptions {
 
 /// Fetch all remotes (just the one if there's only one).
 pub fn fetch(dir: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<FetchResult> {
+    fetch_with(dir, false, cancel, progress)
+}
+
+/// [`fetch`]; with `main_only`, only the current branch's upstream remote (or origin) — what a pull needs, so another
+/// remote being unreachable doesn't stop it. Fetching all remotes goes one by one: when only other remotes fail,
+/// the result lists them in `failed`; when the main remote fails, that's the error.
+pub fn fetch_with(dir: &Path, main_only: bool, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<FetchResult> {
     let main = default_remote(dir)?;
     let before = behind_upstream(dir);
     let refs_before = ref_list(dir);
-    if remotes(dir).len() > 1 {
-        run_net(dir, &["fetch", "--progress", "--prune", "--all"], cancel, progress)?;
-    } else {
-        run_net(dir, &["fetch", "--progress", "--prune", &main], cancel, progress)?;
+    let mut failed = Vec::new();
+    run_net(dir, &["fetch", "--progress", "--prune", &main], cancel, progress)?;
+    if !main_only {
+        for r in remotes(dir).into_iter().filter(|r| *r != main) {
+            match run_net(dir, &["fetch", "--progress", "--prune", &r], cancel, progress) {
+                Ok(_) => {}
+                Err(e) if e.code == ErrorCode::Cancelled => return Err(e),
+                Err(e) => failed.push((r, e.message.clone())),
+            }
+        }
     }
     let refs_changed = ref_list(dir) != refs_before;
     // Also record which tags the remote has (spec §6.5: unpushed tags are marked); failure doesn't affect the fetch result
@@ -183,7 +199,7 @@ pub fn fetch(dir: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result
     // When local history rewrote pushed commits, the old remote versions don't count as "new commits to pull" (spec §6.3: behind count shows 0)
     let after = behind_upstream(dir);
     let after = if after > 0 && rewritten(dir, "HEAD", "@{upstream}") { 0 } else { after };
-    Ok(FetchResult { behind: after, incoming: after.saturating_sub(before), refs_changed })
+    Ok(FetchResult { behind: after, incoming: after.saturating_sub(before), refs_changed, failed })
 }
 
 /// All refs and the commits they point to (to compare before and after fetching)

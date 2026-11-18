@@ -440,6 +440,8 @@ export interface FetchResult {
   behind: number;
   /** Commits newly arrived this time */
   incoming: number;
+  /** Other remotes that couldn't be fetched (the main one was): name and Git's error */
+  failed?: [string, string][];
 }
 
 export type PullMode = "merge" | "rebase";

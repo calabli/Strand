@@ -972,14 +972,16 @@ async fn checks_run(
 }
 
 #[tauri::command]
-async fn remote_fetch(app: AppHandle, state: State<'_, AppState>, task_id: String, quiet: Option<bool>) -> CmdResult<Written<FetchResult>> {
+async fn remote_fetch(app: AppHandle, state: State<'_, AppState>, task_id: String, quiet: Option<bool>, main_only: Option<bool>) -> CmdResult<Written<FetchResult>> {
     // Background auto-fetch doesn't show a password prompt (spec §7.5): it fails when input is needed, and asks when the user fetches or pulls themselves
     let quiet = quiet.unwrap_or(false);
+    // Before a pull only the upstream's remote is fetched, so another unreachable remote doesn't stop it
+    let main_only = main_only.unwrap_or(false);
     net_task(app, &state, task_id, NetLog::None, move |p, c, pr| {
         if quiet {
-            strand_core::askpass::without_prompt(|| remote::fetch(p, c, pr))
+            strand_core::askpass::without_prompt(|| remote::fetch_with(p, main_only, c, pr))
         } else {
-            remote::fetch(p, c, pr)
+            remote::fetch_with(p, main_only, c, pr)
         }
     })
     .await

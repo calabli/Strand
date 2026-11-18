@@ -2041,4 +2041,5 @@ export const en: Record<string, string> = {
   "至少选一个文件夹": "Choose at least one folder",
   "文件夹 {0} 不对": "Folder {0} isn't valid",
   "{0} 个有改动的文件不在选的文件夹里，先提交或贮藏": "{0} changed files are outside the chosen folders; commit or stash them first",
+  "抓取完成，但有 {0} 个远程连不上": "Fetched, but {0} remotes couldn't be reached",
 };
