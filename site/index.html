@@ -274,15 +274,15 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <span class="eyebrow"><b>v0.1.5</b> · 桌面 Git 客户端 · macOS / Windows</span>
+      <span class="eyebrow"><b>v0.1.6</b> · 桌面 Git 客户端 · macOS / Windows</span>
       <h1>不打开 IDE，<br>也能用 <span class="hl">JetBrains 的方式</span>用 Git。</h1>
-      <p class="lede">Strand 的功能和布局对照 JetBrains IDE 的 Git 集成：带图谱的日志、行级提交、三栏合并、变更列表、暂存架。几乎每一步都能用 ⌘Z 撤销，包括重置、变基和删分支。</p>
+      <p class="lede">Strand 的功能和布局对照 JetBrains IDE 的 Git 集成：带图谱的日志、行级提交、三栏合并、变更列表、暂存架，还能直接改文件、看 GitHub / GitLab 的合并请求。几乎每一步都能用 ⌘Z 撤销，包括重置、变基和删分支。</p>
       <div class="cta">
-        <a class="btn primary" href="https://github.com/calabli/Strand/releases/download/v0.1.5/Strand_0.1.5_aarch64.dmg">下载 macOS 版</a>
-        <a class="btn ghost" href="https://github.com/calabli/Strand/releases/download/v0.1.5/Strand_0.1.5_x64-setup.exe">下载 Windows 版</a>
+        <a class="btn primary" href="https://github.com/calabli/Strand/releases/download/v0.1.6/Strand_0.1.6_aarch64.dmg">下载 macOS 版</a>
+        <a class="btn ghost" href="https://github.com/calabli/Strand/releases/download/v0.1.6/Strand_0.1.6_x64-setup.exe">下载 Windows 版</a>
         <a class="btn ghost" href="#log">看看有什么</a>
       </div>
-      <p class="plat">版本 0.1.5 · macOS（Apple 芯片）和 Windows（x64）· Rust 核心 + Tauri 2。需要电脑上装好 Git 2.30 以上。</p>
+      <p class="plat">版本 0.1.6 · macOS（Apple 芯片）和 Windows（x64）· Rust 核心 + Tauri 2。需要电脑上装好 Git 2.30 以上。</p>
     </div>
 
     <div>
@@ -344,9 +344,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
 <section class="facts" aria-label="几个数字">
   <div class="wrap">
     <div class="fact"><div class="n">135<small>ms</small></div><div class="l">打开 8.6 万个提交的 git 仓库（有 commit-graph 时，本机发布版）</div></div>
-    <div class="fact"><div class="n">6.4<small>MB</small></div><div class="l">macOS 安装包（dmg）；Windows 安装程序 5.1 MB</div></div>
+    <div class="fact"><div class="n">7.1<small>MB</small></div><div class="l">macOS 安装包（dmg）；Windows 安装程序 5.8 MB</div></div>
     <div class="fact"><div class="n">300<small>ms</small></div><div class="l">文件改动后提交面板刷新的目标，5 万个文件的工作区也一样</div></div>
-    <div class="fact"><div class="n">191</div><div class="l">个核心层测试，每个功能都在真实的临时仓库里跑</div></div>
+    <div class="fact"><div class="n">203</div><div class="l">个核心层测试，每个功能都在真实的临时仓库里跑</div></div>
   </div>
 </section>
 
@@ -361,10 +361,13 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h4M2 8h4M2 12h4M8 4h6M8 8h6M8 12h6"/></svg>逐行追溯和文件历史</h3><p>每行左边写着谁在哪天改的，越新底色越深；右键一行“追溯改动之前的版本”，一路往前追。修改链跟着改名走，任选两个版本对比。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2v12M3 5l2.5 3L3 11M13 5l-2.5 3L13 11"/></svg>二分查找</h3><p>在提交上标好、坏，日志上方的提示条显示正在测哪个、大约还要几步，找到后直接定位第一个坏提交。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5v3h3"/></svg>操作记录（reflog）</h3><p>重置、变基、删分支丢下的提交标成“不在日志里”，从那一行新建分支就找回来了。</p></div>
-        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 2h7v12H3zM12 5v9"/></svg>差异</h3><p>合并视图或左右对比，左右各自横向滚动；忽略空白、语法高亮、代码位置面包屑，工作区文件可以直接在差异里改。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 2h7v12H3zM12 5v9"/></svg>差异</h3><p>合并视图或左右对比，左右各自横向滚动；忽略空白、语法高亮、代码位置面包屑，⌘F 查找、⌘L 跳到行，可以同时开几个差异标签页。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 3h12v10H2zM8 3v10"/></svg>图片对比</h3><p>png、jpg、gif、webp 显示两边的图、尺寸和大小，并排、滑动或叠加着看。合并冲突里的图片也能先看再选。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h4l1-1.5h3L11 4h3v9H2z"/></svg>文件标签页</h3><p>一个文件一个标签，可以固定。⌘W 关掉、⇧⌘T 重新打开、⌘E 列出最近的文件，右键关闭其他、左侧、右侧或全部。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 3h12v10H2zM5 6h6M5 9h4"/></svg>项目文件和内容搜索</h3><p>目录树里点开任何文件，用 <code>git grep</code> 在工作区或某个版本里搜内容，结果按文件分组，点一处跳过去。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10.5 2.5l3 3L6 13H3v-3z"/></svg>代码编辑器</h3><p>在文件标签页里直接改：按文件类型着色，查找替换、跳到行、撤销；默认自动保存，⌘S 马上保存。没保存就关标签或退出会先问一句。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg>贡献统计</h3><p>当前分支每月的提交数、一周里什么时候提交最多、每位作者的提交和增删行数；点作者，日志就只看他的提交。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h12v8H2zM4.5 7h1M7.5 7h1M10.5 7h1M5 9.5h6"/></svg>快捷键随你改</h3><p>命令面板、撤销、查找、标签页、提交、保存等 14 个快捷键都能在设置里换成顺手的组合，冲突时会提醒，一键恢复默认。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 3h12v10H2zM2 6h12M5 9h2"/></svg>控制台</h3><p>Strand 执行的每一条 git 命令、用时和输出都列在控制台里，凭据自动打码，出了问题一眼看到是哪一步。</p></div>
       </div>
     </section>
@@ -414,6 +417,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2.5l1.5 3.2 3.5.4-2.6 2.4.7 3.5L8 10.3 4.9 12l.7-3.5L3 6.1l3.5-.4z"/></svg>签名和标签</h3><p>带说明的标签、签名标签；提交详情里显示签名是否有效，GPG 和 SSH 都行。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h5l1 1.5h6V13H2zM7 8.5h3.5V11H7z"/></svg>子模块</h3><p>分支树里列出子模块和状态：没初始化、检出的提交不同、里面有改动。一键更新到记录的提交，或者在 Strand 里打开它。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 2h5l3 3v9H4zM6.5 8.5h3M6.5 11h3M9 2v3h3"/></svg>Git LFS</h3><p>LFS 文件的差异、全文和图片对比显示真实内容，而不是指针；还没下载的文件提示一下，点一下就 <code>git lfs pull</code>。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 3v10M12 7v6M4 5c4 0 8 0 8 2M12 3v2"/></svg>合并请求</h3><p>origin 在 GitHub 或 GitLab 上时，列出开放的拉取请求 / 合并请求和 CI 检查结果，检出它的分支，或者从当前分支新建一个。令牌交给 Git 的凭据助手保存。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 13.5l6-6M9 2.5a3.5 3.5 0 0 0 4.5 4.5L11 9.5 6.5 5z"/></svg>仓库维护</h3><p>看 .git 里什么占地方，一键 <code>git gc</code> 清理（可以随时停）；打开 rerere，同样的冲突第二次自动按上次的方法解决。</p></div>
+        <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h9v8H2zM5 2h9v8"/></svg>多个窗口</h3><p>每个仓库开在自己的窗口里，互不影响；退出后再打开，上次开着的窗口全部回来。</p></div>
         <div class="feat"><h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13h10"/></svg>自动更新</h3><p>启动时看看 GitHub 上有没有新版本，有的话在角落提示，下载、核对签名、安装、重启一气呵成。可以关掉。</p></div>
       </div>
     </section>
@@ -436,6 +442,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
             <tr><td>Annotate Previous Revision</td><td>追溯改动之前的版本</td><td>文件视图逐行追溯里右键一行</td></tr>
             <tr><td>Pin Tab · Reopen Closed Tab · Recent Files</td><td>固定标签页 · ⇧⌘T · ⌘E</td><td>文件标签的右键菜单和快捷键</td></tr>
             <tr><td>Update Submodules</td><td>更新子模块</td><td>分支树的“子模块”分组、命令面板</td></tr>
+            <tr><td>Pull Requests</td><td>拉取请求 / 合并请求</td><td>中间的同名标签页、命令面板</td></tr>
+            <tr><td>Keymap</td><td>快捷键</td><td>设置里的“快捷键”，点一项按新的组合键</td></tr>
           </tbody>
         </table>
       </div>
@@ -452,20 +460,20 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
     </section>
 
     <section class="sec l3" id="download">
-      <div class="sec-head"><h2>下载</h2><span class="reftag">v0.1.5</span></div>
+      <div class="sec-head"><h2>下载</h2><span class="reftag">v0.1.6</span></div>
       <p class="intro">Strand 调用你电脑上的 Git，所以先装好 Git 2.30 以上。所有版本和更新说明在 <a href="https://github.com/calabli/Strand/releases">GitHub Releases</a>。</p>
       <div class="dl-grid">
         <div class="dl-card">
           <div class="k">macOS · Apple 芯片</div>
-          <a class="btn primary" href="https://github.com/calabli/Strand/releases/download/v0.1.5/Strand_0.1.5_aarch64.dmg">下载 dmg（6.4 MB）</a>
+          <a class="btn primary" href="https://github.com/calabli/Strand/releases/download/v0.1.6/Strand_0.1.6_aarch64.dmg">下载 dmg（7.1 MB）</a>
           <p>没有经过苹果公证：第一次打开时在“应用程序”里右键 Strand 选“打开”，或者到“系统设置 › 隐私与安全性”里允许。提示“已损坏”时在终端运行 <code>xattr -dr com.apple.quarantine /Applications/Strand.app</code>。</p>
         </div>
         <div class="dl-card">
           <div class="k">Windows · x64</div>
-          <a class="btn primary" href="https://github.com/calabli/Strand/releases/download/v0.1.5/Strand_0.1.5_x64-setup.exe">下载安装程序（5.1 MB）</a>
+          <a class="btn primary" href="https://github.com/calabli/Strand/releases/download/v0.1.6/Strand_0.1.6_x64-setup.exe">下载安装程序（5.8 MB）</a>
           <div class="dl-more">
-            <a href="https://github.com/calabli/Strand/releases/download/v0.1.5/Strand_0.1.5_x64_en-US.msi">MSI 安装包（7.2 MB）</a>
-            <a href="https://github.com/calabli/Strand/releases/download/v0.1.5/Strand_0.1.5_x64_portable.exe">免安装版 exe（15.7 MB）</a>
+            <a href="https://github.com/calabli/Strand/releases/download/v0.1.6/Strand_0.1.6_x64_en-US.msi">MSI 安装包（7.9 MB）</a>
+            <a href="https://github.com/calabli/Strand/releases/download/v0.1.6/Strand_0.1.6_x64_portable.exe">免安装版 exe（16.6 MB）</a>
           </div>
           <p>没有签名，SmartScreen 可能会让你确认一次。免安装版需要 WebView2，Windows 10 和 11 一般已经自带。</p>
         </div>
