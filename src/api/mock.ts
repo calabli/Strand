@@ -827,6 +827,16 @@ export function projectSearch(text: string, regex: boolean, caseSensitive: boole
   } catch {
     return Promise.reject({ code: "INVALID_REGEX", message: "正则表达式写得不对" });
   }
+  // Go to definition looks up a pattern listing defining keywords: answer with sample definitions of that name
+  const def = regex && text.includes("macro_rules") ? text.match(/\\s\+\)\?([\w$]+)\\b\|/) : null;
+  if (def) {
+    const name = def[1];
+    const defs = [
+      { path: "src/graph/layout.rs", hits: [{ line: 12, text: `pub fn ${name}(n: usize, state: &State) -> usize {` }], more: false },
+      { path: "src/sync/fetch.rs", hits: [{ line: 30, text: `    fn ${name}(&self) -> usize {` }, { line: 44, text: `    let x = ${name}(1, &s);` }], more: false },
+    ];
+    return delay({ files: defs, total: 3, truncated: false });
+  }
   // Sample: each text file has a few lines "containing" the search text
   const files = PROJECT.filter((p) => !p.endsWith(".png") && !p.endsWith(".lock")).slice(0, rev ? 5 : 8).map((path, k) => ({
     path,

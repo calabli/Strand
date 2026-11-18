@@ -24,6 +24,8 @@ import { languages } from "@codemirror/language-data";
 import { classHighlighter } from "@lezer/highlight";
 import { lang } from "../i18n";
 import { matches } from "../keymap";
+import { navigateAt } from "../nav";
+import { isMac } from "./format";
 
 export interface CodeEditorProps {
   /** Picks the syntax colors by file name */
@@ -38,6 +40,8 @@ export interface CodeEditorProps {
   onSave: () => void;
   /** Focus left the editor (auto-save) */
   onBlur?: () => void;
+  /** Move the cursor to this line when n changes (a jump into a file being edited) */
+  goto?: { line: number; n: number } | null;
   /** Esc when no panel of the editor is open; return true when handled */
   onEscape?: () => boolean;
   label: string;
@@ -95,7 +99,8 @@ const theme = EditorView.theme({
   ".cm-tooltip": { backgroundColor: "var(--win)", border: "1px solid var(--line)", borderRadius: "6px" },
 });
 
-export default function CodeEditor({ path, value, line, indent, onChange, onSave, onBlur, onEscape, label }: CodeEditorProps) {
+export default function CodeEditor({ path, value, line, indent, onChange, onSave, onBlur, onEscape, label, goto }: CodeEditorProps) {
+  const viewRef = useRef<EditorView | null>(null);
   const host = useRef<HTMLDivElement>(null);
   // Callbacks change on every render; the editor reads the latest through refs
   const cb = useRef({ onChange, onSave, onBlur, onEscape });
@@ -143,10 +148,35 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
         // Save with the shortcut set in Settings (⌘S / Ctrl+S by default), before the editor's own keys
         Prec.highest(
           EditorView.domEventHandlers({
-            keydown: (e) => {
-              if (!matches(e, "save")) return false;
+            keydown: (e, view) => {
+              view.dom.classList.toggle("nav-mod", (isMac ? e.metaKey : e.ctrlKey) && e.key !== "Shift");
+              if (matches(e, "save")) {
+                e.preventDefault();
+                cb.current.onSave();
+                return true;
+              }
+              // ⌘B / ⌥F7 at the cursor: definition, usages, or the file an import names
+              const def = matches(e, "goDefinition");
+              const use = matches(e, "findUsages");
+              if (!def && !use) return false;
+              const pos = view.state.selection.main.head;
+              const l = view.state.doc.lineAt(pos);
+              navigateAt(l.text, pos - l.from, { path, line: l.number }, use);
               e.preventDefault();
-              cb.current.onSave();
+              return true;
+            },
+            keyup: (e, view) => {
+              view.dom.classList.toggle("nav-mod", isMac ? e.metaKey : e.ctrlKey);
+              return false;
+            },
+            // ⌘-click (Ctrl-click elsewhere) jumps instead of adding a cursor
+            mousedown: (e, view) => {
+              if (e.button !== 0 || !(isMac ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey) return false;
+              const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+              if (pos == null) return false;
+              const l = view.state.doc.lineAt(pos);
+              if (!navigateAt(l.text, pos - l.from, { path, line: l.number })) return false;
+              e.preventDefault();
               return true;
             },
             blur: () => {
@@ -161,6 +191,7 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
       ],
     });
     const view = new EditorView({ state, parent: el });
+    viewRef.current = view;
 
     // The cursor on the requested line, scrolled to the middle
     const n = Math.min(Math.max(1, line ?? 1), view.state.doc.lines);
@@ -178,11 +209,22 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
     );
     return () => {
       live = false;
+      viewRef.current = null;
       view.destroy();
     };
     // Created once per file; the content is not driven from outside afterwards
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
+
+  // A jump to a line of this file while editing it
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !goto) return;
+    const n = Math.min(Math.max(1, goto.line), view.state.doc.lines);
+    const pos = view.state.doc.line(n).from;
+    view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+    view.focus();
+  }, [goto?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div className="code-editor" ref={host} />;
 }

@@ -19,7 +19,12 @@ export type ActionId =
   | "recentFiles"
   | "commit"
   | "commitPush"
-  | "save";
+  | "save"
+  | "goDefinition"
+  | "findUsages"
+  | "navBack"
+  | "navForward"
+  | "goFile";
 
 /** Actions in display order, with their default combo. Labels are translated when read. */
 export const ACTIONS: { id: ActionId; label: string; def: string }[] = [
@@ -37,6 +42,11 @@ export const ACTIONS: { id: ActionId; label: string; def: string }[] = [
   { id: "commit", label: "提交（在提交说明里）", def: "Mod+Enter" },
   { id: "commitPush", label: "提交并推送（在提交说明里）", def: "Mod+Alt+Enter" },
   { id: "save", label: "保存正在编辑的文件", def: "Mod+S" },
+  { id: "goDefinition", label: "跳到定义（也可以按住 ⌘ 或 Ctrl 单击）", def: "Mod+B" },
+  { id: "findUsages", label: "查找用法", def: "Alt+F7" },
+  { id: "navBack", label: "后退到跳转之前的位置", def: "Mod+[" },
+  { id: "navForward", label: "前进", def: "Mod+]" },
+  { id: "goFile", label: "按名字打开文件", def: "Mod+Shift+O" },
 ];
 
 /** Pairs that may share a combo because they never apply at the same time (the log vs. a diff or file view) */

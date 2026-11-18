@@ -22,9 +22,11 @@ interface Props {
   onSaved: () => void;
   /** Saving closes the editor (the diff dialog); in a file tab editing goes on after saving */
   closeOnSave?: boolean;
+  /** Move to a line when n changes (a jump into this file while editing) */
+  goto?: { line: number; n: number } | null;
 }
 
-export function FileEditor({ path, line, onClose, onSaved, closeOnSave }: Props) {
+export function FileEditor({ path, line, onClose, onSaved, closeOnSave, goto }: Props) {
   const [orig, setOrig] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +157,7 @@ export function FileEditor({ path, line, onClose, onSaved, closeOnSave }: Props)
               path={path}
               value={base}
               line={line}
+              goto={goto}
               indent={indent}
               label={t("编辑 {0}", path)}
               onChange={setText}

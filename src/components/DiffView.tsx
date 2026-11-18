@@ -18,6 +18,7 @@ import { api } from "../api/commands";
 import type { DiffLine, FileDiff } from "../api/types";
 import { Menu, type MenuState } from "./Menu";
 import { FindBar, goToLine, useFind } from "./FindBar";
+import { useNavClicks } from "./navClicks";
 import { formatTime, shortId } from "./format";
 import { highlight, langOf, type Tok } from "../highlight";
 import { t, tr } from "../i18n";
@@ -170,6 +171,8 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   // ⌘F finds in this diff, ⌘L goes to a line (not in the small diff box under commit details, where ⌘F searches the log)
   const finder = useFind(box, !compact);
   const find = finder.re ?? findProp;
+  // ⌘-click / ⌘B / ⌥F7 on the new side's lines: definitions, usages, imported files
+  useNavClicks(box, diff?.path ?? null);
   const settings = useSettings();
   const diffView = compact ? "unified" : settings.diffView;
   const ignoreWs = settings.ignoreWs;

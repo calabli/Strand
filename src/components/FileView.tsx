@@ -19,6 +19,7 @@ import type { FileDiff, FileHistory, FileText } from "../api/types";
 import { DiffView, blameSide, type BSide } from "./DiffView";
 import { Menu, type MenuState } from "./Menu";
 import { FindBar, goToLine, useFind } from "./FindBar";
+import { useNavClicks } from "./navClicks";
 import { FileEditor } from "./EditFile";
 import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
@@ -313,7 +314,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
         )}
         <div className="fv-main">
           {editAt != null ? (
-            <FileEditor path={path} line={editAt} onClose={() => setEditAt(null)} onSaved={() => setSaved((n) => n + 1)} />
+            <FileEditor path={path} line={editAt} goto={at && !at.rev ? { line: at.line, n: at.n } : null} onClose={() => setEditAt(null)} onSaved={() => setSaved((n) => n + 1)} />
           ) : (
           <>
           {jump?.rev && (
@@ -433,6 +434,8 @@ function TextView({
   const box = useRef<HTMLDivElement>(null);
   const finder = useFind(box, true);
   const find = finder.re ?? findProp;
+  // ⌘-click / ⌘B / ⌥F7: definitions, usages, imported files (searched in the worktree)
+  useNavClicks(box, f?.path ?? null);
   // Blame the whole file once per revision; lines are matched by number
   const blameKey = blame ? JSON.stringify(blame) : "";
   const [bl, setBl] = useState<{ key: string; side: BSide | null } | null>(null);

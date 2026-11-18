@@ -40,6 +40,8 @@ import { CleanBranches, defaultCleanTarget } from "./components/CleanBranches";
 import { LogView } from "./components/LogView";
 import { ConsoleView } from "./components/ConsoleView";
 import { dirtyPaths, isDirty, setDirty, useDirty } from "./editState";
+import { goBack, goForward, jump as navJump, setNavHost, type Place } from "./nav";
+import { fuzzy, projectList, type Loc } from "./symbols";
 import { StatsWindow } from "./components/StatsWindow";
 import { MaintenanceWindow } from "./components/MaintenanceWindow";
 import { CreatePr, PullRequestsView, prGoLabel, prNewLabel, prNo, prWord } from "./components/PullRequests";
@@ -1195,6 +1197,49 @@ export default function App() {
     closedRef.current = closedRef.current.slice(0, -1);
     openFile(last);
   };
+  // Code navigation: several definitions or usages to pick from, opening files by name (⇧⌘O), back / forward (⌘[ ⌘])
+  const [jumpPick, setJumpPick] = useState<{ title: string; locs: Loc[]; from: Place | null; note?: string } | null>(null);
+  const [jumpQ, setJumpQ] = useState("");
+  const [goFile, setGoFile] = useState<string[] | null>(null);
+  const [goFileQ, setGoFileQ] = useState("");
+  const openFileRef = useRef(openFile);
+  openFileRef.current = openFile;
+  const sayRef = useRef(say);
+  sayRef.current = say;
+  useEffect(() => {
+    setNavHost({
+      open: (to) => openFileRef.current(to.path, { line: to.line, rev: null }),
+      pick: (title, locs, from, note) => {
+        setJumpQ("");
+        setJumpPick({ title, locs, from, note });
+      },
+      say: (text) => sayRef.current(text),
+    });
+    return () => setNavHost(null);
+  }, []);
+  const hasRepo = !!repo;
+  useEffect(() => {
+    if (!hasRepo) return;
+    const key = (e: KeyboardEvent) => {
+      const b = matches(e, "navBack");
+      const f = matches(e, "navForward");
+      const g = matches(e, "goFile");
+      if (!b && !f && !g) return;
+      // The code editor uses ⌘[ ⌘] for indentation; text fields keep their keys; dialogs come first
+      if (e.defaultPrevented || document.querySelector(".modal-back, .palette, .menu")) return;
+      if ((e.target as HTMLElement).closest?.("input, textarea, [contenteditable=true]") && !g) return;
+      e.preventDefault();
+      if (b) goBack();
+      else if (f) goForward();
+      else {
+        setGoFileQ("");
+        setGoFile([]);
+        projectList().then(setGoFile, (err) => (setGoFile(null), setError(msgOf(err))));
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [hasRepo]);
   const closeDiffRef = useRef(() => {});
   closeDiffRef.current = () => target && closeDiffs([target]);
   const reopenRef = useRef(reopenFile);
@@ -1388,6 +1433,9 @@ export default function App() {
         run: () => void pickFolder(t("在新窗口中打开仓库")).then((p) => (p ? api.openNewWindow(p) : undefined)).catch((e) => setError(errOf(e).message)),
       },
       { id: "terminal", section: m, icon: COMMIT_ICONS.console, label: t("在终端中打开"), run: openTerminal },
+      { id: "go-file", section: v, icon: COMMIT_ICONS.search, label: t("按名字打开文件…"), hint: hintOf("goFile"), run: () => (setGoFileQ(""), setGoFile([]), void projectList().then(setGoFile, (err) => (setGoFile(null), setError(msgOf(err))))) },
+      { id: "nav-back", section: v, icon: COMMIT_ICONS.undo, label: t("后退到跳转之前的位置"), hint: hintOf("navBack"), run: goBack },
+      { id: "nav-forward", section: v, icon: COMMIT_ICONS.redo, label: t("前进"), hint: hintOf("navForward"), run: goForward },
       { id: "stats", section: m, icon: COMMIT_ICONS.history, label: t("贡献统计…"), run: () => setStatsOpen(true) },
       { id: "maintenance", section: m, icon: COMMIT_ICONS.gear, label: t("仓库维护（清理、冲突记忆）…"), run: () => setMaintOpen(true) },
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
@@ -2267,6 +2315,61 @@ export default function App() {
             const dir = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path;
             doneCb(r.state, created ? t("已在 {0} 新建分支 {1} 并检出", dir, branch) : t("已在 {0} 检出 {1}", dir, branch), r.op);
           }}
+        />
+      )}
+      {jumpPick && repo && (
+        <Palette
+          label={jumpPick.title}
+          placeholder={t("在结果里筛选")}
+          query={jumpQ}
+          onQuery={setJumpQ}
+          empty={t("没有结果")}
+          onClose={() => setJumpPick(null)}
+          className="jump-pick"
+          footer={jumpPick.note ? <p className="pal-note dim small">{jumpPick.note}</p> : undefined}
+          rows={(() => {
+            const q = jumpQ.trim().toLowerCase();
+            return jumpPick.locs
+              .filter((l) => !q || (l.path + " " + l.text).toLowerCase().includes(q))
+              .slice(0, 500)
+              .map((l) => ({
+                key: `${l.path}:${l.line}`,
+                section: l.path,
+                prefix: String(l.line),
+                label: l.text.trim().slice(0, 200) || " ",
+                detail: l.kind === "def" ? t("定义") : undefined,
+                run: () => {
+                  setJumpPick(null);
+                  navJump({ path: l.path, line: l.line }, jumpPick.from);
+                },
+              }));
+          })()}
+        />
+      )}
+      {goFile && repo && (
+        <Palette
+          label={t("按名字打开文件")}
+          placeholder={t("输入文件名的一部分，比如 fileview 或 src/app")}
+          query={goFileQ}
+          onQuery={setGoFileQ}
+          empty={goFile.length ? t("没有匹配的文件") : t("正在读取文件列表…")}
+          onClose={() => setGoFile(null)}
+          rows={(() => {
+            const q = goFileQ.trim();
+            const used = fileUsed.current;
+            const recent = [...files].sort((a, b) => (used.get(b.path) ?? 0) - (used.get(a.path) ?? 0)).map((f) => f.path);
+            const list = q ? fuzzy(q, goFile) : recent;
+            return list.map((p) => ({
+              key: p,
+              section: q ? undefined : t("打开的文件"),
+              label: p.slice(p.lastIndexOf("/") + 1),
+              detail: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "",
+              run: () => {
+                setGoFile(null);
+                openFile(p);
+              },
+            }));
+          })()}
         />
       )}
       {recentFiles && repo && (
