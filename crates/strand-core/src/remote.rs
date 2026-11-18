@@ -61,21 +61,55 @@ pub struct FetchResult {
     pub refs_changed: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PullOutcome {
     /// No new commits on the remote
+    #[default]
     UpToDate,
     FastForward,
     Merged,
     Rebased,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct PullResult {
     pub outcome: PullOutcome,
     /// Number of commits pulled
     pub incoming: u32,
+    /// Where they came from, e.g. origin/main
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<String>,
+    /// HEAD before and after (for "view the pulled commits")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    /// What the pull changed in the worktree: files, lines added and deleted
+    pub files: u32,
+    pub added: u64,
+    pub deleted: u64,
+}
+
+/// `git diff --shortstat a b` → (files, insertions, deletions)
+fn diff_stat(dir: &Path, a: &str, b: &str) -> (u32, u64, u64) {
+    let out = git_cli::run(dir, &["diff", "--shortstat", a, b], None).unwrap_or_default();
+    let mut r = (0, 0, 0);
+    for part in out.split(',') {
+        let n: u64 = part.split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        if part.contains("file") {
+            r.0 = n as u32;
+        } else if part.contains("insertion") {
+            r.1 = n;
+        } else if part.contains("deletion") {
+            r.2 = n;
+        }
+    }
+    r
+}
+
+fn head_id(dir: &Path) -> Option<String> {
+    git_cli::run(dir, &["rev-parse", "HEAD"], None).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -223,8 +257,9 @@ pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progr
     }
     let incoming = behind_upstream(dir);
     if incoming == 0 {
-        return Ok(PullResult { outcome: PullOutcome::UpToDate, incoming: 0 });
+        return Ok(PullResult { outcome: PullOutcome::UpToDate, upstream: upstream(dir), ..Default::default() });
     }
+    let before = head_id(dir);
     let ahead = ahead_upstream(dir);
     // Already fetched, so merge/rebase here is local. Use the upstream's name (e.g. origin/main),
     // not @{upstream}: otherwise the merge message and "theirs" in conflicts would say origin/HEAD
@@ -243,7 +278,12 @@ pub fn pull_with(dir: &Path, mode: PullMode, fetch: bool, cancel: &Cancel, progr
             } else {
                 PullOutcome::Rebased
             };
-            Ok(PullResult { outcome, incoming })
+            let after = head_id(dir);
+            let (files, added, deleted) = match (&before, &after) {
+                (Some(a), Some(b)) => diff_stat(dir, a, b),
+                _ => (0, 0, 0),
+            };
+            Ok(PullResult { outcome, incoming, upstream: Some(up_name.clone()), from: before, to: after, files, added, deleted })
         }
         Err(e) => {
             let files = conflicted_files(dir);

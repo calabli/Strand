@@ -43,6 +43,8 @@ import { dirtyPaths, isDirty, setDirty, useDirty } from "./editState";
 import { goBack, goForward, jump as navJump, setNavHost, type Place } from "./nav";
 import { fuzzy, projectList, type Loc } from "./symbols";
 import { StatsWindow } from "./components/StatsWindow";
+import { Balloons, NoteHistory } from "./components/Balloons";
+import { notify, type NoteSpec } from "./notify";
 import { MaintenanceWindow } from "./components/MaintenanceWindow";
 import { CreatePr, PullRequestsView, prGoLabel, prNewLabel, prNo, prWord } from "./components/PullRequests";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
@@ -230,8 +232,8 @@ export default function App() {
     error: null,
   });
   // Toast; with op it shows an undo icon (spec §3.5, §11.1)
-  const [toast, setToast] = useState<{ text: string; op?: OpInfo } | null>(null);
-  const toastTimer = useRef<number>(0);
+  /** Undo from a notification balloon (set once the op log exists) */
+  const undoRef = useRef<(id: number) => void>(() => {});
   // After a log refresh or jump, wait for that row to load before selecting it (empty id means don't check the id)
   const [selectAfterLoad, setSelectAfterLoad] = useState<{ row: number; id?: string } | null>(null);
   const [jump, setJump] = useState<{ row: number; n: number } | null>(null);
@@ -348,10 +350,12 @@ export default function App() {
   const [conflictLeft, setConflictLeft] = useState<number | null>(null);
   const [conflictCmd, setConflictCmd] = useState<{ kind: "list" | "auto"; n: number } | null>(null);
 
-  const say = (text: string, op?: OpInfo) => {
-    setToast({ text, op: op?.undoable ? op : undefined });
-    window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), op ? 6000 : 3000);
+  /** A notification balloon in the bottom-right; an undoable operation gets an "Undo" link */
+  const say = (msg: string | NoteSpec, op?: OpInfo) => {
+    const spec: NoteSpec = typeof msg === "string" ? { title: msg } : msg;
+    if (!spec.title) return;
+    const undo = op?.undoable ? [{ label: t("撤销"), run: () => undoRef.current(op.id) }] : [];
+    notify({ ...spec, actions: [...(spec.actions ?? []), ...undo] });
   };
 
   const refreshStatus = useCallback(() => {
@@ -629,7 +633,7 @@ export default function App() {
   });
 
   const doneCb = useCallback(
-    (st: RepoState, message: string, op?: OpInfo, keepLog?: boolean) => {
+    (st: RepoState, message: string | NoteSpec, op?: OpInfo, keepLog?: boolean) => {
       setRepo(st);
       // When commits and refs are unchanged (e.g. a fetch with nothing new), don't re-read the log, so the list and filters being viewed aren't interrupted
       if (!keepLog) setLogKey(`${st.path}#${Date.now()}`);
@@ -647,7 +651,7 @@ export default function App() {
     },
     [reload],
   );
-  const remote = useRemoteOps({ repo, done: doneCb, failed: failedCb, say });
+  const remote = useRemoteOps({ repo, done: doneCb, failed: failedCb, say, locate: (id) => void locate(id) });
   // Submodules: re-read with the branch list and worktree status (their state follows both); only when the repository has a .gitmodules
   const [subs, setSubs] = useState<Submodule[] | null>(null);
   useEffect(() => {
@@ -673,6 +677,7 @@ export default function App() {
       reload();
     }, [reload]),
   });
+  undoRef.current = (id) => oplog.undo(id);
   const oplogRefresh = useRef(oplog.refresh);
   oplogRefresh.current = oplog.refresh;
   // Undo is also blocked during a bisect (undo would move HEAD, out of sync with Git's bisect state)
@@ -1291,6 +1296,22 @@ export default function App() {
     return () => window.removeEventListener("keydown", key);
   }, [undoKeys]);
 
+  // With a repository open, errors become red balloons that stay until closed, the console one click away
+  const [historyOpen, setHistoryOpen] = useState(false);
+  useEffect(() => {
+    if (!error || !repo) return;
+    const text = tr(error);
+    notify({
+      kind: "error",
+      title: text,
+      actions: [
+        { label: t("查看控制台"), run: () => setTab("console") },
+        { label: t("复制"), run: () => void navigator.clipboard.writeText(text).catch(() => {}) },
+      ],
+    });
+    setError(null);
+  }, [error, repo]);
+
   // App updates: checked on startup when enabled; the card shows the new version and download progress
   const updates = useUpdates({ say });
 
@@ -1335,7 +1356,7 @@ export default function App() {
           )}
         </div>
         {cloneDialog}
-        <UpdateCard u={updates} />
+        <Balloons after={<UpdateCard u={updates} />} />
       </div>
     );
   }
@@ -1436,6 +1457,7 @@ export default function App() {
       { id: "go-file", section: v, icon: COMMIT_ICONS.search, label: t("按名字打开文件…"), hint: hintOf("goFile"), run: () => (setGoFileQ(""), setGoFile([]), void projectList().then(setGoFile, (err) => (setGoFile(null), setError(msgOf(err))))) },
       { id: "nav-back", section: v, icon: COMMIT_ICONS.undo, label: t("后退到跳转之前的位置"), hint: hintOf("navBack"), run: goBack },
       { id: "nav-forward", section: v, icon: COMMIT_ICONS.redo, label: t("前进"), hint: hintOf("navForward"), run: goForward },
+      { id: "notes", section: v, icon: COMMIT_ICONS.history, label: t("通知记录…"), run: () => setHistoryOpen(true) },
       { id: "stats", section: m, icon: COMMIT_ICONS.history, label: t("贡献统计…"), run: () => setStatsOpen(true) },
       { id: "maintenance", section: m, icon: COMMIT_ICONS.gear, label: t("仓库维护（清理、冲突记忆）…"), run: () => setMaintOpen(true) },
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
@@ -1649,14 +1671,6 @@ export default function App() {
           })
         }
       />
-      {error && (
-        <div className="banner err" role="alert">
-          {tr(error)}
-          <button type="button" onClick={() => setError(null)} aria-label={t("关闭")}>
-            ×
-          </button>
-        </div>
-      )}
       {session && !conflictHidden ? (
         <ConflictView
           session={session}
@@ -2430,29 +2444,8 @@ export default function App() {
       {dialog}
       {remote.push && <PushDialog p={remote.push} onPush={remote.doPush} onClose={remote.closePush} onRemote={remote.pickPushRemote} />}
       {remote.pullPanel && <PullPanel p={remote.pullPanel} onMode={remote.previewMode} onStart={remote.startPull} onAbort={remote.abortPull} />}
-      <UpdateCard u={updates} />
-      {toast && (
-        <div className="toast" role="status">
-          {tr(toast.text)}
-          {toast.op && (
-            <button
-              type="button"
-              className="toast-undo"
-              title={t("撤销：{0}", tr(toast.op.label))}
-              aria-label={t("撤销")}
-              onClick={() => {
-                const id = toast.op!.id;
-                setToast(null);
-                oplog.undo(id);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4.5 2 1.5 5l3 3M1.5 5h7a4 4 0 0 1 0 8H6" />
-              </svg>
-            </button>
-          )}
-        </div>
-      )}
+      <Balloons after={<UpdateCard u={updates} />} />
+      {historyOpen && <NoteHistory onClose={() => setHistoryOpen(false)} />}
     </div>
   );
 }

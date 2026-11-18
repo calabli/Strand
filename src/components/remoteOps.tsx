@@ -3,7 +3,8 @@
 import { useReturnFocus } from "./focus";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errOf, onTaskProgress } from "../api/commands";
-import type { OpInfo, PullMode, PullPreview, PushPreview, RepoState, Written } from "../api/types";
+import type { OpInfo, PullMode, PullPreview, PullResult, PushPreview, RepoState, Written } from "../api/types";
+import type { NoteSpec } from "../notify";
 import { shortId } from "./format";
 import { settings } from "../settings";
 import { t, tr, withNote } from "../i18n";
@@ -11,20 +12,36 @@ import { t, tr, withNote } from "../i18n";
 export type RemoteKind = "fetch" | "pull" | "push";
 
 
-const PULL_TEXT: Record<string, (n: number) => string> = {
-  up_to_date: () => t("远程没有新提交，不需要拉取"),
-  fast_forward: (n) => t("已拉取 {0} 个提交", n),
-  merged: (n) => t("已拉取 {0} 个提交并生成合并提交", n),
-  rebased: (n) => t("已拉取 {0} 个提交，本地提交已接到它们之后", n),
-};
+/** The balloon after a pull, like an IDE's "Project updated": from where, how many commits and files, how it was joined */
+function pullNote(r: PullResult, locate?: (id: string) => void): NoteSpec {
+  const from = r.upstream ?? t("远程");
+  if (r.outcome === "up_to_date") return { kind: "info", title: t("已是最新"), body: t("{0} 没有新提交，不需要拉取", from) };
+  const how = r.outcome === "merged" ? t("生成了一个合并提交") : r.outcome === "rebased" ? t("本地的提交已接到它们之后") : t("快进到最新");
+  const files = r.files ? t("{0} 个文件有改动（+{1} −{2}）", r.files, r.added ?? 0, r.deleted ?? 0) : "";
+  return {
+    title: t("拉取完成"),
+    body: [t("从 {0} 拉取了 {1} 个提交", from, r.incoming), files, how].filter(Boolean).join("\n"),
+    actions: r.to && locate ? [{ label: t("查看提交"), run: () => locate(r.to!) }] : [],
+  };
+}
+
+/** Add the core layer's note (e.g. the shelved changes that were put back) to a message or a balloon's body */
+function addNote(msg: string | NoteSpec, note?: string | null): string | NoteSpec {
+  if (!note) return msg;
+  if (typeof msg === "string") return withNote(msg, note);
+  return { ...msg, body: msg.body ? `${tr(msg.body)}\n${tr(note)}` : tr(note) };
+}
+const plain = (msg: string | NoteSpec) => (typeof msg === "string" ? msg : [tr(msg.title), msg.body ? tr(msg.body) : ""].filter(Boolean).join("："));
 
 interface Deps {
   repo: RepoState | null;
   /** keepLog: the repository's commits and refs are unchanged (e.g. a fetch with nothing new), no need to re-read the log */
-  done: (state: RepoState, message: string, op?: OpInfo, keepLog?: boolean) => void;
+  done: (state: RepoState, message: string | NoteSpec, op?: OpInfo, keepLog?: boolean) => void;
   failed: (message: string) => void;
   /** Only show a notice, no refresh */
-  say: (message: string) => void;
+  say: (message: string | NoteSpec) => void;
+  /** Select a commit in the log ("view the pulled commits") */
+  locate?: (id: string) => void;
 }
 
 /** Notification titles for network operations that finish while the window is in the background */
@@ -40,7 +57,12 @@ export function notifyIfAway(started: number, title: string, body: string) {
   void api.notify(title, body).catch(() => {});
 }
 
-export function useRemoteOps({ repo, done, failed, say }: Deps) {
+export function useRemoteOps({ repo, done, failed, say, locate }: Deps) {
+  const locateRef = useRef(locate);
+  locateRef.current = locate;
+  const goLocate = (id: string) => locateRef.current?.(id);
+  /** The pull action of a "fetched, N new commits" balloon */
+  const pullRef = useRef<() => void>(() => {});
   const [running, setRunning] = useState<{ kind: RemoteKind; task: string; text: string; percent?: number } | null>(null);
   const [push, setPush] = useState<PushPreview | null>(null);
   const [pullPanel, setPullPanel] = useState<PullPreview | null>(null);
@@ -78,7 +100,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     async <T,>(
       kind: RemoteKind,
       f: (task: string) => Promise<Written<T>>,
-      ok: (r: T) => string,
+      ok: (r: T) => string | NoteSpec,
       onError?: (e: ReturnType<typeof errOf>) => boolean,
       keepLog?: (r: T) => boolean,
     ) => {
@@ -87,9 +109,9 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       setRunning({ kind, task, text: "" });
       try {
         const w = await f(task);
-        const msg = withNote(ok(w.result), w.note);
+        const msg = addNote(ok(w.result), w.note);
         done(w.state, msg, w.op?.kind === "push" ? undefined : w.op, keepLog?.(w.result));
-        notifyIfAway(started, NOTIFY_TITLE[kind](true), msg);
+        notifyIfAway(started, NOTIFY_TITLE[kind](true), plain(msg));
         return true;
       } catch (e) {
         const err = errOf(e);
@@ -112,7 +134,12 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       return runTask(
         "fetch",
         (t) => api.remoteFetch(t, quiet),
-        (r) => (quiet ? "" : r.behind > 0 ? t("远程有 {0} 个新提交，可以拉取", r.behind) : t("远程没有新提交")),
+        (r): string | NoteSpec =>
+          quiet
+            ? ""
+            : r.behind > 0
+              ? { title: t("抓取完成"), body: t("远程有 {0} 个新提交还没拉取", r.behind), actions: [{ label: t("拉取"), run: () => pullRef.current() }] }
+              : { kind: "info", title: t("抓取完成"), body: t("远程没有新提交") },
         // Auto-fetch failures (e.g. offline) don't bother the user
         () => quiet,
         // Nothing new fetched: don't re-read the log, so the (filtered) list being viewed isn't interrupted
@@ -131,12 +158,12 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       runTask(
         "pull",
         (t) => api.remotePull(t, mode, fetched),
-        (r) => PULL_TEXT[r.outcome](r.incoming),
+        (r) => pullNote(r, goLocate),
         // On conflicts the repository stops mid merge or rebase, and after refreshing the main view switches to the conflict list automatically
         (err) => {
           if (err.code !== "CONFLICTS") return false;
           failed("");
-          say(t("{0}，请逐个处理", err.message));
+          say({ kind: "warning", title: t("拉取遇到冲突"), body: t("{0}，请逐个处理", err.message) });
           return true;
         },
       ),
@@ -162,7 +189,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       }
       if (fetched.result.behind === 0) {
         setRunning(null);
-        done(fetched.state, PULL_TEXT.up_to_date(0), undefined, !fetched.result.refs_changed);
+        done(fetched.state, pullNote({ outcome: "up_to_date", incoming: 0 }), undefined, !fetched.result.refs_changed);
         return true;
       }
       const preview = await api.remotePullPreview(mode).catch(() => null);
@@ -176,6 +203,7 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
     },
     [pullMode, done, failed, runPull],
   );
+  pullRef.current = () => void pull();
 
   /** Changing the pull mode in the summary panel: dry-run again */
   const previewMode = useCallback(
@@ -224,7 +252,14 @@ export function useRemoteOps({ repo, done, failed, say }: Deps) {
       return runTask(
         "push",
         (t) => api.remotePush(t, force, tags, p?.to ?? null, p?.new_branch ? p.remote : null),
-        () => (p?.to ? t("已推送到 {0}，到 {1} 为止", p.target, p.to.slice(0, 7)) : t("已推送到 {0}", p?.target ?? t("远程"))),
+        (): NoteSpec => {
+          const n = p?.commits.length ?? 0;
+          const target = p?.target ?? t("远程");
+          const head = p?.to ? t("推送了 {0} 个提交到 {1}，到 {2} 为止", n, target, p.to.slice(0, 7)) : n ? t("推送了 {0} 个提交到 {1}", n, target) : t("已推送到 {0}", target);
+          const titles = (p?.commits ?? []).slice(0, 3).map((c) => "· " + c.title);
+          if (n > 3) titles.push(t("…还有 {0} 个", n - 3));
+          return { title: t("推送完成"), body: [head, ...titles].join("\n") };
+        },
       );
     },
     [push, runTask],

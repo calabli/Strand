@@ -1350,3 +1350,30 @@ mark.find.find-cur { outline: 2px solid var(--accent); outline-offset: 0; }
 .jump-pick .pal-row > .mono { min-width: 3.5em; text-align: right; }
 ::highlight(nav-link) { color: var(--accent-ink); text-decoration: underline; text-decoration-color: var(--accent); }
 .cm-nav-link, .cm-nav-link * { color: var(--accent-ink) !important; text-decoration: underline; text-decoration-color: var(--accent); }
+
+/* Notification balloons, bottom-right like an IDE's: newest at the bottom, above the update card */
+.balloons { position: fixed; right: 16px; bottom: 16px; z-index: var(--z-toast); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; max-height: calc(100vh - 96px); }
+.balloons > * { pointer-events: auto; }
+.balloons .update-card { position: static; }
+.balloon { width: 380px; max-width: calc(100vw - 32px); display: flex; gap: 10px; align-items: flex-start; padding: 10px 8px 10px 12px; background: var(--win); border: 1px solid var(--line2); border-left: 3px solid var(--ok-ink);
+  border-radius: 10px; box-shadow: var(--shadow); font-size: 13px; animation: slide-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.balloon.info { border-left-color: var(--accent); }
+.balloon.warning { border-left-color: #c48a00; }
+.balloon.error { border-left-color: var(--danger); }
+.bal-icon { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #fff; margin-top: 1px; }
+.bal-icon.success { background: var(--ok-ink); }
+.bal-icon.info { background: var(--accent); }
+.bal-icon.warning { background: #c48a00; }
+.bal-icon.error { background: var(--danger); }
+.bal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.bal-title { font-weight: 600; overflow-wrap: anywhere; }
+.bal-body { color: var(--fg2); white-space: pre-line; overflow-wrap: anywhere; line-height: 1.45; max-height: 9.5em; overflow: auto; }
+.bal-acts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 3px; }
+.bal-link { border: 0; background: none; padding: 0; color: var(--accent-ink); font: inherit; cursor: pointer; white-space: nowrap; }
+.bal-link:hover { text-decoration: underline; }
+.bal-x { flex-shrink: 0; margin: -4px 0 0; }
+.modal.note-history { width: min(560px, 100%); max-height: calc(100vh - 80px); }
+.nh-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; margin: 0 -8px; }
+.nh-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 8px; font-size: 13px; }
+.nh-row:hover { background: var(--hover); }
+@media (prefers-reduced-motion: reduce) { .balloon { animation: none; } }

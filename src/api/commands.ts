@@ -278,7 +278,7 @@ export const api = {
     inTauri ? call("remote_fetch", { taskId, quiet }) : mock.slow({ behind: 1, incoming: 1 }),
   /** fetched: just fetched and showed the pull summary panel, so don't fetch again (spec §7.2) */
   remotePull: (taskId: string, mode: PullMode, fetched = false): Promise<Written<PullResult>> =>
-    inTauri ? call("remote_pull", { taskId, mode, fetched }) : mock.slow<PullResult>({ outcome: "fast_forward", incoming: 1 }),
+    inTauri ? call("remote_pull", { taskId, mode, fetched }) : mock.slow<PullResult>({ outcome: "fast_forward", incoming: 3, upstream: "origin/feature/commit-graph", to: "e1b07c4".padEnd(40, "0"), files: 5, added: 120, deleted: 31 }),
   remotePullPreview: (mode: PullMode): Promise<PullPreview> => (inTauri ? call("remote_pull_preview", { mode }) : mock.pullPreview(mode)),
   /** With to set, a "push up to here" preview */
   tagPush: (taskId: string, name: string): Promise<Written<null>> => (inTauri ? call("tag_push", { taskId, name }) : mock.tagPush(name)),

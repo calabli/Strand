@@ -89,6 +89,9 @@ fn pull_fast_forward_merge_and_rebase() {
     write(&w.me, "a.txt", "一\n二\n三\n本地没提交的改动\n");
     let r = remote::pull(&w.me, PullMode::Merge, &Cancel::default(), &none).unwrap();
     assert_eq!((r.outcome, r.incoming), (PullOutcome::FastForward, 1));
+    // What the pull changed, for the notice: one new file with one line, from origin/main
+    assert_eq!((r.files, r.added, r.deleted, r.upstream.as_deref()), (1, 1, 0, Some("origin/main")));
+    assert!(r.from.is_some() && r.to.is_some() && r.from != r.to);
     assert!(std::fs::read_to_string(w.me.join("a.txt")).unwrap().contains("本地没提交的改动"));
     git(&w.me, &["checkout", "--", "a.txt"]);
 

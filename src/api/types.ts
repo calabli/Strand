@@ -447,6 +447,15 @@ export type PullOutcome = "up_to_date" | "fast_forward" | "merged" | "rebased";
 export interface PullResult {
   outcome: PullOutcome;
   incoming: number;
+  /** Where the commits came from, e.g. origin/main */
+  upstream?: string;
+  /** HEAD before and after the pull */
+  from?: string;
+  to?: string;
+  /** What the pull changed: files, lines added and deleted */
+  files?: number;
+  added?: number;
+  deleted?: number;
 }
 
 /** One conflicted file in the pull summary panel (spec §7.2) */
