@@ -652,6 +652,28 @@ export interface FileText {
   truncated: boolean;
   /** A Git LFS file whose content hasn't been downloaded (text is the pointer) */
   lfs_missing?: { oid: string; size: number };
+  /** A binary file whose diff driver has a textconv command (the driver's name): it can be shown as text */
+  textconv?: string;
+}
+
+/** A binary file as text through its textconv command */
+export interface Textconv {
+  text: string;
+  command: string;
+  truncated: boolean;
+}
+
+/** A preview plugin in the app's plugins folder */
+export interface PreviewPlugin {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  /** Lowercase, without the dot; "*" is any file */
+  extensions: string[];
+  entry: string;
+  /** Why it can't be used */
+  error?: string;
 }
 
 export interface FileVersion {

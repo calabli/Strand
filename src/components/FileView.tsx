@@ -27,6 +27,8 @@ import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { Found, indentStyle, indentUnit } from "./inlineDiff";
 import { highlight, langOf, type Tok } from "../highlight";
 import { settings, useSettings } from "../settings";
+import { PreviewPane } from "./Preview";
+import { choicesFor, defaultChoice, openPluginsWindow, rememberChoice, usePlugins } from "../preview";
 import { t, tr, lang } from "../i18n";
 
 const WORK = "work";
@@ -186,6 +188,25 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
   const single = sel.length === 1 ? sel[0] : null;
   const singleV = single && single !== WORK ? byId(single) : null;
 
+  // Previews (rendered Markdown, images, tables, plugins…) in place of the text; the choice is per file and revision
+  const plugins = usePlugins(path);
+  const textReq = req?.kind === "text" ? req : null;
+  const fileNow = textReq && text.data?.path === textReq.path && !text.data.missing && !text.data.lfs_missing ? text.data : null;
+  const choices = useMemo(() => (textReq && fileNow ? choicesFor(textReq.path, fileNow, plugins) : []), [textReq?.path, fileNow, plugins]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [view, setView] = useState<string | null>(null);
+  const [pvMenu, setPvMenu] = useState<MenuState | null>(null);
+  useEffect(() => setView(null), [textReq?.path, textReq?.rev]);
+  const current = textReq && choices.length ? (view ?? defaultChoice(textReq.path, choices)) : "text";
+  // Search results and blame need the text
+  const toText = annot || !!jump?.rev || !!at?.find || (jump?.line ?? 0) > 1;
+  const choice = toText ? null : (choices.find((c) => c.id === current) ?? null);
+  const pick2 = (id: string) => {
+    setView(id);
+    if (textReq) rememberChoice(textReq.path, id);
+    if (id !== "text") setAnnot(false);
+  };
+  const lastPv = choices.find((c) => c.id === current) ?? choices.find((c) => c.specific) ?? choices[0];
+
   return (
     <div className="fview" ref={host} style={sizeVars(settings(), ["paneHistory"])}>
       <div className="fv-bar">
@@ -193,6 +214,40 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           {path}
         </span>
         <span className="grow" />
+        {editAt == null && textReq && choices.length > 0 && (
+          <span className="fv-pv">
+            <span className="seg" role="radiogroup" aria-label={t("显示方式")}>
+              <button type="button" role="radio" aria-checked={!choice} className={!choice ? "on" : ""} onClick={() => pick2("text")}>
+                {t("原文")}
+              </button>
+              <button type="button" role="radio" aria-checked={!!choice} className={choice ? "on" : ""} title={t("预览：{0}", lastPv.label)} onClick={() => pick2(lastPv.id)}>
+                {lastPv.label}
+              </button>
+            </span>
+            <button
+              type="button"
+              className="ib sm"
+              title={t("选择预览方式")}
+              aria-label={t("选择预览方式")}
+              aria-haspopup="menu"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setPvMenu({
+                  x: r.left,
+                  y: r.bottom + 4,
+                  items: [
+                    { label: t("原文"), checked: !choice, run: () => pick2("text") },
+                    ...choices.map((c) => ({ label: c.plugin ? t("{0}（插件）", c.label) : c.label, checked: choice?.id === c.id, run: () => pick2(c.id) })),
+                    "-" as const,
+                    { label: t("管理预览插件…"), run: openPluginsWindow },
+                  ],
+                });
+              }}
+            >
+              ▾
+            </button>
+          </span>
+        )}
         <button
           type="button"
           className={"btn sm fv-chain" + (chain ? " pressed" : "")}
@@ -358,7 +413,9 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
               )}
             </div>
           )}
-          {req?.kind === "diff" ? (
+          {req?.kind === "text" && choice ? (
+            <PreviewPane key={choice.id + req.path + (req.rev ?? "")} choice={choice} path={req.path} rev={req.rev} file={fileNow} />
+          ) : req?.kind === "diff" ? (
             <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} readOnly={req.to !== null} blameSides={{ left: req.from ? { path: req.fromPath, rev: req.from } : null, right: { path: req.toPath, rev: req.to } }} onLocate={onLocate} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
           ) : (
             <TextView
@@ -381,6 +438,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           )}
         </div>
       </div>
+      {pvMenu && <Menu menu={pvMenu} onClose={() => setPvMenu(null)} />}
     </div>
   );
 }
@@ -534,7 +592,14 @@ function TextView({
       {load.loading && !f && <p className="pad dim">{t("正在读取…")}</p>}
       {load.error && <p className="pad err">{tr(load.error)}</p>}
       {f?.missing && <p className="pad dim">{t("这个版本里没有这个文件（已删除或还没创建）")}</p>}
-      {f?.binary && <p className="pad dim">{t("二进制文件，不显示内容（{0} 字节）", f.size)}</p>}
+      {f?.binary && (
+        <p className="pad dim">
+          {t("二进制文件，不显示内容（{0} 字节）", f.size)}{" "}
+          <button type="button" className="bal-link" onClick={openPluginsWindow}>
+            {t("用预览插件查看…")}
+          </button>
+        </p>
+      )}
       {f?.lfs_missing && (
         <div className="fv-lfs">
           <span>{t("这是 Git LFS 文件，内容还没下载（{0}），下面是它的指针。", fmtSize(f.lfs_missing.size))}</span>

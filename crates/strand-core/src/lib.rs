@@ -26,6 +26,7 @@ pub mod stats;
 pub mod maintenance;
 pub mod hooks;
 pub mod sparse;
+pub mod preview;
 pub mod log_filter;
 pub mod model;
 pub mod oplog;

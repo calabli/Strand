@@ -33,6 +33,9 @@ pub struct FileText {
     /// A Git LFS file whose content hasn't been downloaded: the pointer's object (text is the pointer itself)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lfs_missing: Option<crate::lfs::Pointer>,
+    /// A binary file with a textconv command for its diff driver (the driver's name): it can be shown as text
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub textconv: Option<String>,
 }
 
 /// One version in the change chain
@@ -78,7 +81,7 @@ impl Session {
         let repo = self.git2()?;
         let data = self.content(&repo, path, rev)?;
         let Some(mut data) = data else {
-            return Ok(FileText { path: path.to_string(), text: None, binary: false, missing: true, size: 0, truncated: false, lfs_missing: None });
+            return Ok(FileText { path: path.to_string(), text: None, binary: false, missing: true, size: 0, truncated: false, lfs_missing: None, textconv: None });
         };
         let lfs_missing = match crate::lfs::resolve(&repo, std::mem::take(&mut data)) {
             crate::lfs::Content::Real(d) => {
@@ -97,7 +100,8 @@ impl Session {
             data.truncate(MAX_BYTES);
         }
         let text = (!binary).then(|| String::from_utf8_lossy(&data).into_owned());
-        Ok(FileText { path: path.to_string(), text, binary, missing: false, size, truncated, lfs_missing })
+        let textconv = if binary { crate::preview::textconv_driver(self.path(), path) } else { None };
+        Ok(FileText { path: path.to_string(), text, binary, missing: false, size, truncated, lfs_missing, textconv })
     }
 
     /// Commits that changed this file (back from the current HEAD), following renames to the earliest version

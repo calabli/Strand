@@ -784,10 +784,21 @@ const PROJECT = [
   "src/sync/fetch.rs", "src/sync/old_log.rs",
   "src/ui/commit_panel.tsx", "src/ui/graph_view.rs", "src/ui/panel.tsx",
   "notes/todo.md", "scratch/tmp.log",
+  "data/regions.csv", "data/settings.json", "docs/proposal.docx",
 ];
+
+/** Sample contents for previews (Markdown, CSV, JSON) */
+const SAMPLES: Record<string, string> = {
+  "README.md": `# strand-app\n\n一个 **Git 图谱** 示例项目，用来演示 [Strand](https://github.com/calabli/Strand) 的预览。\n\n## 功能\n\n- 提交图谱和过滤\n- 行级提交\n- [设计文档](docs/design.md)\n\n![图谱](docs/images/graph.png)\n\n| 命令 | 说明 |\n| --- | --- |\n| \`cargo run\` | 启动 |\n| \`cargo test\` | 测试 |\n\n\`\`\`rust\nfn main() {\n    println!("hello");\n}\n\`\`\`\n\n> 引用：大仓库也要秒开。\n\n<script>alert("不会运行")</script>\n`,
+  "docs/design.md": `# 设计\n\n回到 [README](../README.md)。\n\n1. 读日志\n2. 算图谱\n`,
+  "data/regions.csv": `城市,人口（万）,备注\n上海,2487,"直辖市, 沿海"\n北京,2185,首都\n深圳,1768,"""鹏城"""\n成都,2140,\n`,
+  "data/settings.json": `{"name":"strand-app","version":"0.4.0","features":{"graph":true,"lanes":[1,2,3],"theme":null},"authors":[{"name":"A","email":"a@example.com"},{"name":"B"}]}\n`,
+};
 export const projectFiles = () => delay(PROJECT);
 
 export function fileText(path: string, rev: string | null) {
+  if (path in SAMPLES) return delay({ path, text: SAMPLES[path], binary: false, missing: false, size: SAMPLES[path].length, truncated: false });
+  if (path.endsWith(".docx")) return delay({ path, binary: true, missing: false, size: 18432, truncated: false, textconv: "word" });
   const binary = path.endsWith(".png");
   const n = path.endsWith(".md") ? 24 : 80;
   const lines = Array.from({ length: n }, (_, i) =>
@@ -1047,6 +1058,8 @@ export function changelistsSet(c: Changelists): Promise<Changelists> {
 
 /** Sample images: the old version is a blue circle, the new one (worktree or commit) an orange square of a different size; in a parent revision ending with "^" an added image doesn't exist */
 export async function fileBytes(path: string, rev: string | null): Promise<ArrayBuffer> {
+  if (path in SAMPLES) return delay(new TextEncoder().encode(SAMPLES[path]).buffer as ArrayBuffer);
+  if (!/\.(png|jpe?g|gif|webp)$/i.test(path)) return delay(new TextEncoder().encode(`PK\x03\x04 ${path} sample bytes 0123456789`).buffer as ArrayBuffer);
   const old = !!rev && (rev === "HEAD" || rev.endsWith("^"));
   if (old && path.includes("new")) throw { code: "NOT_FOUND", message: `这个版本里没有 ${path}` };
   const c = document.createElement("canvas");
@@ -1321,3 +1334,18 @@ export const sparseSet = (dirs: string[]) => {
   }
   return new Promise<SparseState>((r) => setTimeout(() => r(mockSparse), 700));
 };
+
+// ---------- Previews ----------
+
+export const fileTextconv = (path: string, _rev: string | null) =>
+  delay({ text: `提案：${path}\n\n第一节  背景\n这一段是 docx 转出来的文字。\n`, command: "pandoc -t plain", truncated: false });
+let mockPlugins: import("./types").PreviewPlugin[] = [
+  { id: "ipynb", name: "Notebook", version: "0.2.0", description: "显示 Jupyter 笔记本", extensions: ["ipynb"], entry: "index.html", error: "找不到页面 index.html" },
+];
+export const previewPlugins = () => delay(structuredClone(mockPlugins));
+export function previewPluginSample() {
+  const p = { id: "hex-viewer", name: "十六进制查看器", version: "1.0.0", description: "示例插件：按十六进制和 ASCII 显示任何文件的字节。照着它写自己的插件。", extensions: ["*"], entry: "index.html" };
+  mockPlugins = [...mockPlugins.filter((x) => x.id !== p.id), p];
+  return delay(p);
+}
+export const previewPluginsOpen = () => (console.info("[mock] 打开插件文件夹"), delay<void>(undefined));

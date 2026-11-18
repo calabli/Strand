@@ -8,6 +8,8 @@ import type {
   Contributions,
   DirEntry,
   SparseState,
+  Textconv,
+  PreviewPlugin,
   HookRun,
   Hooks,
   RepoSize,
@@ -318,6 +320,10 @@ export const api = {
   /** sparse: download contents when needed and check out only the root's files (folders chosen afterwards) */
   repoClone: (taskId: string, url: string, dest: string, sparse = false): Promise<string> =>
     inTauri ? call("repo_clone", { taskId, url, dest, sparse }) : mock.slow(dest).then((w) => w.result),
+  fileTextconv: (path: string, rev: string | null): Promise<Textconv> => (inTauri ? call("file_textconv", { path, rev }) : mock.fileTextconv(path, rev)),
+  previewPlugins: (): Promise<PreviewPlugin[]> => (inTauri ? call("preview_plugins") : mock.previewPlugins()),
+  previewPluginSample: (): Promise<PreviewPlugin> => (inTauri ? call("preview_plugin_sample") : mock.previewPluginSample()),
+  previewPluginsOpen: (): Promise<void> => (inTauri ? call("preview_plugins_open") : mock.previewPluginsOpen()),
   sparseState: (): Promise<SparseState> => (inTauri ? call("sparse_state") : mock.sparseState()),
   sparseDirs: (): Promise<DirEntry[]> => (inTauri ? call("sparse_dirs") : mock.sparseDirs()),
   /** Check out only these folders; an empty list checks out everything again. WORKTREE_CONFLICT lists changed files left out */

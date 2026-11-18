@@ -48,6 +48,8 @@ import { notify, type NoteSpec } from "./notify";
 import { MaintenanceWindow } from "./components/MaintenanceWindow";
 import { HooksWindow } from "./components/HooksWindow";
 import { SparseWindow } from "./components/SparseWindow";
+import { PluginsWindow } from "./components/PluginsWindow";
+import { setPluginsOpener } from "./preview";
 import { CreatePr, PullRequestsView, prGoLabel, prNewLabel, prNo, prWord } from "./components/PullRequests";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
 import { Toolbar } from "./components/Toolbar";
@@ -258,6 +260,11 @@ export default function App() {
   const [maintOpen, setMaintOpen] = useState(false);
   /** Git hooks window */
   const [hooksOpen, setHooksOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  useEffect(() => {
+    setPluginsOpener(() => setPluginsOpen(true));
+    return () => setPluginsOpener(null);
+  }, []);
   /** Sparse checkout: choose the folders to check out */
   const [sparseOpen, setSparseOpen] = useState(false);
   const remoteCount = refs?.remotes.length ?? 0;
@@ -1466,6 +1473,7 @@ export default function App() {
       { id: "notes", section: v, icon: COMMIT_ICONS.history, label: t("通知记录…"), run: () => setHistoryOpen(true) },
       { id: "stats", section: m, icon: COMMIT_ICONS.history, label: t("贡献统计…"), run: () => setStatsOpen(true) },
       { id: "sparse", section: m, icon: COMMIT_ICONS.folder, label: t("稀疏检出：只检出需要的目录…"), run: () => setSparseOpen(true) },
+      { id: "preview-plugins", section: v, icon: COMMIT_ICONS.gear, label: t("预览插件…"), run: () => setPluginsOpen(true) },
       { id: "hooks", section: m, icon: COMMIT_ICONS.gear, label: t("Git 钩子（pre-commit 等）…"), run: () => setHooksOpen(true) },
       { id: "maintenance", section: m, icon: COMMIT_ICONS.gear, label: t("仓库维护（清理、冲突记忆）…"), run: () => setMaintOpen(true) },
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
@@ -2426,6 +2434,7 @@ export default function App() {
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
       {maintOpen && repo && <MaintenanceWindow onClose={() => setMaintOpen(false)} onToast={say} />}
       {hooksOpen && repo && <HooksWindow onClose={() => setHooksOpen(false)} onToast={say} />}
+      {pluginsOpen && <PluginsWindow onClose={() => setPluginsOpen(false)} onToast={say} />}
       {sparseOpen && repo && (
         <SparseWindow
           onClose={() => setSparseOpen(false)}

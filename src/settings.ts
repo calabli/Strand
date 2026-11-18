@@ -55,9 +55,11 @@ export interface Settings {
   autoSave: boolean;
   /** Run the repository's Git hooks (pre-commit, commit-msg) when committing; off commits with --no-verify */
   runHooks: boolean;
+  /** The preview last chosen per file extension ("text" for the plain text, a built-in kind, or "plugin:<id>") */
+  previewChoice: Record<string, string>;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {} };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

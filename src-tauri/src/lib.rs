@@ -1282,6 +1282,79 @@ async fn file_bytes(state: State<'_, AppState>, path: String, rev: Option<String
     Ok(tauri::ipc::Response::new(b))
 }
 
+/// A binary file as text through its textconv command (`.gitattributes` diff driver); rev empty means the worktree
+#[tauri::command]
+async fn file_textconv(state: State<'_, AppState>, path: String, rev: Option<String>) -> CmdResult<strand_core::preview::Textconv> {
+    let dir = repo_path(&state)?;
+    tauri::async_runtime::spawn_blocking(move || strand_core::preview::textconv(&dir, &path, rev.as_deref()))
+        .await
+        .map_err(|e| CoreError::git("后台任务异常结束", e))?
+}
+
+/// Where preview plugins live: the app's data folder, `plugins/<id>/`
+fn plugins_dir(app: &AppHandle) -> CmdResult<std::path::PathBuf> {
+    app.path().app_data_dir().map(|d| d.join("plugins")).map_err(|e| CoreError::git("找不到应用数据文件夹", e))
+}
+
+/// Installed preview plugins (read again on every call, so new ones show without restarting)
+#[tauri::command]
+fn preview_plugins(app: AppHandle) -> CmdResult<Vec<strand_core::preview::Plugin>> {
+    Ok(strand_core::preview::plugins(&plugins_dir(&app)?))
+}
+
+/// Write the sample plugin (a hex viewer) to start from
+#[tauri::command]
+fn preview_plugin_sample(app: AppHandle) -> CmdResult<strand_core::preview::Plugin> {
+    strand_core::preview::write_sample(&plugins_dir(&app)?)
+}
+
+/// Open the plugins folder in the file manager (created when missing)
+#[tauri::command]
+fn preview_plugins_open(app: AppHandle) -> CmdResult<()> {
+    let dir = plugins_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| CoreError::git("创建插件文件夹失败", e))?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| CoreError::git("打开插件文件夹失败", e))
+}
+
+/// Serves plugin pages at strand-plugin://localhost/<id>/<file> (http://strand-plugin.localhost/... on Windows).
+/// Only files inside that plugin's folder; every page gets a policy with no network access.
+fn plugin_protocol(app: &AppHandle, req: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    let not_found = || tauri::http::Response::builder().status(404).body(Vec::new()).unwrap_or_default();
+    let Ok(root) = plugins_dir(app) else { return not_found() };
+    let raw = req.uri().path();
+    let path = percent_decode(raw);
+    let Some(file) = strand_core::preview::plugin_file(&root, &path) else { return not_found() };
+    let Ok(body) = std::fs::read(&file) else { return not_found() };
+    let own = if cfg!(windows) { "http://strand-plugin.localhost" } else { "strand-plugin:" };
+    let csp = format!(
+        "default-src 'none'; script-src {own} 'unsafe-inline' 'wasm-unsafe-eval'; style-src {own} 'unsafe-inline'; img-src {own} data: blob:; font-src {own} data:; media-src blob: data:; worker-src blob:"
+    );
+    tauri::http::Response::builder()
+        .header("Content-Type", strand_core::preview::mime_of(&file))
+        .header("Content-Security-Policy", csp)
+        .header("Cache-Control", "no-store")
+        .body(body)
+        .unwrap_or_else(|_| not_found())
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        // Works on bytes: a "%" followed by non-ASCII never splits a character
+        let hex = (b[i] == b'%').then(|| b.get(i + 1..i + 3)).flatten().and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u8::from_str_radix(h, 16).ok());
+        if let Some(v) = hex {
+            out.push(v);
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// Save a worktree file after editing in the diff; expected is the content read when editing started (not overwritten if the file on disk changed)
 #[tauri::command]
 async fn save_worktree_file(state: State<'_, AppState>, path: String, text: String, expected: String) -> CmdResult<()> {
@@ -1800,6 +1873,7 @@ pub fn run(adopted: Option<u128>) {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .register_uri_scheme_protocol("strand-plugin", |ctx, req| plugin_protocol(ctx.app_handle(), &req))
         .manage(AppState::default())
         .manage(WindowSession::default())
         .on_window_event(|w, e| match e {
@@ -1945,6 +2019,10 @@ pub fn run(adopted: Option<u128>) {
             remote_tag_delete,
             branch_set_upstream,
             file_reveal,
+            file_textconv,
+            preview_plugins,
+            preview_plugin_sample,
+            preview_plugins_open,
             file_open,
             repo_terminal,
             merged_branches,

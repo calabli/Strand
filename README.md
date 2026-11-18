@@ -27,6 +27,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Notification balloons in the bottom-right like an IDE's: what an operation did (a pull says which branch, how many commits and files), with links to undo, view the pulled commits or pull after a fetch; errors stay until closed, with the console one click away; a notification log in the palette.
 - Git hooks: list the repository's hooks with what each is for, edit them in the code editor, switch them off and on, and try one without committing; when a hook stops a commit, its full output is shown with a way to commit without hooks. Running hooks can be turned off in the commit options.
 - Sparse checkout for huge repositories: tick the folders to have on disk (with file counts), change or undo it any time, and clone large repositories sparsely (`--filter=blob:none --sparse`) to choose folders afterwards.
+- File previews in the file tab: images, rendered Markdown (with the repository's images and links), CSV tables, a JSON tree, PDF, audio and video, and binary files as text through the repository's textconv command. Preview plugins add more kinds of files: a folder with a `manifest.json` and a web page that runs sandboxed, is only sent the file and has no network access; a sample hex viewer can be generated to start from.
 - Code navigation like an IDE: hold ⌘ to underline a name and click (or press ⌘B) to jump straight to its definition, following the file's imports (TS/JS, Python, Rust); ⌥⌘B lists every same-named definition, ⌥F7 lists usages, ⌘-click an import path to open the file, ⌘[ ⌘] go back and forward, ⇧⌘O opens a file by name. Found by text search (git grep) plus imports, so no language server is needed.
 - Submodules in the branch tree with their state; update (initializing when needed) or open one in Strand.
 - Git LFS: diffs, file views and image comparisons show the downloaded content instead of pointer files; files not downloaded yet can be fetched with `git lfs pull` (needs git-lfs installed).
@@ -196,5 +197,6 @@ Everything can be done with the keyboard: icon buttons have accessible names mat
 - Pre-commit check settings live in each repository's Git config and can't be shared through the repository.
 - Code navigation finds definitions by text search plus imports, not by a language server: when several definitions share a name they are all listed, and it needs a Git built with PCRE (`git grep -P`). Definitions in dependencies outside the repository aren't found.
 - Trying a hook from the hooks window needs Git 2.36 or later.
+- Markdown previews don't load images from the web, and code blocks in them aren't colored. Previews show one version at a time; plugins can't show diffs yet.
 - The graph is drawn as one SVG per row.
 - The core layer's messages are in Chinese and are translated for display by template matching.
