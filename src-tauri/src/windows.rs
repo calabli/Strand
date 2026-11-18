@@ -47,7 +47,9 @@ fn now() -> u64 {
 }
 
 fn dir(app: &AppHandle) -> Option<PathBuf> {
-    let d = app.path().app_data_dir().ok()?.join("windows");
+    // Debug builds (development and self-tests) keep their own records, so they never reopen windows in the
+    // installed app, which shares the same app data folder
+    let d = app.path().app_data_dir().ok()?.join(if cfg!(debug_assertions) { "windows-dev" } else { "windows" });
     std::fs::create_dir_all(&d).ok()?;
     Some(d)
 }
