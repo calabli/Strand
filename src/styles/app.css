@@ -1348,3 +1348,5 @@ mark.find.find-cur { outline: 2px solid var(--accent); outline-offset: 0; }
 .nav-mod .code, .cm-editor.nav-mod .cm-content { cursor: pointer; }
 .pal-note { margin: 0; padding: 6px 12px 8px; border-top: 1px solid var(--line); }
 .jump-pick .pal-row > .mono { min-width: 3.5em; text-align: right; }
+::highlight(nav-link) { color: var(--accent-ink); text-decoration: underline; text-decoration-color: var(--accent); }
+.cm-nav-link, .cm-nav-link * { color: var(--accent-ink) !important; text-decoration: underline; text-decoration-color: var(--accent); }

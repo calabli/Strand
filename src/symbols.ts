@@ -82,7 +82,7 @@ export function family(path: string): string {
 const flatten = (r: Awaited<ReturnType<typeof api.projectSearch>>) => r.files.flatMap((f) => f.hits.map((h) => ({ path: f.path, line: h.line, text: h.text })));
 
 /** Where a name is defined, best first */
-export async function findDefinitions(name: string, from?: { path: string; line: number }): Promise<Loc[]> {
+export async function findDefinitions(name: string, from?: { path: string; line: number }, prefer: string[] = []): Promise<Loc[]> {
   const r = await api.projectSearch(defPattern(name), true, true, null);
   const fam = from ? family(from.path) : null;
   const locs: Loc[] = [];
@@ -91,8 +91,9 @@ export async function findDefinitions(name: string, from?: { path: string; line:
     // The line being looked up from is not its own definition (unless it is one)
     if (kind) locs.push({ ...h, kind });
   }
+  // The file it's imported from, then the same file, the same language, real definitions, non-test code
   const score = (l: Loc) =>
-    (from && l.path === from.path ? 0 : 4) + (fam && family(l.path) === fam ? 0 : 2) + (l.kind === "def" ? 0 : 1) + (/(^|\/)(tests?|__tests__|spec)\//.test(l.path) ? 1 : 0);
+    (prefer.includes(l.path) ? 0 : 16) + (from && l.path === from.path ? 0 : 4) + (fam && family(l.path) === fam ? 0 : 2) + (l.kind === "def" ? 0 : 1) + (/(^|\/)(tests?|__tests__|spec)\//.test(l.path) ? 1 : 0);
   return locs.sort((a, b) => score(a) - score(b) || a.path.localeCompare(b.path) || a.line - b.line);
 }
 
@@ -233,4 +234,80 @@ export function clickTarget(line: string, col: number): { spec?: string; name?: 
   while (b < line.length && isW(line[b])) b++;
   const word = line.slice(a, b);
   return isIdent(word) ? { name: word } : null;
+}
+
+// ---------- Where a name comes from: the file's own imports ----------
+
+/**
+ * The module texts a file imports `name` from, read from the file's import statements: TS / JS (`import { a as name }
+ * from "x"`, `import name from "x"`, `export { name } from "x"`, `require("x")` assigned to it), Python (`from a.b import
+ * name`, `import a.b as name`) and Rust (`use crate::a::b::name;`, `use a::{b, name}`). Rust paths come back as "a/b"
+ * relative to the crate's src folder (or "./a/b" for self::, "../a" for super::).
+ */
+export function importSpecs(text: string, name: string, path: string): string[] {
+  const out: string[] = [];
+  const n = esc(name);
+  const word = new RegExp(`(^|[^\\w$])${n}($|[^\\w$])`);
+  // JS / TS
+  for (const m of text.matchAll(/\b(?:import|export)\s+(?:type\s+)?([^;'"`]*?)\s+from\s+["'`]([^"'`]+)["'`]/g)) {
+    const names = m[1].replace(/\bas\s+/g, " as ").split(/[{},\s]+/);
+    // "a as name" binds name; "name as b" doesn't
+    const binds = m[1].match(new RegExp(`(?:^|[{,\\s])(?:[\\w$]+\\s+as\\s+)?${n}(?:\\s*[,}]|\\s*$)`)) || names[0] === name || new RegExp(`\\*\\s+as\\s+${n}\\b`).test(m[1]);
+    if (binds && !new RegExp(`\\b${n}\\s+as\\s+`).test(m[1])) out.push(m[2]);
+  }
+  for (const m of text.matchAll(/\b(?:const|let|var)\s+([^=;]+?)\s*=\s*(?:await\s+)?(?:require|import)\(\s*["'`]([^"'`]+)["'`]\s*\)/g)) if (word.test(m[1])) out.push(m[2]);
+  // Python
+  if (path.endsWith(".py")) {
+    for (const m of text.matchAll(/^\s*from\s+(\.*[\w.]*)\s+import\s+\(?([^)\n]+)/gm)) if (word.test(m[2].replace(/\bas\s+\w+/g, ""))) out.push(m[1]);
+    for (const m of text.matchAll(/^\s*import\s+([\w.]+)\s+as\s+(\w+)/gm)) if (m[2] === name) out.push(m[1]);
+  }
+  // Rust
+  if (path.endsWith(".rs")) {
+    for (const m of text.matchAll(/^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);/gm)) {
+      const u = m[1].replace(/\s+/g, "");
+      // a::b::name, a::b::{c, name}, a::b::{c::name}, a::b::name as other
+      const brace = u.match(/^(.*)::\{(.*)\}$/);
+      const items = brace ? brace[2].split(",").map((x) => `${brace[1]}::${x}`) : [u];
+      for (const it of items) {
+        const parts = it.replace(/as\w+$/, "").split("::");
+        if (parts[parts.length - 1] !== name) continue;
+        const mod = parts.slice(0, -1);
+        if (!mod.length) continue;
+        const head = mod[0];
+        const rest = mod.slice(1).join("/");
+        if (head === "crate") out.push(rest ? `crate:${rest}` : "crate:");
+        else if (head === "self") out.push(`./${rest}`);
+        else if (head === "super") out.push(`../${rest}`);
+        else out.push(`crate:${mod.join("/")}`);
+      }
+    }
+  }
+  return out;
+}
+
+/** The project files a name is imported from (resolved), most likely first */
+export async function importSources(text: string, name: string, path: string): Promise<string[]> {
+  const set = await projectSet();
+  const found: string[] = [];
+  for (const spec of importSpecs(text, name, path)) {
+    let cands: string[];
+    if (spec.startsWith("crate:")) {
+      // The crate's src folder: the nearest folder above this file named src (else the file's folder)
+      const segs = path.split("/");
+      const i = segs.lastIndexOf("src");
+      const root = i >= 0 ? segs.slice(0, i + 1).join("/") : segs.slice(0, -1).join("/");
+      const rel = spec.slice(6);
+      cands = rel ? [`${root}/${rel}.rs`, `${root}/${rel}/mod.rs`] : [`${root}/lib.rs`, `${root}/main.rs`];
+    } else if (path.endsWith(".rs") && (spec.startsWith("./") || spec.startsWith("../"))) {
+      // self:: is this module's folder (for foo.rs, foo/), super:: the parent module
+      const dir = path.slice(0, path.lastIndexOf("/"));
+      const stem = path.slice(path.lastIndexOf("/") + 1, -3);
+      const here = ["lib", "main", "mod"].includes(stem) ? dir : `${dir}/${stem}`;
+      const base = normalize(`${spec.startsWith("../") ? here + "/.." : here}/${spec.replace(/^\.\.?\//, "")}`) ?? "";
+      cands = [`${base}.rs`, `${base}/mod.rs`, base.slice(0, base.lastIndexOf("/")) + "/mod.rs"];
+    } else cands = importCandidates(spec, path);
+    const hit = cands.find((c) => set.has(c));
+    if (hit && !found.includes(hit)) found.push(hit);
+  }
+  return found;
 }

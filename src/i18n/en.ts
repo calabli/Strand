@@ -1935,4 +1935,6 @@ export const en: Record<string, string> = {
   "项目里找不到 {0}": "{0} isn't in the project",
   "跳到定义（也可以按住 ⌘ 或 Ctrl 单击）": "Go to definition (or ⌘/Ctrl-click)",
   "查找用法": "Find usages",
+  "还有 {0} 处同名的定义，按 {1} 列出全部": "{0} more definitions with this name; press {1} to list them all",
+  "列出所有同名的定义": "List all definitions with this name",
 };

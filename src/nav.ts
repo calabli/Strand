@@ -2,7 +2,9 @@
 // through the places jumped from (like an IDE's ⌘[ ⌘]). The app registers a host that opens file tabs, shows a
 // list to pick from and shows messages; viewers and the editor call these with what was clicked.
 
-import { clickTarget, findDefinitions, findUsages, resolveImport, type Loc } from "./symbols";
+import { clickTarget, findDefinitions, findUsages, importSources, resolveImport, type Loc } from "./symbols";
+import { api } from "./api/commands";
+import { hintOf } from "./keymap";
 import { t } from "./i18n";
 
 export interface Place {
@@ -54,19 +56,30 @@ export function goForward() {
   host?.open(to);
 }
 
-/** Go to where a name is defined: straight there when it's one place, otherwise a list */
-export async function goDefinition(name: string, from: Place) {
+/**
+ * Go to where a name is defined, like an IDE: straight to the most likely place — the file it's imported from, this
+ * file, the only real definition, or else the best-ranked one (saying how many others there are). `all` lists every
+ * candidate instead. On the definition itself, shows its usages.
+ */
+export async function goDefinition(name: string, from: Place, all = false) {
   try {
-    const locs = (await findDefinitions(name, from)).filter((l) => !(l.path === from.path && l.line === from.line));
+    const text = (await api.fileText(from.path, null).catch(() => null))?.text ?? "";
+    const prefer = text ? await importSources(text, name, from.path).catch(() => []) : [];
+    const found = await findDefinitions(name, from, prefer);
+    const locs = found.filter((l) => !(l.path === from.path && l.line === from.line));
     if (!locs.length) {
-      // Clicked on the definition itself (or nothing found): show the usages instead
-      const self = (await findDefinitions(name, from)).some((l) => l.path === from.path && l.line === from.line);
-      if (self) return goUsages(name, from);
+      if (found.length) return goUsages(name, from);
+      // Imported from a file where the search found nothing (re-exported, generated…): open that file
+      if (prefer.length) return jump({ path: prefer[0], line: 1 }, from);
       return host?.say(t("没找到 {0} 的定义", name));
     }
-    const best = locs.filter((l) => l.kind === "def");
-    if (locs.length === 1 || (best.length === 1 && best[0].path === from.path)) return jump(best[0] ?? locs[0], from);
-    host?.pick(t("{0} 的定义", name), locs, from, t("按文字搜索找到的，可能有同名的其他东西"));
+    if (all) return host?.pick(t("{0} 的定义", name), locs, from, t("按文字搜索找到的，可能有同名的其他东西"));
+    const top = locs[0];
+    jump(top, from);
+    // Certain enough: from the import, in this file, or the only real definition
+    const defs = locs.filter((l) => l.kind === "def");
+    const sure = prefer.includes(top.path) || top.path === from.path || locs.length === 1 || (defs.length === 1 && defs[0] === top);
+    if (!sure) host?.say(t("还有 {0} 处同名的定义，按 {1} 列出全部", locs.length - 1, hintOf("allDefinitions")));
   } catch (e) {
     host?.say(String((e as Error)?.message ?? e));
   }
@@ -88,12 +101,12 @@ export async function openSpec(spec: string, from: Place) {
   else host?.say(t("项目里找不到 {0}", spec));
 }
 
-/** ⌘-click or ⌘B at a column of a line in `from.path` */
-export function navigateAt(line: string, col: number, from: Place, usages = false) {
+/** ⌘-click, ⌘B (definition), ⌥⌘B (all definitions) or ⌥F7 (usages) at a column of a line in `from.path` */
+export function navigateAt(line: string, col: number, from: Place, mode: "def" | "all" | "usages" = "def") {
   const target = clickTarget(line, col);
   if (!target) return false;
-  if (target.spec && !usages) void openSpec(target.spec, from);
-  else if (target.name) void (usages ? goUsages(target.name, from) : goDefinition(target.name, from));
+  if (target.spec && mode === "def") void openSpec(target.spec, from);
+  else if (target.name) void (mode === "usages" ? goUsages(target.name, from) : goDefinition(target.name, from, mode === "all"));
   else return false;
   return true;
 }
