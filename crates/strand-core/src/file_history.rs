@@ -61,8 +61,13 @@ pub struct FileHistory {
 impl Session {
     /// Project files sorted by path: tracked, plus untracked files not ignored by .gitignore
     pub fn project_files(&self) -> Result<Vec<String>> {
-        let out = git_cli::run(self.path(), &["ls-files", "-z", "--cached", "--others", "--exclude-standard"], None)?;
-        let mut list: Vec<String> = out.split('\0').filter(|p| !p.is_empty()).map(str::to_string).collect();
+        // -t tags each entry; "S " marks files a sparse checkout leaves out (not on disk), which aren't listed
+        let out = git_cli::run(self.path(), &["ls-files", "-z", "-t", "--cached", "--others", "--exclude-standard"], None)?;
+        let mut list: Vec<String> = out
+            .split('\0')
+            .filter(|e| e.len() > 2 && !e.starts_with("S "))
+            .map(|e| e[2..].to_string())
+            .collect();
         list.sort();
         list.dedup();
         Ok(list)

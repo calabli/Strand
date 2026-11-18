@@ -6,6 +6,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Contributions,
+  DirEntry,
+  SparseState,
   HookRun,
   Hooks,
   RepoSize,
@@ -312,7 +314,13 @@ export const api = {
   worktreeRemove: (path: string, force: boolean): Promise<Written<null>> =>
     inTauri ? call("worktree_remove", { path, force }) : mock.worktreeRemove(path, force),
   /** Clone into dest (full path); progress goes through task_progress */
-  repoClone: (taskId: string, url: string, dest: string): Promise<string> => (inTauri ? call("repo_clone", { taskId, url, dest }) : mock.slow(dest).then((w) => w.result)),
+  /** sparse: download contents when needed and check out only the root's files (folders chosen afterwards) */
+  repoClone: (taskId: string, url: string, dest: string, sparse = false): Promise<string> =>
+    inTauri ? call("repo_clone", { taskId, url, dest, sparse }) : mock.slow(dest).then((w) => w.result),
+  sparseState: (): Promise<SparseState> => (inTauri ? call("sparse_state") : mock.sparseState()),
+  sparseDirs: (): Promise<DirEntry[]> => (inTauri ? call("sparse_dirs") : mock.sparseDirs()),
+  /** Check out only these folders; an empty list checks out everything again. WORKTREE_CONFLICT lists changed files left out */
+  sparseSet: (dirs: string[]): Promise<SparseState> => (inTauri ? call("sparse_set", { dirs }) : mock.sparseSet(dirs)),
   taskCancel: (taskId: string): Promise<void> => (inTauri ? call("task_cancel", { taskId }) : Promise.resolve()),
 
   // Format and check before committing (spec §4.4, §4.6). Settings live in the repository's Git config

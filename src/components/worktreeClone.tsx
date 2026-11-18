@@ -185,6 +185,7 @@ export function CloneDialog({ defaultDir, onDone, onClose }: { defaultDir: strin
     }
   });
   const [name, setName] = useState("");
+  const [sparse, setSparse] = useState(false);
   const nameTouched = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [task, setTask] = useState<string | null>(null);
@@ -207,7 +208,7 @@ export function CloneDialog({ defaultDir, onDone, onClose }: { defaultDir: strin
     const started = Date.now();
     try {
       const dest = join(dir.trim(), name.trim());
-      await api.repoClone(id, url.trim(), dest);
+      await api.repoClone(id, url.trim(), dest, sparse);
       notifyIfAway(started, t("克隆完成"), name.trim());
       try {
         localStorage.setItem(CLONE_DIR, dir.trim());
@@ -271,6 +272,10 @@ export function CloneDialog({ defaultDir, onDone, onClose }: { defaultDir: strin
             setName(e.target.value);
           }}
         />
+      </label>
+      <label className="check" title={t("文件内容用到时才下载（--filter=blob:none），先只检出根目录的文件（--sparse），打开后在“文件”标签里选要哪些目录")}>
+        <input type="checkbox" checked={sparse} disabled={!!task} onChange={(e) => setSparse(e.target.checked)} />
+        {t("大仓库：只检出部分目录（克隆后再选）")}
       </label>
       <p className="dim small">{t("用系统 Git 克隆，SSH 密钥和凭据助手里保存的账号照常可用。")}</p>
       {progress && (

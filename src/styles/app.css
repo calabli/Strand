@@ -1406,3 +1406,18 @@ mark.find.find-cur { outline: 2px solid var(--accent); outline-offset: 0; }
 .hooks-run.bad > .small { color: var(--danger); }
 .hooks-run .out-text { min-height: 0; }
 .hooks-btns { display: flex; align-items: center; gap: 8px; }
+
+/* Sparse checkout */
+.pf-sparse { display: flex; align-items: center; gap: 10px; padding: 4px 10px; margin: 0 8px 4px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent-ink); }
+.modal.sparse-win { width: min(620px, 100%); max-height: calc(100vh - 64px); }
+.sp-now { margin: 0; }
+.sp-tree { flex: 1; min-height: 160px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 4px 0; }
+.sp-row { display: flex; align-items: center; gap: 4px; padding-right: 10px; min-height: 26px; }
+.sp-row:hover { background: var(--hover); }
+.sp-twisty { width: 18px; height: 18px; border: 0; background: none; padding: 0; color: var(--fg2); font-size: 11px; flex-shrink: 0; }
+.sp-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; font-size: 12.5px; }
+.sp-label .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-label input:disabled + .mono { color: var(--fg2); }
+.sp-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.sp-sum { margin: 0; }
+.sp-files { margin: 4px 0 0; padding-left: 18px; }

@@ -47,6 +47,7 @@ import { Balloons, NoteHistory } from "./components/Balloons";
 import { notify, type NoteSpec } from "./notify";
 import { MaintenanceWindow } from "./components/MaintenanceWindow";
 import { HooksWindow } from "./components/HooksWindow";
+import { SparseWindow } from "./components/SparseWindow";
 import { CreatePr, PullRequestsView, prGoLabel, prNewLabel, prNo, prWord } from "./components/PullRequests";
 import { EMPTY_UI, LogFilterBar, isFiltered, toFilter, type LogUi } from "./components/LogFilterBar";
 import { Toolbar } from "./components/Toolbar";
@@ -257,6 +258,8 @@ export default function App() {
   const [maintOpen, setMaintOpen] = useState(false);
   /** Git hooks window */
   const [hooksOpen, setHooksOpen] = useState(false);
+  /** Sparse checkout: choose the folders to check out */
+  const [sparseOpen, setSparseOpen] = useState(false);
   const remoteCount = refs?.remotes.length ?? 0;
   useEffect(() => {
     if (!repo?.path) return setHosting(null);
@@ -1462,6 +1465,7 @@ export default function App() {
       { id: "nav-forward", section: v, icon: COMMIT_ICONS.redo, label: t("前进"), hint: hintOf("navForward"), run: goForward },
       { id: "notes", section: v, icon: COMMIT_ICONS.history, label: t("通知记录…"), run: () => setHistoryOpen(true) },
       { id: "stats", section: m, icon: COMMIT_ICONS.history, label: t("贡献统计…"), run: () => setStatsOpen(true) },
+      { id: "sparse", section: m, icon: COMMIT_ICONS.folder, label: t("稀疏检出：只检出需要的目录…"), run: () => setSparseOpen(true) },
       { id: "hooks", section: m, icon: COMMIT_ICONS.gear, label: t("Git 钩子（pre-commit 等）…"), run: () => setHooksOpen(true) },
       { id: "maintenance", section: m, icon: COMMIT_ICONS.gear, label: t("仓库维护（清理、冲突记忆）…"), run: () => setMaintOpen(true) },
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
@@ -1743,6 +1747,7 @@ export default function App() {
               refs={refs}
               onOpen={openFile}
               onMenu={projectFileMenu}
+              onSparse={() => setSparseOpen(true)}
             />
           )}
           {panel === "shelf" && (
@@ -2421,6 +2426,20 @@ export default function App() {
       {treeOf && <TreeWindow id={treeOf.id} title={treeOf.title} onClose={() => setTreeOf(null)} />}
       {maintOpen && repo && <MaintenanceWindow onClose={() => setMaintOpen(false)} onToast={say} />}
       {hooksOpen && repo && <HooksWindow onClose={() => setHooksOpen(false)} onToast={say} />}
+      {sparseOpen && repo && (
+        <SparseWindow
+          onClose={() => setSparseOpen(false)}
+          onApplied={(s) => {
+            // Files appeared or went away on disk: re-read everything that shows them
+            void reload();
+            say({
+              kind: "success",
+              title: s.enabled ? t("已切换到稀疏检出") : t("已检出全部文件"),
+              body: s.enabled ? t("检出了 {0} 个目录，{1} / {2} 个文件", s.dirs.length, s.checked_out.toLocaleString(), s.total_files.toLocaleString()) : t("{0} 个文件都在磁盘上了", s.total_files.toLocaleString()),
+            });
+          }}
+        />
+      )}
       {statsOpen && repo && (
         <StatsWindow
           branch={repo.head.branch ?? t("分离头指针")}

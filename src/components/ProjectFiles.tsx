@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf } from "../api/commands";
-import type { ProjectSearch, RefsList, WorktreeStatus } from "../api/types";
+import type { ProjectSearch, RefsList, SparseState, WorktreeStatus } from "../api/types";
 import { Picker, type PickItem } from "./Picker";
 import { findRegExp } from "./format";
 import { Found } from "./inlineDiff";
@@ -28,9 +28,12 @@ interface Props {
   onOpen: (path: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }) => void;
   /** File context menu (open, compare with another file or the clipboard) */
   onMenu?: (path: string, x: number, y: number) => void;
+  /** Choose which folders to check out (sparse checkout) */
+  onSparse?: () => void;
 }
 
-export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu }: Props) {
+export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu, onSparse }: Props) {
+  const [sparse, setSparse] = useState<SparseState | null>(null);
   const [mode, setMode] = useState<"name" | "content">("name");
   const [files, setFiles] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,10 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu }
     api.projectFiles().then(
       (f) => live && setFiles(f),
       (e) => live && setError(errOf(e).message),
+    );
+    api.sparseState().then(
+      (s) => live && setSparse(s),
+      () => live && setSparse(null),
     );
     return () => {
       live = false;
@@ -117,7 +124,26 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu }
             <path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2v2.5H9" />
           </svg>
         </button>
+        {onSparse && (
+          <button type="button" className={"ib sm" + (sparse?.enabled ? " pressed" : "")} title={t("稀疏检出：只检出需要的目录")} aria-label={t("稀疏检出")} onClick={onSparse}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M1.5 4h5l1 1.5h7v7.5h-13zM5 9.5l2 2 4-4" />
+            </svg>
+          </button>
+        )}
       </div>
+      {sparse?.enabled && (
+        <div className="pf-sparse small">
+          <span>
+            {t("稀疏检出：{0} 个目录，{1} / {2} 个文件", sparse.dirs.length, sparse.checked_out.toLocaleString(), sparse.total_files.toLocaleString())}
+          </span>
+          {onSparse && (
+            <button type="button" className="bal-link" onClick={onSparse}>
+              {t("修改…")}
+            </button>
+          )}
+        </div>
+      )}
       <div className="pf-sub dim small">
         {files ? (query ? t("{0} 个文件匹配", shown.length) + (shown.length >= LIMIT ? t("（只显示前 {0} 个）", LIMIT) : "") : t("{0} 个文件", files.length)) : error ? "" : t("正在读取…")}
       </div>

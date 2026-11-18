@@ -715,6 +715,30 @@ async fn rerere_set(state: State<'_, AppState>, on: bool) -> CmdResult<()> {
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
 
+// ---------- Sparse checkout ----------
+
+#[tauri::command]
+async fn sparse_state(state: State<'_, AppState>) -> CmdResult<strand_core::sparse::SparseState> {
+    let path = repo_path(&state)?;
+    blocking(move || strand_core::sparse::state(&path)).await
+}
+
+/// Every folder in HEAD with its file count, for choosing what to check out
+#[tauri::command]
+async fn sparse_dirs(state: State<'_, AppState>) -> CmdResult<Vec<strand_core::sparse::DirEntry>> {
+    let path = repo_path(&state)?;
+    blocking(move || strand_core::sparse::dirs(&path)).await
+}
+
+/// Check out only these folders (empty: everything again); refreshes the repository afterwards
+#[tauri::command]
+async fn sparse_set(state: State<'_, AppState>, dirs: Vec<String>) -> CmdResult<strand_core::sparse::SparseState> {
+    let path = repo_path(&state)?;
+    let r = blocking(move || if dirs.is_empty() { strand_core::sparse::disable(&path) } else { strand_core::sparse::set(&path, &dirs) }).await?;
+    with_repo(&state, |s| s.reload()).await?;
+    Ok(r)
+}
+
 // ---------- Git hooks ----------
 
 #[tauri::command]
@@ -869,7 +893,7 @@ fn short_path(p: &str) -> String {
 
 /// Clone into dest (full path); progress is pushed via task_progress and task_cancel cancels it. No repository needs to be open.
 #[tauri::command]
-async fn repo_clone(app: AppHandle, state: State<'_, AppState>, task_id: String, url: String, dest: String) -> CmdResult<String> {
+async fn repo_clone(app: AppHandle, state: State<'_, AppState>, task_id: String, url: String, dest: String, sparse: Option<bool>) -> CmdResult<String> {
     let cancel = Cancel::default();
     if let Ok(mut t) = state.tasks.lock() {
         t.insert(task_id.clone(), cancel.clone());
@@ -885,7 +909,7 @@ async fn repo_clone(app: AppHandle, state: State<'_, AppState>, task_id: String,
             }
         };
         let d = std::path::PathBuf::from(&dest);
-        remote::clone(&url, &d, &cancel, &progress).map(|_| dest)
+        remote::clone_with(&url, &d, sparse.unwrap_or(false), &cancel, &progress).map(|_| dest)
     })
     .await
     .map_err(|e| CoreError::git("后台任务异常结束", e))
@@ -1923,6 +1947,9 @@ pub fn run(adopted: Option<u128>) {
             repo_terminal,
             merged_branches,
             contributions,
+            sparse_state,
+            sparse_dirs,
+            sparse_set,
             hooks_list,
             hook_read,
             hook_write,

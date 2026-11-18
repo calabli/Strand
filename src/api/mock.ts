@@ -159,7 +159,7 @@ export const logAuthors = () =>
 
 // ---------- Sample data for the worktree and diffs ----------
 
-import type { HookInfo, BlamePage, CommitCaps, CommitCreated, CommitDetail, FileChange, FileDiff, RebaseRange, RebaseResult, RebaseStep, Selection, ShelfEntry, StashEntry, WorktreeStatus } from "./types";
+import type { HookInfo, SparseState, DirEntry, BlamePage, CommitCaps, CommitCreated, CommitDetail, FileChange, FileDiff, RebaseRange, RebaseResult, RebaseStep, Selection, ShelfEntry, StashEntry, WorktreeStatus } from "./types";
 
 let mockStatus: WorktreeStatus = {
   changes: [
@@ -1303,3 +1303,21 @@ export const hookTry = (name: string) =>
   name === "pre-commit" && mockHooks.find((h) => h.name === name)?.state === "active"
     ? delay({ ok: false, output: "> eslint src\n\nsrc/graph/layout.ts\n  42:7  error  'tmp' is assigned a value but never used\n\n✖ 1 problem (1 error, 0 warnings)" })
     : delay({ ok: true, output: "" });
+
+// Sparse checkout: a monorepo-like folder tree; starts with everything checked out
+const SPARSE_DIRS: DirEntry[] = [
+  ["apps", 1840], ["apps/admin", 420], ["apps/admin/src", 390], ["apps/mobile", 610], ["apps/mobile/src", 580], ["apps/web", 810], ["apps/web/public", 64], ["apps/web/src", 720], ["apps/web/src/components", 310], ["apps/web/src/pages", 150],
+  ["docs", 96], ["packages", 2350], ["packages/core", 640], ["packages/core/src", 600], ["packages/ui", 980], ["packages/ui/src", 930], ["packages/utils", 730], ["packages/utils/src", 700],
+  ["scripts", 18], ["tools", 140], ["tools/codegen", 90], ["tools/lint", 50],
+].map(([path, files]) => ({ path: path as string, files: files as number }));
+let mockSparse: SparseState = { enabled: false, cone: false, dirs: [], total_files: 4460, checked_out: 4460 };
+export const sparseState = () => delay(mockSparse);
+export const sparseDirs = () => delay(SPARSE_DIRS);
+export const sparseSet = (dirs: string[]) => {
+  if (!dirs.length) mockSparse = { enabled: false, cone: false, dirs: [], total_files: 4460, checked_out: 4460 };
+  else {
+    const n = dirs.reduce((a, d) => a + (SPARSE_DIRS.find((x) => x.path === d)?.files ?? 0), 0);
+    mockSparse = { enabled: true, cone: true, dirs: [...dirs].sort(), total_files: 4460, checked_out: n + 16 };
+  }
+  return new Promise<SparseState>((r) => setTimeout(() => r(mockSparse), 700));
+};

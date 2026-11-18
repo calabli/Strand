@@ -945,3 +945,17 @@ export interface HookRun {
   ok: boolean;
   output: string;
 }
+
+/** Sparse checkout: which folders are checked out */
+export interface SparseState {
+  enabled: boolean;
+  cone: boolean;
+  dirs: string[];
+  total_files: number;
+  checked_out: number;
+}
+
+export interface DirEntry {
+  path: string;
+  files: number;
+}

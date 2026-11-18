@@ -194,6 +194,12 @@ fn ref_list(dir: &Path) -> String {
 /// Clone a remote repository into `dest` (listed as out of scope for 1.0 in spec §17 originally, now added).
 /// `dest` doesn't exist or is an empty folder; its parent folder must exist. Half-cloned content is deleted on failure or cancel.
 pub fn clone(url: &str, dest: &Path, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
+    clone_with(url, dest, false, cancel, progress)
+}
+
+/// [`clone`]; with `sparse`, a clone for huge repositories: file contents are downloaded when needed
+/// (`--filter=blob:none`) and only the files in the root are checked out (`--sparse`), so folders can be chosen afterwards
+pub fn clone_with(url: &str, dest: &Path, sparse: bool, cancel: &Cancel, progress: &dyn Fn(Progress)) -> Result<()> {
     let url = url.trim();
     if url.is_empty() || url.starts_with('-') || url.contains('\n') {
         return Err(CoreError::new(ErrorCode::InvalidName, "请填写仓库地址"));
@@ -207,7 +213,12 @@ pub fn clone(url: &str, dest: &Path, cancel: &Cancel, progress: &dyn Fn(Progress
         return Err(CoreError::new(ErrorCode::InvalidName, format!("{} 已经存在而且不是空文件夹", dest.display())));
     }
     let d = dest.to_string_lossy().to_string();
-    let r = run_net(parent, &["clone", "--progress", "--", url, &d], cancel, progress);
+    let mut args = vec!["clone", "--progress"];
+    if sparse {
+        args.extend(["--filter=blob:none", "--sparse"]);
+    }
+    args.extend(["--", url, &d]);
+    let r = run_net(parent, &args, cancel, progress);
     if r.is_err() {
         if existed {
             if let Ok(rd) = std::fs::read_dir(dest) {
