@@ -2,7 +2,7 @@
 
 A cross-platform desktop Git client for macOS and Windows, built with Tauri 2 and a Rust core. Its features and layout follow the Git integration in JetBrains IDEs, so you can commit, browse history and resolve conflicts the same way without opening an IDE. The UI is available in English and Chinese.
 
-Strand is a working name. The current version is 0.1.0.
+Strand is a working name. The current version is 0.1.10.
 
 Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHub Pages by `.github/workflows/pages.yml`).
 
@@ -66,7 +66,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 
 ## Download
 
-Builds come from GitHub Actions. Tagged versions (`v*`) are attached to [Releases](https://github.com/calabli/Strand/releases); every push to `main` also produces downloadable artifacts on the [Actions](https://github.com/calabli/Strand/actions) page.
+Builds come from GitHub Actions. Tagged versions (`v*`) are attached to [Releases](https://github.com/calabli/Strand/releases). Manually triggered builds are available from the [Actions](https://github.com/calabli/Strand/actions) page.
 
 | Platform | Files |
 | --- | --- |
@@ -136,7 +136,7 @@ Output goes to `target/release/bundle/`; the plain executable is `target/release
 - **Build (macOS arm64)**: builds the Apple silicon `.app` and `.dmg` on `macos-latest` (Apple silicon).
 - **Build (Windows x64)**: builds the NSIS installer, the MSI and the portable exe on `windows-latest`.
 
-Artifacts are uploaded for every run. Pushing a tag such as `v0.1.0` also creates a GitHub Release with all the files; its notes list the commit titles since the previous tag.
+Installer artifacts are uploaded for tag builds and manually triggered builds. Pushing a version tag also creates a GitHub Release with the installers and notes for the changes since the previous tag.
 
 ### Releasing a new version
 
