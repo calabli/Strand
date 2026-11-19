@@ -324,25 +324,83 @@ impl Session {
         git_cli::run(self.path(), &args, None).map(|_| ())
     }
 
-    /// Untracked file: add to version control
-    pub fn untracked_add(&self, path: &str) -> Result<()> {
-        git_cli::run(self.path(), &["add", "--", path], None).map(|_| ())
+    /// Resolve a literal file or folder to the currently untracked paths Git can add.
+    /// A trailing slash indicates a folder. Nested repositories aren't treated as files.
+    pub fn untracked_paths(&self, path: &str) -> Result<Vec<String>> {
+        crate::file_history::check_rel_path(path)?;
+        let directory = path.ends_with('/');
+        let listed = git_cli::run(self.path(), &["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--", path], None)?;
+        let paths: Vec<_> = listed.split_terminator('\0')
+            .filter(|name| !name.ends_with('/') && if directory { name.starts_with(path) } else { *name == path })
+            .map(str::to_owned).collect();
+        if paths.is_empty() {
+            return Err(CoreError::new(ErrorCode::NothingSelected, "没有可加入 Git 跟踪的文件"));
+        }
+        Ok(paths)
     }
 
-    /// Untracked file: append its path to .gitignore at the repository root
+    /// Stage only the explicit files discovered by `untracked_paths`, in one index update.
+    pub fn add_untracked_paths(&self, paths: &[String]) -> Result<()> {
+        if paths.is_empty() {
+            return Err(CoreError::new(ErrorCode::NothingSelected, "没有可加入 Git 跟踪的文件"));
+        }
+        let input = paths.join("\0") + "\0";
+        git_cli::run(self.path(), &["--literal-pathspecs", "add", "--pathspec-from-file=-", "--pathspec-file-nul"], Some(&input)).map(|_| ())
+    }
+
+    pub fn untracked_add(&self, path: &str) -> Result<()> {
+        self.add_untracked_paths(&self.untracked_paths(path)?)
+    }
+
+    /// Append a literal, root-relative rule for a file or a folder to `.gitignore`.
     pub fn untracked_ignore(&self, path: &str) -> Result<()> {
+        use std::io::{ErrorKind, Write};
+        crate::file_history::check_rel_path(path)?;
+        if path.contains(['\r', '\n', '\0']) {
+            return Err(CoreError::new(ErrorCode::InvalidName, "这个路径不能写入 .gitignore"));
+        }
         let f = self.path().join(".gitignore");
-        let mut text = std::fs::read_to_string(&f).unwrap_or_default();
-        let line = format!("/{}", path.trim_start_matches('/'));
-        if text.lines().any(|l| l.trim() == line) {
+        let error = |e| CoreError::git("写入 .gitignore 失败", e);
+        let meta = match f.symlink_metadata() {
+            Ok(meta) if meta.is_file() && !meta.permissions().readonly() => Some(meta),
+            Ok(_) => return Err(CoreError::new(ErrorCode::InvalidName, ".gitignore 必须是可写的普通文件")),
+            Err(e) if e.kind() == ErrorKind::NotFound => None,
+            Err(e) => return Err(error(e)),
+        };
+        let text = if meta.is_some() { std::fs::read(&f).map_err(error)? } else { Vec::new() };
+        let mut line = String::from("/");
+        for ch in path.chars() {
+            if matches!(ch, '\\' | '*' | '?' | '[' | ']' | ' ' | '#' | '!') { line.push('\\'); }
+            line.push(ch);
+        }
+        if text.split(|b| *b == b'\n').any(|l| l.strip_suffix(b"\r").unwrap_or(l) == line.as_bytes()) {
             return Ok(());
         }
-        if !text.is_empty() && !text.ends_with('\n') {
-            text.push('\n');
+        let ending: &[u8] = if text.windows(2).any(|pair| pair == b"\r\n") { b"\r\n" } else { b"\n" };
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(".strand-ignore-");
+        #[cfg(unix)]
+        if meta.is_none() {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o666));
         }
-        text.push_str(&line);
-        text.push('\n');
-        std::fs::write(&f, text).map_err(|e| CoreError::git("写入 .gitignore 失败", e))
+        let mut pending = builder.tempfile_in(self.path()).map_err(error)?;
+        pending.write_all(&text).map_err(error)?;
+        if !text.is_empty() && !text.ends_with(b"\n") {
+            pending.write_all(ending).map_err(error)?;
+        }
+        pending.write_all(line.as_bytes()).map_err(error)?;
+        pending.write_all(ending).map_err(error)?;
+        if let Some(meta) = meta {
+            pending.as_file().set_permissions(meta.permissions()).map_err(error)?;
+            if !f.symlink_metadata().is_ok_and(|m| m.is_file()) || std::fs::read(&f).ok().as_deref() != Some(&text) {
+                return Err(CoreError::new(ErrorCode::StateDiverged, ".gitignore 已变化，请重试"));
+            }
+            pending.persist(&f).map_err(|e| error(e.error))?;
+        } else {
+            pending.persist_noclobber(&f).map_err(|e| error(e.error))?;
+        }
+        Ok(())
     }
 
     /// Untracked file: move to the system Trash (not deleted directly)

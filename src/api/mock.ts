@@ -603,14 +603,22 @@ export function changesDiscard(paths: string[]) {
   mockStatus = { ...mockStatus, changes: mockStatus.changes.filter((c) => !paths.includes(c.path)) };
   return ok(null, paths.length === 1 ? `丢弃 ${paths[0]} 的改动` : `丢弃 ${paths.length} 个文件的改动`, "other");
 }
+const hiddenProjectPaths = new Set<string>();
 export function untracked(kind: "add" | "ignore" | "delete", path: string) {
-  mockStatus = { ...mockStatus, untracked: mockStatus.untracked.filter((u) => u !== path) };
+  const matches = (file: string) => path.endsWith("/") ? file.startsWith(path) : file === path;
+  const files = mockStatus.untracked.filter(matches);
+  mockStatus = { ...mockStatus, untracked: mockStatus.untracked.filter((u) => !matches(u)) };
   if (kind === "add") {
-    mockStatus = { ...mockStatus, changes: [...mockStatus.changes, { path, status: "A", added: 3, deleted: 0, binary: false }] };
+    mockStatus = { ...mockStatus, changes: [...mockStatus.changes, ...files.map((path) => ({ path, status: "A" as const, added: 3, deleted: 0, binary: false }))] };
     return ok(null, `把 ${path} 加入版本控制`, "other");
   }
-  if (kind === "ignore" && !mockStatus.untracked.includes(".gitignore") && !mockStatus.changes.some((c) => c.path === ".gitignore"))
-    mockStatus = { ...mockStatus, untracked: [...mockStatus.untracked, ".gitignore"] };
+  files.forEach((file) => hiddenProjectPaths.add(file));
+  if (kind === "ignore") {
+    if (!mockStatus.changes.some((c) => c.path === ".gitignore")) {
+      mockStatus = { ...mockStatus, changes: [...mockStatus.changes, { path: ".gitignore", status: "M", added: 1, deleted: 0, binary: false }] };
+    }
+    return ok(null, `把 ${path} 加入忽略规则`, "other");
+  }
   return ok(null);
 }
 
@@ -795,7 +803,21 @@ const SAMPLES: Record<string, string> = {
   "data/regions.csv": `城市,人口（万）,备注\n上海,2487,"直辖市, 沿海"\n北京,2185,首都\n深圳,1768,"""鹏城"""\n成都,2140,\n`,
   "data/settings.json": `{"name":"strand-app","version":"0.4.0","features":{"graph":true,"lanes":[1,2,3],"theme":null},"authors":[{"name":"A","email":"a@example.com"},{"name":"B"}]}\n`,
 };
-export const projectFiles = () => delay(PROJECT);
+const pastedImages = new Map<string, ArrayBuffer>();
+export const projectFiles = () => delay([...PROJECT, ...pastedImages.keys()].filter((path) => !hiddenProjectPaths.has(path)));
+
+export function pasteMarkdownImage(document: string, bytes: ArrayBuffer, mime: string) {
+  const slash = document.lastIndexOf("/") + 1;
+  const folder = document.slice(slash).replace(/\.[^.]+$/, "") + ".assets";
+  const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp", "image/avif": "avif" } as Record<string, string>)[mime];
+  if (!ext) return Promise.reject({ code: "INVALID_NAME", message: "不支持此图片格式" });
+  const base = document.slice(0, slash) + folder + "/";
+  let name = `image.${ext}`;
+  for (let i = 2; pastedImages.has(base + name); i++) name = `image-${i}.${ext}`;
+  pastedImages.set(base + name, bytes);
+  mockStatus = { ...mockStatus, untracked: [...mockStatus.untracked, base + name] };
+  return delay(`${folder}/${name}`);
+}
 
 export function fileText(path: string, rev: string | null) {
   if (path in SAMPLES) return delay({ path, text: SAMPLES[path], binary: false, missing: false, size: SAMPLES[path].length, truncated: false });
@@ -1059,6 +1081,8 @@ export function changelistsSet(c: Changelists): Promise<Changelists> {
 
 /** Sample images: the old version is a blue circle, the new one (worktree or commit) an orange square of a different size; in a parent revision ending with "^" an added image doesn't exist */
 export async function fileBytes(path: string, rev: string | null): Promise<ArrayBuffer> {
+  const pasted = rev == null ? pastedImages.get(path) : undefined;
+  if (pasted) return delay(pasted);
   if (path in SAMPLES) return delay(new TextEncoder().encode(SAMPLES[path]).buffer as ArrayBuffer);
   if (!/\.(png|jpe?g|gif|webp)$/i.test(path)) return delay(new TextEncoder().encode(`PK\x03\x04 ${path} sample bytes 0123456789`).buffer as ArrayBuffer);
   const old = !!rev && (rev === "HEAD" || rev.endsWith("^"));

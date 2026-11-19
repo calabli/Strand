@@ -14,6 +14,7 @@ use crate::repo::Session;
 
 /// Read at most this many bytes of file content; truncate beyond
 const MAX_BYTES: usize = 4 << 20;
+pub(crate) const MAX_PREVIEW_BYTES: usize = 30 << 20;
 /// List at most this many versions in the change chain
 pub const MAX_VERSIONS: usize = 2000;
 
@@ -336,13 +337,12 @@ impl Session {
 
     fn file_bytes_raw(&self, path: &str, rev: Option<&str>) -> Result<Vec<u8>> {
         check_rel_path(path)?;
-        const MAX: usize = 30 << 20;
         let too_big = || CoreError::new(ErrorCode::InvalidRange, "文件太大（超过 30 MB），不显示");
         match rev {
             None => {
                 let full = self.path().join(path);
                 let meta = std::fs::metadata(&full).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
-                if meta.len() as usize > MAX {
+                if meta.len() as usize > MAX_PREVIEW_BYTES {
                     return Err(too_big());
                 }
                 std::fs::read(&full).map_err(|e| CoreError::git("读取文件失败", e))
@@ -354,7 +354,7 @@ impl Session {
                 let idx = repo.index().map_err(|e| CoreError::git("读取索引失败", e))?;
                 let e = idx.get_path(std::path::Path::new(path), stage).ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("这一方没有 {path}")))?;
                 let blob = repo.find_blob(e.id).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("这一方没有 {path}")))?;
-                if blob.size() > MAX {
+                if blob.size() > MAX_PREVIEW_BYTES {
                     return Err(too_big());
                 }
                 Ok(blob.content().to_vec())
@@ -363,7 +363,7 @@ impl Session {
                 let repo = self.git2()?;
                 let obj = repo.revparse_single(&format!("{r}:{path}")).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("这个版本里没有 {path}")))?;
                 let blob = obj.peel_to_blob().map_err(|_| CoreError::new(ErrorCode::NotFound, format!("这个版本里没有 {path}")))?;
-                if blob.size() > MAX {
+                if blob.size() > MAX_PREVIEW_BYTES {
                     return Err(too_big());
                 }
                 Ok(blob.content().to_vec())

@@ -25,8 +25,9 @@ import { t, tr } from "../i18n";
 import { setSettings, useSettings } from "../settings";
 import { Hi, indentStyle, indentUnit } from "./inlineDiff";
 import { EditFile } from "./EditFile";
-import { Crumbs, useTopLine } from "./Crumbs";
+import { Crumbs } from "./Crumbs";
 import { ImageDiff, isImage } from "./ImageDiff";
+import { LineRollbackGutter, type RollbackControls } from "./lineRollback";
 
 interface Props {
   diff: FileDiff | null;
@@ -35,6 +36,8 @@ interface Props {
   /** Source label shown after the title, e.g. "worktree" or a short hash */
   source: string;
   onClose: () => void;
+  rollback?: RollbackControls;
+  worktreeRead?: number;
   /** Line checks: when given, show checkboxes. Line keys are "blockIndex:lineIndex" */
   pick?: {
     excluded: Set<string>;
@@ -163,7 +166,7 @@ function Ico({ d }: { d: string }) {
   );
 }
 
-export function DiffView({ diff, loading, error, source, onClose, pick, compact, onExpand, find: findProp, files, readOnly, blameSides, onLocate, editable, imageSides }: Props) {
+export function DiffView({ diff, loading, error, source, onClose, rollback, worktreeRead, pick, compact, onExpand, find: findProp, files, readOnly, blameSides, onLocate, editable, imageSides }: Props) {
   const [cur, setCur] = useState(0);
   /** Editing: which line to open at */
   const [editAt, setEditAt] = useState<number | null>(null);
@@ -335,14 +338,14 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   const whole = !!diff && diff.hunks.length === 1 && diff.hunks[0].old_start <= 1 && diff.hunks[0].new_start <= 1;
   // Block headers: shown when only lines around changes are available; also shown with line checks but no mapping table (the whole-block checkbox is on it)
   const pickKeys = pick?.keys;
-  const segs = useMemo(() => (diff ? segmentsOf(diff, ignoreWs, (!!pick && !pickKeys) || !whole) : []), [diff, ignoreWs, pick, pickKeys, whole]);
+  const headers = (!!pick && !pickKeys) || !whole;
+  const segs = useMemo(() => (diff ? segmentsOf(diff, ignoreWs, headers) : []), [diff, ignoreWs, headers]);
   // Breadcrumbs: infer which function or class the top line is in from the new version's lines (the whole new file when showing the whole file)
   const newText = useMemo(() => {
     const m = new Map<number, string>();
     for (const h of diff?.hunks ?? []) for (const l of h.lines) if (l.kind !== "del" && l.new_no) m.set(l.new_no, l.text);
     return (k: number) => m.get(k);
   }, [diff]);
-  const top = useTopLine(box, [segs, diffView, opened, fold, wrap]);
   /** Which line editing opens at: the first new-version line of the current change (the nearest following line when it's only deletions) */
   const editLine = () => {
     const i = segs.findIndex((s) => s.kind === "chg" && s.id === cur);
@@ -442,9 +445,17 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
     </button>
   );
 
+  const rollbackGutter = (it: Item) => {
+    if (!rollback) return null;
+    const row = it.kind === "add" ? rollback.current.get(it.line.new_no ?? 0) : it.kind === "del" ? rollback.previous.get(it.line.old_no ?? 0) : undefined;
+    const matches = it.kind === "add" ? row?.new_text === it.line.text : row?.new_no === null && row.old_text === it.line.text;
+    return <LineRollbackGutter row={!loading && matches ? row : undefined} controls={rollback} />;
+  };
+
   /** A line in the unified view */
   const uLine = (it: Item, k: string | number) => (
     <div key={k} data-n={it.kind !== "del" ? it.line.new_no ?? undefined : undefined} className={`dl dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
+      {rollbackGutter(it)}
       {check(it)}
       {it.kind === "del" ? ann(0, it.line.old_no) : ann(1, it.line.new_no)}
       <span className="ln">{it.kind === "add" ? "" : it.same ? "" : it.line.old_no ?? ""}</span>
@@ -503,6 +514,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
   /** A line on one side of the side-by-side view */
   const sLine = (it: Item, side: 0 | 1, k: string | number) => (
     <div key={k} data-n={side === 1 ? it.line.new_no ?? undefined : undefined} className={`sl-line s${side} dl-${it.kind}` + (pick ? " pickable" : "") + off(it) + (it.same ? " ws-same" : "") + found(it)} title={it.same ? t("只有空白不同") : undefined}>
+      {rollbackGutter(it)}
       {check(it.kind !== "context" ? it : undefined)}
       {ann(side, side === 0 ? it.line.old_no : it.line.new_no)}
       <span className="ln">{(side === 0 ? it.line.old_no : it.line.new_no) ?? ""}</span>
@@ -547,7 +559,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
       className={"diff" + (compact ? " compact" : "")}
       onKeyDown={(e) => {
         // ⌥↑ ⌥↓ previous and next change; ⌥← ⌥→ previous and next file
-        if (!e.altKey) return;
+        if (!e.altKey || editAt != null) return;
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           e.preventDefault();
           go(e.key === "ArrowDown" ? 1 : -1);
@@ -558,12 +570,12 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
       }}
     >
       <div className="diff-bar">
-        {files && files.total > 1 && (
+        {files && (
           <span className="diff-files">
             <button type="button" className="ib" onClick={() => files.go(-1)} title={t("上一个文件（⌥←）")} aria-label={t("上一个文件")}>
               ←
             </button>
-            <span className="dim">{t("{0} / {1} 个文件", files.at + 1, files.total)}</span>
+            <span className="dim">{files.at < 0 ? t("{0} 个文件有改动", files.total) : t("{0} / {1} 个文件", files.at + 1, files.total)}</span>
             <button type="button" className="ib" onClick={() => files.go(1)} title={t("下一个文件（⌥→）")} aria-label={t("下一个文件")}>
               →
             </button>
@@ -671,7 +683,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
           ×
         </button>
       </div>
-      {!compact && diff && !diff.binary && n > 0 && <Crumbs path={diff.path} get={newText} top={top} box={box} />}
+      {!compact && diff && !diff.binary && n > 0 && <Crumbs path={diff.path} get={newText} box={box} layout={[segs, diffView, opened, fold, wrap, lineNo, blameOn]} />}
       <div className="diff-main">
         <FindBar f={finder} host={box} onLine={(n) => goToLine(box.current, n)} />
         <div
@@ -708,7 +720,7 @@ export function DiffView({ diff, loading, error, source, onClose, pick, compact,
         {diff && !diff.binary && n > 0 && <Ruler body={box} deps={[segs, opened, fold, diffView, wrap, lineNo, blameOn]} onPick={(i) => (setCur(i), scrollTo(i, false))} />}
       </div>
       {menu && <Menu menu={menu} onClose={() => setMenu(null)} />}
-      {editable && editAt != null && <EditFile path={editable.path} line={editAt} onClose={() => setEditAt(null)} onSaved={editable.onSaved} />}
+      {editable && editAt != null && <EditFile path={editable.path} line={editAt} rollback={rollback} worktreeRead={worktreeRead} onClose={() => setEditAt(null)} onSaved={editable.onSaved} />}
     </div>
   );
 }

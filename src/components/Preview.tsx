@@ -2,11 +2,11 @@
 // video, a binary file's textconv text, and preview plugins. Plugins run in a sandboxed frame (no access to Strand,
 // the repository or the network) and are sent the file's bytes once their page says it's ready.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, errOf, openUrl } from "../api/commands";
-import type { FileText, PreviewPlugin, Textconv } from "../api/types";
-import { type Choice, extOf, isDark, pluginUrl } from "../preview";
-import { jump } from "../nav";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { api, errOf, inTauri } from "../api/commands";
+import type { PreviewPlugin, Textconv } from "../api/types";
+import { extOf, isDark, matchesExtensions, pluginUrl, type Choice, type PreviewInput, type PreviewProvider } from "../preview";
+import { markdownProvider } from "./MarkdownPreview";
 import { useSettings } from "../settings";
 import { t, tr, lang } from "../i18n";
 
@@ -22,11 +22,10 @@ const MIME: Record<string, string> = {
 type Bytes = { buf: ArrayBuffer | null; error: string | null };
 
 /** The file's raw bytes at a revision (worktree when rev is null) */
-function useBytes(path: string, rev: string | null, on = true): Bytes {
+function useBytes(path: string, rev: string | null, reloadKey?: number): Bytes {
   const [st, setSt] = useState<Bytes & { key: string }>({ key: "", buf: null, error: null });
-  const key = `${path}@${rev ?? ""}`;
+  const key = JSON.stringify([path, rev, reloadKey]);
   useEffect(() => {
-    if (!on) return;
     let live = true;
     api.fileBytes(path, rev).then(
       (buf) => live && setSt({ key, buf, error: null }),
@@ -35,43 +34,50 @@ function useBytes(path: string, rev: string | null, on = true): Bytes {
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, on]);
+  }, [key, path, rev]);
   return st.key === key ? st : { buf: null, error: null };
 }
 
 /** A blob URL for the bytes, revoked when they change */
 function useBlobUrl(buf: ArrayBuffer | null, type: string): string | null {
-  const url = useMemo(() => (buf ? URL.createObjectURL(new Blob([buf], { type })) : null), [buf, type]);
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
-  return url;
+  const [file, setFile] = useState<{ buf: ArrayBuffer; type: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!buf) return;
+    const url = URL.createObjectURL(new Blob([buf], { type }));
+    setFile({ buf, type, url });
+    return () => URL.revokeObjectURL(url);
+  }, [buf, type]);
+  return file?.buf === buf && file.type === type ? file.url : null;
 }
 
-export function PreviewPane({ choice, path, rev, file }: { choice: Choice; path: string; rev: string | null; file: FileText | null }) {
-  const p = choice.plugin;
+const format = (id: string, label: () => string, extensions: string[], View: PreviewProvider["View"]): PreviewProvider => ({ id, label, matches: matchesExtensions(extensions), View });
+
+/** The host uses the same input for every built-in viewer. New local formats register here. */
+export const previewProviders: readonly PreviewProvider[] = [
+  markdownProvider,
+  format("image", () => t("图片"), ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "svg"], (input) => <MediaView {...input} kind="image" />),
+  format("csv", () => t("表格"), ["csv", "tsv"], ({ path, file }) => <CsvView text={file?.text ?? ""} tsv={extOf(path) === "tsv"} />),
+  format("json", () => t("JSON 树"), ["json", "geojson", "webmanifest"], ({ file }) => <JsonView text={file?.text ?? ""} />),
+  format("pdf", () => "PDF", ["pdf"], (input) => <MediaView {...input} kind="pdf" />),
+  format("audio", () => t("音频"), ["mp3", "wav", "ogg", "oga", "m4a", "flac", "aac", "opus"], (input) => <MediaView {...input} kind="audio" />),
+  format("video", () => t("视频"), ["mp4", "webm", "mov", "m4v", "ogv"], (input) => <MediaView {...input} kind="video" />),
+  { id: "textconv", label: () => t("转成文本（textconv）"), matches: ({ file }) => !!file?.binary && !!file.textconv, View: TextconvView },
+];
+
+export function PreviewPane({ choice, ...input }: PreviewInput & { choice: Choice }) {
   return (
     <div className="pv">
-      {p ? (
-        <PluginFrame plugin={p} path={path} rev={rev} />
-      ) : choice.builtin === "markdown" ? (
-        <MarkdownView path={path} rev={rev} text={file?.text ?? ""} />
-      ) : choice.builtin === "csv" ? (
-        <CsvView text={file?.text ?? ""} tsv={extOf(path) === "tsv"} />
-      ) : choice.builtin === "json" ? (
-        <JsonView text={file?.text ?? ""} />
-      ) : choice.builtin === "textconv" ? (
-        <TextconvView path={path} rev={rev} />
-      ) : (
-        <MediaView kind={choice.builtin ?? "image"} path={path} rev={rev} />
-      )}
+      {choice.provider ? <choice.provider.View {...input} /> : inTauri ? (
+        <PluginFrame key={JSON.stringify([choice.plugin.id, choice.plugin.version, choice.plugin.entry, input.path, input.rev])} plugin={choice.plugin} {...input} />
+      ) : <p className="pad dim">{t("预览插件需要在 Strand 桌面应用中运行")}</p>}
     </div>
   );
 }
 
 // ---------- Images, PDF, audio, video ----------
 
-function MediaView({ kind, path, rev }: { kind: string; path: string; rev: string | null }) {
-  const b = useBytes(path, rev);
+function MediaView({ kind, path, rev, reloadKey }: PreviewInput & { kind: "image" | "pdf" | "audio" | "video" }) {
+  const b = useBytes(path, rev, reloadKey);
   const url = useBlobUrl(b.buf, MIME[extOf(path)] ?? "application/octet-stream");
   const [fit, setFit] = useState(true);
   // Keyed by the URL so a newer image never shows an older one's size
@@ -121,93 +127,6 @@ function MediaView({ kind, path, rev }: { kind: string; path: string; rev: strin
     </div>
   );
 }
-
-// ---------- Markdown ----------
-
-/** A path relative to a file, inside the repository ("" when it leaves the repository) */
-function resolveRel(from: string, rel: string): string {
-  const base = rel.startsWith("/") ? [] : from.split("/").slice(0, -1);
-  for (const part of rel.replace(/^\//, "").split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      if (!base.length) return "";
-      base.pop();
-    } else base.push(part);
-  }
-  return base.join("/");
-}
-
-function MarkdownView({ path, rev, text }: { path: string; rev: string | null; text: string }) {
-  const box = useRef<HTMLDivElement>(null);
-  const [html, setHtml] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    // Loaded on first use: the editor bundle stays small
-    Promise.all([import("marked"), import("dompurify")]).then(([{ marked }, { default: purify }]) => {
-      const raw = marked.parse(text, { gfm: true, breaks: false, async: false }) as string;
-      if (live) setHtml(purify.sanitize(raw, { FORBID_TAGS: ["style", "form", "input", "button"], FORBID_ATTR: ["style"] }));
-    });
-    return () => {
-      live = false;
-    };
-  }, [text]);
-
-  // Images: ones in the repository are read at the same revision; ones on the web aren't loaded (no network)
-  useEffect(() => {
-    const el = box.current;
-    if (!el || html === null) return;
-    const urls: string[] = [];
-    let live = true;
-    for (const img of Array.from(el.querySelectorAll("img"))) {
-      const src = img.getAttribute("src") ?? "";
-      if (/^(https?:)?\/\//i.test(src)) {
-        const s = document.createElement("span");
-        s.className = "md-ext-img";
-        s.textContent = img.alt ? t("[网上的图片：{0}]", img.alt) : t("[网上的图片]");
-        s.title = src;
-        img.replaceWith(s);
-        continue;
-      }
-      if (/^(data:|blob:)/i.test(src)) continue;
-      const target = resolveRel(path, decodeURIComponent(src.split(/[?#]/)[0]));
-      img.removeAttribute("src");
-      if (!target) continue;
-      api.fileBytes(target, rev).then(
-        (buf) => {
-          if (!live) return;
-          const u = URL.createObjectURL(new Blob([buf], { type: MIME[extOf(target)] ?? "image/png" }));
-          urls.push(u);
-          img.src = u;
-        },
-        () => img.classList.add("md-missing"),
-      );
-    }
-    return () => {
-      live = false;
-      urls.forEach((u) => URL.revokeObjectURL(u));
-    };
-  }, [html, path, rev]);
-
-  const onClick = (e: React.MouseEvent) => {
-    const a = (e.target as HTMLElement).closest("a");
-    if (!a) return;
-    const href = a.getAttribute("href") ?? "";
-    e.preventDefault();
-    if (/^(https?:|mailto:)/i.test(href)) return void openUrl(href);
-    if (href.startsWith("#")) {
-      const id = decodeURIComponent(href.slice(1));
-      const head = Array.from(box.current?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? []).find((h) => slug(h.textContent ?? "") === id);
-      return head?.scrollIntoView({ block: "start" });
-    }
-    const target = resolveRel(path, decodeURIComponent(href.split("#")[0]));
-    if (target) jump({ path: target, line: 1 }, { path, line: 1 });
-  };
-
-  if (html === null) return <p className="pad dim">{t("正在读取…")}</p>;
-  return <div className="md-body" ref={box} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-const slug = (s: string) => s.trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").replace(/\s+/g, "-");
 
 // ---------- CSV ----------
 
@@ -344,7 +263,7 @@ function JsonNode({ k, v, depth }: { k: string | null; v: unknown; depth: number
 
 // ---------- textconv ----------
 
-function TextconvView({ path, rev }: { path: string; rev: string | null }) {
+function TextconvView({ path, rev, reloadKey }: PreviewInput) {
   const [st, setSt] = useState<{ data: Textconv | null; error: string | null }>({ data: null, error: null });
   useEffect(() => {
     let live = true;
@@ -356,7 +275,7 @@ function TextconvView({ path, rev }: { path: string; rev: string | null }) {
     return () => {
       live = false;
     };
-  }, [path, rev]);
+  }, [path, rev, reloadKey]);
   if (st.error) return <p className="pad err">{tr(st.error)}</p>;
   if (!st.data) return <p className="pad dim">{t("正在转换…")}</p>;
   return (
@@ -373,16 +292,14 @@ function TextconvView({ path, rev }: { path: string; rev: string | null }) {
 
 // ---------- Plugins ----------
 
-function PluginFrame({ plugin, path, rev }: { plugin: PreviewPlugin; path: string; rev: string | null }) {
+function PluginFrame({ plugin, path, rev, reloadKey }: PreviewInput & { plugin: PreviewPlugin }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const b = useBytes(path, rev);
+  const b = useBytes(path, rev, reloadKey);
   const [ready, setReady] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   const theme = useSettings().theme;
-  // A new page for every file: plugins start from a clean slate
-  const src = useMemo(() => pluginUrl(plugin) + `?n=${encodeURIComponent(path)}@${rev ?? ""}`, [plugin, path, rev]);
-  useEffect(() => setReady(false), [src]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow) return;
       const m = e.data as { type?: string } | null;
@@ -392,13 +309,20 @@ function PluginFrame({ plugin, path, rev }: { plugin: PreviewPlugin; path: strin
     return () => window.removeEventListener("message", onMsg);
   }, []);
 
+  useEffect(() => {
+    if (ready) return;
+    const timer = window.setTimeout(() => setTimedOut(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+
   // Send the file once the page is ready (a copy: the bytes stay usable here)
   useEffect(() => {
     const w = frame.current?.contentWindow;
     if (!ready || !b.buf || !w) return;
     const name = path.slice(path.lastIndexOf("/") + 1);
-    w.postMessage({ type: "strand:file", name, path, ext: extOf(path), rev, size: b.buf.byteLength, bytes: b.buf.slice(0), theme: isDark() ? "dark" : "light", lang }, "*");
-  }, [ready, b.buf, path, rev]);
+    const bytes = b.buf.slice(0);
+    w.postMessage({ type: "strand:file", apiVersion: 1, name, path, ext: extOf(path), rev, size: bytes.byteLength, bytes, theme: isDark() ? "dark" : "light", lang }, "*", [bytes]);
+  }, [ready, b.buf, path, rev, lang]);
 
   useEffect(() => {
     if (ready) frame.current?.contentWindow?.postMessage({ type: "strand:theme", theme: isDark() ? "dark" : "light" }, "*");
@@ -407,10 +331,10 @@ function PluginFrame({ plugin, path, rev }: { plugin: PreviewPlugin; path: strin
   return (
     <div className="pv-plugin">
       {b.error && <p className="pad err">{tr(b.error)}</p>}
+      {!ready && <p className={timedOut ? "pad err" : "pad dim"}>{timedOut ? t("预览插件没有响应") : t("正在启动预览插件…")}</p>}
       <iframe
         ref={frame}
-        key={src}
-        src={src}
+        src={pluginUrl(plugin)}
         title={t("插件 {0}", plugin.name)}
         // Scripts only: no same-origin (so no access to Strand), no forms, popups or top navigation
         sandbox="allow-scripts"

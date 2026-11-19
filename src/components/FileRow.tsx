@@ -173,6 +173,7 @@ export function FileTree<T>({
   forceOpen,
   root,
   dirLead,
+  dirInfo,
 }: {
   items: T[];
   pathOf: (x: T) => string;
@@ -185,6 +186,8 @@ export function FileTree<T>({
   root?: string;
   /** The control at the very start of a directory row (commit panel: check the whole directory); the argument is all files under it */
   dirLead?: (items: T[]) => ReactNode;
+  /** Custom count and menu for a directory, keyed by its repository-relative path */
+  dirInfo?: (path: string) => { countLabel?: string; untracked?: boolean; onMenu: (x: number, y: number) => void } | undefined;
 }) {
   // Records directories in the opposite of the default state: collapsed ones when expanded by default, expanded ones when collapsed by default
   const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
@@ -199,14 +202,28 @@ export function FileTree<T>({
   const dir = (d: TreeDir<T>, depth: number): ReactNode => {
     const open = isOpen(d.path);
     const isRoot = d.path.startsWith("\u0000");
+    const info = dirInfo?.(isRoot ? "" : d.path);
     const head = (
         <button
           type="button"
-          className={"fdir mono" + (isRoot ? " froot" : "")}
+          className={"fdir mono" + (isRoot ? " froot" : "") + (info?.untracked ? " git-untracked" : "")}
           style={dirLead ? undefined : { paddingLeft: indentOf(depth) }}
-          title={isRoot ? d.name : d.path.replace(/\/$/, "")}
+          title={isRoot ? d.name : d.path.replace(/\/$/, "") + (info?.untracked ? ` · ${t("仅含 Git 未跟踪文件")}` : "")}
           aria-expanded={open}
+          aria-haspopup={info ? "menu" : undefined}
           onClick={() => !forceOpen && toggle(d.path)}
+          onContextMenu={info && ((e) => {
+            e.preventDefault();
+            e.currentTarget.focus();
+            info.onMenu(e.clientX, e.clientY);
+          })}
+          onKeyDown={info && ((e) => {
+            if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+              e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              info.onMenu(r.left + 40, r.bottom);
+            }
+          })}
         >
           <span className={"fdir-caret" + (open ? " open" : "")} aria-hidden="true">
             ▸
@@ -217,7 +234,7 @@ export function FileTree<T>({
             {isRoot && <rect x="8" y="8" width="5" height="5" rx="1.2" fill="var(--accent)" stroke="var(--win)" strokeWidth="1" />}
           </svg>
           <span className="fdir-name">{d.name}</span>
-          <span className="dim fdir-count">{t("{0} 个文件", d.count)}</span>
+          <span className={info?.countLabel ? "fdir-count fdir-changed" : "dim fdir-count"}>{info?.countLabel ?? t("{0} 个文件", d.count)}</span>
         </button>
     );
     return (

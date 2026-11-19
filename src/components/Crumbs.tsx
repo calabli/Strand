@@ -98,15 +98,16 @@ export function scopesAt(get: (k: number) => string | undefined, n: number, mark
 }
 
 /** Follow scrolling and give the line number of the top visible line (lines carry data-n) */
-export function useTopLine(box: RefObject<HTMLElement | null>, deps: unknown[]): number {
+function useTopLine(box: RefObject<HTMLElement | null>, layout: readonly unknown[]): number {
   const [top, setTop] = useState(1);
   useEffect(() => {
     const el = box.current;
     if (!el) return;
+    // The row set only changes when the file or display layout changes.
+    const rows = el.querySelectorAll<HTMLElement>("[data-n]");
     let raf = 0;
     const measure = () => {
       raf = 0;
-      const rows = el.querySelectorAll<HTMLElement>("[data-n]");
       if (!rows.length) return setTop(1);
       const y = el.getBoundingClientRect().top + 2;
       // Document order is top to bottom: binary search for the first line whose bottom edge is visible
@@ -128,12 +129,14 @@ export function useTopLine(box: RefObject<HTMLElement | null>, deps: unknown[]):
       if (raf) cancelAnimationFrame(raf);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [box, ...layout]);
   return top;
 }
 
 /** The breadcrumb bar: file name › outer › inner; clicking a level scrolls to that line (the file name goes to the top) */
-export function Crumbs({ path, get, top, box }: { path: string; get: (k: number) => string | undefined; top: number; box: RefObject<HTMLElement | null> }) {
+export function Crumbs({ path, get, box, layout }: { path: string; get: (k: number) => string | undefined; box: RefObject<HTMLElement | null>; layout: readonly unknown[] }) {
+  // Scrolling updates this bar without rendering the text or diff again.
+  const top = useTopLine(box, layout);
   const md = /\.(md|markdown|mdx)$/i.test(path);
   const scopes = useMemo(() => scopesAt(get, top, md), [get, top, md]);
   const jump = (n: number | null) => {

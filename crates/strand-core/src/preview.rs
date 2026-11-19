@@ -138,8 +138,12 @@ struct Manifest {
     name: Option<String>,
     version: Option<String>,
     description: Option<String>,
+    #[serde(rename = "apiVersion")]
+    api_version: Option<u32>,
     #[serde(default)]
     extensions: Vec<String>,
+    #[serde(default)]
+    filenames: Vec<String>,
     entry: Option<String>,
 }
 
@@ -150,8 +154,12 @@ pub struct Plugin {
     pub name: String,
     pub version: String,
     pub description: String,
+    #[serde(rename = "apiVersion")]
+    pub api_version: u32,
     /// Lowercase, without the dot; "*" means any file
     pub extensions: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub filenames: Vec<String>,
     /// The page inside the folder
     pub entry: String,
     /// Why it can't be used (bad manifest, missing page); such plugins aren't offered
@@ -173,7 +181,7 @@ pub fn plugins(root: &Path) -> Vec<Plugin> {
     let Ok(rd) = std::fs::read_dir(root) else { return Vec::new() };
     let mut list: Vec<Plugin> = rd
         .flatten()
-        .filter(|e| e.path().is_dir())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .filter_map(|e| {
             let id = e.file_name().to_string_lossy().into_owned();
             valid_id(&id).then(|| load(&e.path(), id))
@@ -184,7 +192,7 @@ pub fn plugins(root: &Path) -> Vec<Plugin> {
 }
 
 fn load(dir: &Path, id: String) -> Plugin {
-    let mut p = Plugin { name: id.clone(), id, version: String::new(), description: String::new(), extensions: Vec::new(), entry: "index.html".into(), error: None };
+    let mut p = Plugin { name: id.clone(), id, version: String::new(), description: String::new(), api_version: 1, extensions: Vec::new(), filenames: Vec::new(), entry: "index.html".into(), error: None };
     let text = match std::fs::read_to_string(dir.join("manifest.json")) {
         Ok(t) => t,
         Err(_) => {
@@ -204,15 +212,27 @@ fn load(dir: &Path, id: String) -> Plugin {
     }
     p.version = m.version.unwrap_or_default();
     p.description = m.description.unwrap_or_default();
+    p.api_version = m.api_version.unwrap_or(1);
     p.extensions = m.extensions.iter().map(|e| e.trim().trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()).collect();
+    p.filenames = m.filenames.iter().map(|name| name.trim().to_lowercase()).filter(|name| !name.is_empty()).collect();
+    p.extensions.sort();
+    p.extensions.dedup();
+    p.filenames.sort();
+    p.filenames.dedup();
     if let Some(e) = m.entry {
         p.entry = e.trim().to_string();
     }
-    if p.extensions.is_empty() {
-        p.error = Some("manifest.json 里没有写 extensions（要显示哪些文件）".into());
+    if p.api_version != 1 {
+        p.error = Some(format!("不支持预览插件 API 版本 {}", p.api_version));
+    } else if p.extensions.is_empty() && p.filenames.is_empty() {
+        p.error = Some("manifest.json 里需要 extensions 或 filenames".into());
+    } else if p.filenames.iter().any(|s| !safe_rel(s) || s.contains('/') || s.contains('*'))
+        || p.extensions.iter().any(|s| s != "*" && s.split('.').any(|part| part.is_empty() || !part.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '+'))))
+    {
+        p.error = Some("预览插件的扩展名或文件名不对".into());
     } else if !safe_rel(&p.entry) {
         p.error = Some(format!("entry 不对：{}", p.entry));
-    } else if !dir.join(&p.entry).is_file() {
+    } else if asset_in(dir, &p.entry).is_none() {
         p.error = Some(format!("找不到页面 {}", p.entry));
     }
     p
@@ -225,7 +245,15 @@ pub fn plugin_file(root: &Path, url_path: &str) -> Option<PathBuf> {
     if !valid_id(id) || !safe_rel(rest) {
         return None;
     }
-    let dir = root.join(id).canonicalize().ok()?;
+    let dir = root.join(id);
+    if !dir.symlink_metadata().ok()?.is_dir() {
+        return None;
+    }
+    asset_in(&dir, rest)
+}
+
+fn asset_in(dir: &Path, rest: &str) -> Option<PathBuf> {
+    let dir = dir.canonicalize().ok()?;
     let file = dir.join(rest).canonicalize().ok()?;
     (file.starts_with(&dir) && file.is_file()).then_some(file)
 }
@@ -254,6 +282,7 @@ const SAMPLE_ID: &str = "hex-viewer";
 const SAMPLE_MANIFEST: &str = r#"{
   "name": "十六进制查看器",
   "version": "1.0.0",
+  "apiVersion": 1,
   "description": "示例插件：按十六进制和 ASCII 显示任何文件的字节。照着它写自己的插件。",
   "extensions": ["*"],
   "entry": "index.html"
@@ -282,7 +311,7 @@ const SAMPLE_PAGE: &str = r#"<!doctype html>
 "#;
 const SAMPLE_SCRIPT: &str = r#"// Strand's preview plugin protocol:
 // 1. When the page is ready, tell Strand:  parent.postMessage({ type: "strand:ready" }, "*")
-// 2. Strand sends the file:  { type: "strand:file", name, path, ext, rev, size, bytes: ArrayBuffer, theme: "light" | "dark", lang: "zh" | "en" }
+// 2. Strand sends the file:  { type: "strand:file", apiVersion: 1, name, path, ext, rev, size, bytes: ArrayBuffer, theme: "light" | "dark", lang: "zh" | "en" }
 // 3. When the app's theme changes:  { type: "strand:theme", theme }
 // The page runs in a sandbox: no network, no access to Strand or the repository.
 
@@ -378,6 +407,7 @@ mod tests {
 
         let s = write_sample(root).unwrap();
         assert_eq!(s.id, "hex-viewer");
+        assert_eq!(s.api_version, 1);
         assert_eq!(s.extensions, vec!["*"]);
         assert!(s.error.is_none(), "{:?}", s.error);
 
@@ -404,5 +434,28 @@ mod tests {
         assert!(plugin_file(root, "../etc/passwd").is_none());
         assert!(plugin_file(root, "hex-viewer").is_none());
         assert_eq!(mime_of(Path::new("a/b.JS")), "text/javascript; charset=utf-8");
+    }
+
+    #[test]
+    fn preview_manifest_accepts_new_formats_and_checks_api_compatibility() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin = dir.path().join("custom-format");
+        std::fs::create_dir(&plugin).unwrap();
+        std::fs::write(plugin.join("index.html"), "<!doctype html>").unwrap();
+        let manifest = plugin.join("manifest.json");
+        std::fs::write(&manifest, r#"{"extensions":[".JSONL","NDJSON","jsonl","data.gz"],"filenames":["Dockerfile"],"apiVersion":1}"#).unwrap();
+        let p = plugins(dir.path()).pop().unwrap();
+        assert!(p.error.is_none());
+        assert_eq!(p.extensions, ["data.gz", "jsonl", "ndjson"]);
+        assert_eq!(p.filenames, ["dockerfile"]);
+        assert_eq!(serde_json::to_value(p).unwrap()["apiVersion"], 1);
+
+        std::fs::write(&manifest, r#"{"filenames":["Makefile"]}"#).unwrap();
+        let p = plugins(dir.path()).pop().unwrap();
+        assert_eq!(p.api_version, 1);
+        assert!(p.error.is_none());
+
+        std::fs::write(&manifest, r#"{"extensions":["jsonl"],"apiVersion":2}"#).unwrap();
+        assert!(plugins(dir.path())[0].error.as_deref().unwrap().contains("API 版本 2"));
     }
 }

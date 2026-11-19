@@ -9,6 +9,7 @@ import type {
   DirEntry,
   SparseState,
   Textconv,
+  LineRollbackPlan,
   PreviewPlugin,
   HookRun,
   Hooks,
@@ -109,9 +110,9 @@ export function errOf(e: unknown): ApiError {
   return new ApiError({ code: "GIT_FAILED", message: String(e) });
 }
 
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function call<T>(cmd: string, args?: Parameters<typeof invoke>[1], options?: Parameters<typeof invoke>[2]): Promise<T> {
   try {
-    return await invoke<T>(cmd, args);
+    return await invoke<T>(cmd, args, options);
   } catch (e) {
     if (isCoreError(e)) throw new ApiError(e);
     throw new ApiError({ code: "GIT_FAILED", message: String(e) });
@@ -352,6 +353,8 @@ export const api = {
     inTauri ? call("commit_fixup", { id, selection, message }) : mock.commitOp(message ? "Squash Into" : "Fixup"),
   /** Discard these files' changes (added files are deleted); can be undone */
   changesDiscard: (paths: string[]): Promise<Written<null>> => (inTauri ? call("changes_discard", { paths }) : mock.changesDiscard(paths)),
+  lineRollbacks: (path: string): Promise<LineRollbackPlan | null> => (inTauri ? call("line_rollbacks", { path }) : Promise.resolve(null)),
+  rollbackLine: (repo: string, path: string, stamp: string, index: number): Promise<Written<string>> => call("rollback_line", { repo, path, stamp, index }),
   untrackedAdd: (path: string): Promise<Written<null>> => (inTauri ? call("untracked_add", { path }) : mock.untracked("add", path)),
   untrackedIgnore: (path: string): Promise<Written<null>> => (inTauri ? call("untracked_ignore", { path }) : mock.untracked("ignore", path)),
   /** Move to the system Trash */
@@ -382,6 +385,10 @@ export const api = {
   /** Worktree content when rev is empty */
   saveWorktreeFile: (path: string, text: string, expected: string): Promise<null> =>
     inTauri ? call("save_worktree_file", { path, text, expected }) : mock.saveWorktreeFile(path, text, expected),
+  pasteMarkdownImage: (repo: string, document: string, bytes: ArrayBuffer, mime: string): Promise<string> =>
+    inTauri ? call("paste_markdown_image", bytes, {
+      headers: { "x-strand-repo": encodeURIComponent(repo), "x-strand-document": encodeURIComponent(document) },
+    }) : mock.pasteMarkdownImage(document, bytes, mime),
   fileText: (path: string, rev: string | null = null): Promise<FileText> => (inTauri ? call("file_text", { path, rev }) : mock.fileText(path, rev)),
   fileHistory: (path: string): Promise<FileHistory> => (inTauri ? call("file_history", { path }) : mock.fileHistory(path)),
   /** When searching by changes, the files in this commit whose changed lines match */

@@ -12,7 +12,7 @@
 // changed the line (following renames), blamed, near the same line; "back" returns step by step.
 // Git LFS files whose content hasn't been downloaded show a note with a download button.
 
-import { Crumbs, useTopLine } from "./Crumbs";
+import { Crumbs } from "./Crumbs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errOf, wholeFile } from "../api/commands";
 import type { FileDiff, FileHistory, FileText } from "../api/types";
@@ -27,8 +27,9 @@ import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { Found, indentStyle, indentUnit } from "./inlineDiff";
 import { highlight, langOf, type Tok } from "../highlight";
 import { settings, useSettings } from "../settings";
-import { PreviewPane } from "./Preview";
+import { PreviewPane, previewProviders } from "./Preview";
 import { choicesFor, defaultChoice, openPluginsWindow, rememberChoice, usePlugins } from "../preview";
+import { LineRollbackGutter, type RollbackControls } from "./lineRollback";
 import { t, tr, lang } from "../i18n";
 
 const WORK = "work";
@@ -40,13 +41,16 @@ interface Props {
   /** Show the change chain on open (when opened from the "file history" icon); normally collapsed, shown via the toolbar's "change chain" */
   showHistory?: boolean;
   /** Which line to jump to and which revision to show after opening (empty is the worktree); n differs every time */
-  at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null;
+  at?: { line: number; rev: string | null; anchor?: string; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null;
   /** This file has uncommitted changes in the worktree (or is untracked) */
   changed: boolean;
   /** Locate this commit in the log */
   onLocate: (id: string) => void;
   /** Changes when contents should be read again (after downloading LFS files) */
   reloadKey?: number;
+  /** Worktree refresh generation for the active file tab. Hidden tabs catch up when shown. */
+  worktreeRead: number | null;
+  rollback?: RollbackControls;
   /** Download the repository's LFS files; absent when it doesn't use LFS */
   onLfsPull?: () => void;
 }
@@ -54,7 +58,7 @@ interface Props {
 type Load<T> = { data: T | null; loading: boolean; error: string | null };
 const idle = { data: null, loading: false, error: null };
 
-export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, onLfsPull }: Props) {
+export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, worktreeRead, rollback, onLfsPull }: Props) {
   /** Blame annotations on the left of the full text (per tab, off by default) */
   const [annot, setAnnot] = useState(false);
   /** Editing the worktree file in place of the text: the line to open at; null when not editing */
@@ -69,13 +73,13 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
   const [sel, setSel] = useState<string[]>([WORK]);
   /** What to show when only one is selected: the diff (the commit's change, uncommitted changes) or the full text */
   const [mode, setMode] = useState<"diff" | "text">("text");
-  const [text, setText] = useState<Load<FileText>>(idle);
+  const [text, setText] = useState<Load<FileText> & { key?: string; read?: number | null }>(idle);
   const [diff, setDiff] = useState<Load<FileDiff>>(idle);
   const host = useRef<HTMLDivElement>(null);
   // When opened from search results: mark the search term in full text and diffs (cleared when switching files)
   const findRe = at?.find ? findRegExp(at.find.text, at.find.regex, at.find.caseSensitive) : null;
   /** The revision (branch or tag names work) and line a content search result points to; cleared when clicking something else in the chain */
-  const [jump, setJumpState] = useState<{ line: number; rev: string | null; path?: string; blame?: boolean } | null>(null);
+  const [jump, setJumpState] = useState<{ line: number; rev: string | null; path?: string; anchor?: string; blame?: boolean } | null>(null);
   /** Revisions passed through with "blame the revision before this change", for "back" */
   const [trail, setTrail] = useState<(typeof jump)[]>([]);
   const setJump = (j: typeof jump) => {
@@ -84,7 +88,8 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
   };
   useEffect(() => {
     if (!at) return;
-    setJump({ line: at.line, rev: at.rev });
+    setJump({ line: at.line, rev: at.rev, anchor: at.anchor });
+    setView(null);
     setSel([WORK]);
     setMode("text");
   }, [at]);
@@ -142,14 +147,16 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
   }, [sel, mode, versions, path, head, jump, lang]);
 
   const reqKey = JSON.stringify(req);
+  const isWorktree = req?.kind === "text" ? req.rev === null : req?.kind === "diff" && req.to === null;
+  const requestReadKey = isWorktree ? `${reqKey}:${worktreeRead ?? "hidden"}` : reqKey;
   useEffect(() => {
-    if (!req) return;
+    if (!req || (isWorktree && worktreeRead === null)) return;
     let live = true;
     if (req.kind === "text") {
       setText((x) => ({ ...x, loading: true, error: null }));
       api.fileText(req.path, req.rev).then(
-        (data) => live && setText({ data, loading: false, error: null }),
-        (e) => live && setText({ data: null, loading: false, error: errOf(e).message }),
+        (data) => live && setText({ key: reqKey, read: worktreeRead, data, loading: false, error: null }),
+        (e) => live && setText({ key: reqKey, read: worktreeRead, data: null, loading: false, error: errOf(e).message }),
       );
     } else {
       setDiff((x) => ({ ...x, loading: true, error: null }));
@@ -163,7 +170,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reqKey, reloadKey, saved]);
+  }, [requestReadKey, reloadKey, saved]);
 
   /** Click to select one; ⌘ / Shift click to add a second (compare); clicking a selected one deselects it */
   const pick = (k: string, add: boolean) => {
@@ -191,14 +198,16 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
   // Previews (rendered Markdown, images, tables, plugins…) in place of the text; the choice is per file and revision
   const plugins = usePlugins(path);
   const textReq = req?.kind === "text" ? req : null;
-  const fileNow = textReq && text.data?.path === textReq.path && !text.data.missing && !text.data.lfs_missing ? text.data : null;
-  const choices = useMemo(() => (textReq && fileNow ? choicesFor(textReq.path, fileNow, plugins) : []), [textReq?.path, fileNow, plugins]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fileNow = textReq && text.key === reqKey && text.data && !text.data.missing && !text.data.lfs_missing ? text.data : null;
+  const choices = useMemo(() => (fileNow ? choicesFor(fileNow.path, fileNow, previewProviders, plugins) : []), [fileNow, plugins, lang]);
   const [view, setView] = useState<string | null>(null);
   const [pvMenu, setPvMenu] = useState<MenuState | null>(null);
   useEffect(() => setView(null), [textReq?.path, textReq?.rev]);
-  const current = textReq && choices.length ? (view ?? defaultChoice(textReq.path, choices)) : "text";
+  const anchor = useMemo(() => jump?.anchor ? { id: jump.anchor, n: at?.n ?? 0 } : undefined, [jump?.anchor, at?.n]);
+  const anchorProvider = anchor && choices.find((c) => c.provider?.id === "markdown")?.id;
+  const current = textReq && choices.length ? (view ?? (anchorProvider || defaultChoice(textReq.path, choices))) : "text";
   // Search results and blame need the text
-  const toText = annot || !!jump?.rev || !!at?.find || (jump?.line ?? 0) > 1;
+  const toText = annot || (view === null && (!!at?.find || (jump?.line ?? 0) > 1));
   const choice = toText ? null : (choices.find((c) => c.id === current) ?? null);
   const pick2 = (id: string) => {
     setView(id);
@@ -206,6 +215,8 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
     if (id !== "text") setAnnot(false);
   };
   const lastPv = choices.find((c) => c.id === current) ?? choices.find((c) => c.specific) ?? choices[0];
+  const canEdit = textReq?.rev === null && fileNow?.text != null && !fileNow.binary && !fileNow.truncated;
+  const textRollback = canEdit && text.read === worktreeRead && !text.loading ? rollback : undefined;
 
   return (
     <div className="fview" ref={host} style={sizeVars(settings(), ["paneHistory"])}>
@@ -270,7 +281,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
           {t("修改链")}
           {hist.data && <span className="dim">{versions.length + (hist.data.truncated ? "+" : "")}</span>}
         </button>
-        {editAt == null && req?.kind === "text" && req.rev === null && !!text.data?.text && !text.data.lfs_missing && (
+        {editAt == null && canEdit && (
           <button type="button" className="btn sm" title={t("编辑这个文件（也可以双击某一行）")} onClick={() => setEditAt(1)}>
             {t("编辑")}
           </button>
@@ -369,7 +380,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
         )}
         <div className="fv-main">
           {editAt != null ? (
-            <FileEditor path={path} line={editAt} goto={at && !at.rev ? { line: at.line, n: at.n } : null} onClose={() => setEditAt(null)} onSaved={() => setSaved((n) => n + 1)} />
+            <FileEditor path={path} line={editAt} goto={at && !at.rev ? { line: at.line, n: at.n } : null} rollback={rollback} worktreeRead={worktreeRead} onClose={() => setEditAt(null)} onSaved={() => setSaved((n) => n + 1)} />
           ) : (
           <>
           {jump?.rev && (
@@ -392,7 +403,7 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
                   </span>
                 </>
               ) : (
-                <span className="dim small">{t("{0} 时的内容（从搜索结果打开）", jump.rev)}</span>
+                <span className="dim small">{at?.find ? t("{0} 时的内容（从搜索结果打开）", jump.rev) : t("版本 {0} 的内容", jump.rev.length === 40 ? shortId(jump.rev) : jump.rev)}</span>
               )}
             </div>
           )}
@@ -414,9 +425,9 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
             </div>
           )}
           {req?.kind === "text" && choice ? (
-            <PreviewPane key={choice.id + req.path + (req.rev ?? "")} choice={choice} path={req.path} rev={req.rev} file={fileNow} />
+            <PreviewPane key={JSON.stringify([choice.id, req.path, req.rev])} choice={choice} path={req.path} rev={req.rev} file={fileNow} reloadKey={(reloadKey ?? 0) + saved} anchor={anchor} />
           ) : req?.kind === "diff" ? (
-            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} readOnly={req.to !== null} blameSides={{ left: req.from ? { path: req.fromPath, rev: req.from } : null, right: { path: req.toPath, rev: req.to } }} onLocate={onLocate} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
+            <DiffView diff={diff.data} loading={diff.loading} error={diff.error} source={req.label} find={findRe} readOnly={req.to !== null} rollback={single === WORK && req.to === null ? rollback : undefined} blameSides={{ left: req.from ? { path: req.fromPath, rev: req.from } : null, right: { path: req.toPath, rev: req.to } }} onLocate={onLocate} onClose={() => (sel.length === 2 ? setSel([sel[1]]) : setMode("text"))} />
           ) : (
             <TextView
               load={text}
@@ -431,7 +442,8 @@ export function FileView({ path, at, changed, onLocate, showHistory, reloadKey, 
                 setAnnot(true);
               }}
               onLfsPull={onLfsPull}
-              onEditLine={req?.kind === "text" && req.rev === null && !text.data?.lfs_missing ? (n) => setEditAt(n) : undefined}
+              rollback={textRollback}
+              onEditLine={canEdit ? (n) => setEditAt(n) : undefined}
             />
           )}
           </>
@@ -473,6 +485,7 @@ function TextView({
   onPrevious,
   onLfsPull,
   onEditLine,
+  rollback,
 }: {
   load: Load<FileText>;
   focus: number | null;
@@ -486,6 +499,7 @@ function TextView({
   onLfsPull?: () => void;
   /** Double-click a line to edit the worktree file there; absent for other revisions */
   onEditLine?: (line: number) => void;
+  rollback?: RollbackControls;
 }) {
   const f = load.data;
   // ⌘F finds in the text, ⌘L goes to a line (only the file tab on screen answers)
@@ -582,10 +596,17 @@ function TextView({
   const guides = useSettings().diffIndent;
   const unit = useMemo(() => indentUnit(lines.slice(0, 4000)), [lines]);
   const get = useMemo(() => (k: number) => (k <= MAX_LINES ? lines[k - 1] : undefined), [lines]);
-  const top = useTopLine(box, [lines]);
+  const deletedBefore = (line: number) => rollback?.deleted.get(line)?.map((row) => (
+    <div key={`deleted:${row.old_no}`} className="tv-line tv-deleted">
+      <LineRollbackGutter row={row} controls={rollback} />
+      {blame && <span className="ann" />}
+      <span className="ln" title={t("已删除的第 {0} 行", row.old_no)}>−{row.old_no}</span>
+      <span className="code">{row.old_text}</span>
+    </div>
+  ));
   return (
     <>
-    {f?.text !== undefined && lines.length > 0 && <Crumbs path={f.path} get={get} top={top} box={box} />}
+    {f?.text !== undefined && lines.length > 0 && <Crumbs path={f.path} get={get} box={box} layout={[lines]} />}
     <div className="fv-textwrap">
     <FindBar f={finder} host={box} onLine={(n) => goToLine(box.current, n)} />
     <div className="fv-text" ref={box} onContextMenu={onMenu}>
@@ -611,16 +632,22 @@ function TextView({
         </div>
       )}
       {f?.text !== undefined && (
-        <div className={"tv mono" + (load.loading ? " stale" : "") + (blame ? " with-ann" : "")} style={{ "--lnw": `${String(Math.min(lines.length, MAX_LINES)).length + 2}ch` } as React.CSSProperties}>
-          {lines.slice(0, MAX_LINES).map((l, i) => (
-            <div key={i} data-n={i + 1} className={"tv-line" + (focus === i + 1 ? " focus" : "")} onDoubleClick={onEditLine ? () => onEditLine(i + 1) : undefined}>
-              {blame && ann(i + 1)}
-              <span className="ln">{i + 1}</span>
-              <span className="code" style={guides ? indentStyle(l, unit) : undefined}>
-                <Found t={l} find={find} toks={lineToks?.[i]} />
-              </span>
-            </div>
-          ))}
+        <div className={"tv mono" + (load.loading ? " stale" : "") + (blame ? " with-ann" : "") + (rollback ? " with-line-rollback" : "")} style={{ "--lnw": `${String(Math.min(lines.length, MAX_LINES)).length + 2}ch` } as React.CSSProperties}>
+          {lines.slice(0, MAX_LINES).flatMap((l, i) => {
+            const no = i + 1;
+            const row = rollback?.current.get(no);
+            return [...(deletedBefore(no) ?? []), (
+              <div key={no} data-n={no} className={"tv-line" + (focus === no ? " focus" : "")} onDoubleClick={onEditLine ? () => onEditLine(no) : undefined}>
+                {rollback && <LineRollbackGutter row={row?.new_text === l.replace(/\r$/, "") ? row : undefined} controls={rollback} />}
+                {blame && ann(no)}
+                <span className="ln">{no}</span>
+                <span className="code" style={guides ? indentStyle(l, unit) : undefined}>
+                  <Found t={l} find={find} toks={lineToks?.[i]} />
+                </span>
+              </div>
+            )];
+          })}
+          {lines.length <= MAX_LINES && deletedBefore(lines.length + 1)}
           {(lines.length > MAX_LINES || f.truncated) && <p className="pad dim">{t("文件太大，只显示了前面一部分")}</p>}
         </div>
       )}

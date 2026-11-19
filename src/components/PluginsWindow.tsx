@@ -15,7 +15,10 @@ export function PluginsWindow({ onClose, onToast }: { onClose: () => void; onToa
   const [busy, setBusy] = useState(false);
   const load = () => reloadPlugins().then(setList);
   useEffect(() => {
-    void load();
+    void load().catch((e) => {
+      setList([]);
+      setError(errOf(e).message);
+    });
   }, []);
 
   const act = async (f: () => Promise<unknown>, done?: string) => {
@@ -37,7 +40,7 @@ export function PluginsWindow({ onClose, onToast }: { onClose: () => void; onToa
       <div className="modal plugins-win" role="dialog" aria-modal="true" aria-label={t("预览插件")} onKeyDown={(e) => e.key === "Escape" && onClose()}>
         <h2>{t("预览插件")}</h2>
         <p className="modal-msg small">
-          {t("插件让文件标签页能预览更多种文件。每个插件是插件文件夹里的一个子文件夹：manifest.json 写名字和要显示的扩展名，再加一个网页负责画出来。网页在沙箱里运行，只会收到文件内容，不能联网，也碰不到仓库和 Strand。")}
+          {t("把插件文件夹放进预览插件目录，然后刷新。manifest.json 声明它识别的文件，预览网页在独立沙箱中运行。")}
         </p>
         <div className="pl-list">
           {list === null && <p className="dim pad">{t("正在读取…")}</p>}
@@ -47,6 +50,7 @@ export function PluginsWindow({ onClose, onToast }: { onClose: () => void; onToa
               <div className="pl-head">
                 <b>{p.name}</b>
                 {p.version && <span className="dim small">{p.version}</span>}
+                {p.apiVersion != null && <span className="dim small">API {p.apiVersion}</span>}
                 <span className="dim small mono">{p.id}/</span>
               </div>
               {p.description && <div className="small">{p.description}</div>}
@@ -56,6 +60,7 @@ export function PluginsWindow({ onClose, onToast }: { onClose: () => void; onToa
                     {e === "*" ? t("任何文件") : "." + e}
                   </span>
                 ))}
+                {p.filenames?.map((name) => <span key={`name:${name}`} className="chip mono small">{name}</span>)}
               </div>
               {p.error && <div className="err small">{tr(p.error)}</div>}
             </div>

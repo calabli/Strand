@@ -10,6 +10,8 @@ import { t } from "./i18n";
 export interface Place {
   path: string;
   line: number;
+  rev?: string | null;
+  anchor?: string;
 }
 
 export interface NavHost {
@@ -31,7 +33,7 @@ let here: Place | null = null;
 
 /** Open a place, remembering where we came from for ⌘[ */
 export function jump(to: Place, from: Place | null) {
-  if (from && !(from.path === to.path && from.line === to.line)) {
+  if (from && (from.path !== to.path || from.line !== to.line || (from.rev ?? null) !== (to.rev ?? null) || from.anchor !== to.anchor)) {
     back.push(from);
     if (back.length > 100) back.shift();
     fwd.length = 0;

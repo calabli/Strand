@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 
+export type MarkdownMode = "inline" | "split" | "source";
+
 export interface Settings {
   /** Theme: follow system, light, dark (spec §3.5) */
   theme: "auto" | "light" | "dark";
@@ -57,11 +59,13 @@ export interface Settings {
   runHooks: boolean;
   /** The preview last chosen per file extension ("text" for the plain text, a built-in kind, or "plugin:<id>") */
   previewChoice: Record<string, string>;
+  markdownMode: MarkdownMode;
+  markdownSyncScroll: boolean;
   /** Color (), [] and {} by nesting depth in code (diffs, file text, the editor) */
   rainbowBrackets: boolean;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {}, rainbowBrackets: true };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {}, markdownMode: "split", markdownSyncScroll: true, rainbowBrackets: true };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

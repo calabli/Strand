@@ -201,6 +201,20 @@ export interface FileDiff {
   lfs?: boolean;
 }
 
+export interface LineRollback {
+  old_no: number | null;
+  new_no: number | null;
+  before: number;
+  old_text: string | null;
+  new_text: string | null;
+}
+
+export interface LineRollbackPlan {
+  /** Identifies the exact file contents and HEAD blob the line numbers refer to. */
+  stamp: string;
+  lines: LineRollback[];
+}
+
 export interface CommitDetail {
   commit: Commit;
   files: FileChange[];
@@ -669,8 +683,11 @@ export interface PreviewPlugin {
   name: string;
   version: string;
   description: string;
+  apiVersion?: number;
   /** Lowercase, without the dot; "*" is any file */
   extensions: string[];
+  /** Exact case-insensitive basenames, including extensionless files */
+  filenames?: string[];
   entry: string;
   /** Why it can't be used */
   error?: string;

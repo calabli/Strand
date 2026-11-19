@@ -25,7 +25,9 @@ fn repo(files: &[(&str, &str)]) -> tempfile::TempDir {
     git(p, &["config", "user.name", "林夏"]);
     git(p, &["config", "user.email", "linxia@example.com"]);
     for (f, t) in files {
-        std::fs::write(p.join(f), t).unwrap();
+        let path = p.join(f);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, t).unwrap();
     }
     git(p, &["add", "."]);
     git(p, &["commit", "-q", "-m", "初始提交"]);
@@ -105,6 +107,53 @@ fn one_pair_and_no_newline_at_end() {
 }
 
 #[test]
+fn rollback_one_line_keeps_other_lines_and_the_index_and_is_undoable() {
+    let d = repo(&[("a.txt", "start\none\ntwo\nkeep\ndeleted\nstay\nend\n")]);
+    let p = d.path();
+    let file = p.join("a.txt");
+    let original = "start\nONE\nTWO\nkeep\nstay\nadded\nend\n";
+    std::fs::write(&file, original).unwrap();
+    git(p, &["add", "a.txt"]);
+    let index = git(p, &["show", ":a.txt"]);
+    let mut s = Session::open(p).unwrap();
+    let plan = s.line_rollbacks("a.txt").unwrap().unwrap();
+    let index_of = plan.lines.iter().position(|row| row.new_no == Some(2)).unwrap();
+    let (result, op) = s.run_op("回退一行", OpKind::Other, |s| s.rollback_line("a.txt", &plan.stamp, index_of)).unwrap();
+    assert_eq!(result, original.replace("ONE", "one"));
+    assert_eq!(git(p, &["show", ":a.txt"]), index);
+    assert!(op.unwrap().undoable);
+    assert!(s.rollback_line("a.txt", &plan.stamp, index_of).is_err());
+    s.oplog_undo(None, false).unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+
+    let plan = s.line_rollbacks("a.txt").unwrap().unwrap();
+    let deleted = plan.lines.iter().position(|row| row.old_text.as_deref() == Some("deleted") && row.new_no.is_none()).unwrap();
+    assert_eq!(plan.lines[deleted].before, 5);
+    let result = s.rollback_line("a.txt", &plan.stamp, deleted).unwrap();
+    assert_eq!(result, original.replace("stay", "deleted\nstay"));
+
+    let plan = s.line_rollbacks("a.txt").unwrap().unwrap();
+    let added = plan.lines.iter().position(|row| row.new_text.as_deref() == Some("added") && row.old_no.is_none()).unwrap();
+    assert_eq!(s.rollback_line("a.txt", &plan.stamp, added).unwrap(), result.replace("added\n", ""));
+    assert_eq!(git(p, &["show", ":a.txt"]), index);
+}
+
+#[test]
+fn rollback_restores_deletions_at_eof_and_preserves_crlf() {
+    let d = repo(&[("a.txt", "first\nold\nlast")]);
+    let p = d.path();
+    std::fs::write(p.join("a.txt"), "first\r\nnew\r\n").unwrap();
+    let s = Session::open(p).unwrap();
+    let plan = s.line_rollbacks("a.txt").unwrap().unwrap();
+    let eof = plan.lines.iter().position(|row| row.old_text.as_deref() == Some("last") && row.new_no.is_none()).unwrap();
+    let result = s.rollback_line("a.txt", &plan.stamp, eof).unwrap();
+    assert_eq!(result, "first\r\nnew\r\nlast");
+    let plan = s.line_rollbacks("a.txt").unwrap().unwrap();
+    let second = plan.lines.iter().position(|row| row.new_no == Some(2)).unwrap();
+    assert_eq!(s.rollback_line("a.txt", &plan.stamp, second).unwrap(), "first\r\nold\r\nlast");
+}
+
+#[test]
 fn discard_and_undo() {
     let d = repo(&[("a.txt", "a\n"), ("gone.txt", "g\n")]);
     let p = d.path();
@@ -139,6 +188,48 @@ fn untracked_add_and_ignore() {
     assert!(st.untracked.iter().all(|u| u != "x.log" && u != "keep.txt"));
     assert!(st.changes.iter().any(|c| c.path == "keep.txt"));
     assert!(st.untracked.contains(&".gitignore".to_string()));
+}
+
+#[test]
+fn tracking_a_directory_uses_literals_and_preserves_other_changes_on_undo() {
+    let d = repo(&[(".gitignore", "*.log\n"), ("docs [x]/tracked.txt", "old\n")]);
+    let p = d.path();
+    std::fs::create_dir_all(p.join("docs [x]/nested")).unwrap();
+    std::fs::write(p.join("docs [x]/tracked.txt"), "modified\n").unwrap();
+    std::fs::write(p.join("docs [x]/new.txt"), "new\n").unwrap();
+    std::fs::write(p.join("docs [x]/nested/add.txt"), "nested\n").unwrap();
+    std::fs::write(p.join("docs [x]/skip.log"), "ignored\n").unwrap();
+    std::fs::write(p.join("outside.txt"), "outside\n").unwrap();
+    let mut s = Session::open(p).unwrap();
+    let scope = strand_core::oplog::OpScope { files: s.untracked_paths("docs [x]/").unwrap(), ..Default::default() };
+    assert_eq!(scope.files, ["docs [x]/nested/add.txt", "docs [x]/new.txt"]);
+    let (_, op) = s.run_op_scoped("跟踪目录", OpKind::Other, &scope, |s| s.add_untracked_paths(&scope.files)).unwrap();
+    assert!(op.unwrap().undoable);
+    assert_eq!(git(p, &["diff", "--cached", "--name-only"]), "docs [x]/nested/add.txt\ndocs [x]/new.txt");
+    assert!(s.untracked_add("docs [x]/tracked.txt").is_err());
+    s.oplog_undo(None, false).unwrap();
+    assert_eq!(git(p, &["diff", "--cached", "--name-only"]), "");
+    for file in &scope.files { assert!(p.join(file).is_file()); }
+    assert_eq!(std::fs::read_to_string(p.join("docs [x]/tracked.txt")).unwrap(), "modified\n");
+}
+
+#[test]
+fn ignore_directory_is_literal_root_relative_and_keeps_existing_rules() {
+    let d = repo(&[(".gitignore", "# existing\r\n"), ("draft [a]/kept.txt", "tracked\n")]);
+    let p = d.path();
+    std::fs::create_dir_all(p.join("other/draft [a]")).unwrap();
+    for file in ["draft [a]/new.txt", "other/draft [a]/new.txt", "draft [a] notes.txt"] {
+        std::fs::write(p.join(file), "new\n").unwrap();
+    }
+    let s = Session::open(p).unwrap();
+    s.untracked_ignore("draft [a]/").unwrap();
+    s.untracked_ignore("draft [a]/").unwrap();
+    s.untracked_ignore("draft [a] notes.txt").unwrap();
+    assert_eq!(std::fs::read(p.join(".gitignore")).unwrap(), b"# existing\r\n/draft\\ \\[a\\]/\r\n/draft\\ \\[a\\]\\ notes.txt\r\n");
+    assert_eq!(git(p, &["check-ignore", "draft [a]/new.txt"]), "draft [a]/new.txt");
+    assert_eq!(git(p, &["check-ignore", "draft [a] notes.txt"]), "draft [a] notes.txt");
+    assert!(git(p, &["check-ignore", "other/draft [a]/new.txt"]).is_empty());
+    assert_eq!(git(p, &["--literal-pathspecs", "ls-files", "--", "draft [a]/kept.txt"]), "draft [a]/kept.txt");
 }
 
 #[test]

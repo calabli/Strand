@@ -1,0 +1,8 @@
+{
+  "name": "JSON Lines",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "Preview newline-delimited JSON with expandable records and per-line parse errors.",
+  "extensions": ["jsonl", "ndjson"],
+  "entry": "index.html"
+}

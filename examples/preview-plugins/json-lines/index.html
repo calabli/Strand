@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JSON Lines</title>
+  <style>
+    :root { color-scheme: light; background: Canvas; color: CanvasText; font: 13px/1.5 system-ui, sans-serif; }
+    :root[data-theme="dark"] { color-scheme: dark; }
+    body { margin: 0; }
+    header { position: sticky; top: 0; padding: 10px 16px; background: Canvas; border-bottom: 1px solid GrayText; }
+    main { padding: 8px 16px 24px; }
+    details { border-bottom: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); padding: 5px 0; }
+    summary { cursor: pointer; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 8px 24px; }
+    [data-invalid] { color: light-dark(#a32016, #ffa198); }
+  </style>
+</head>
+<body>
+  <header id="summary" role="status">Waiting for file…</header>
+  <main id="records"></main>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -2,12 +2,15 @@
 // find and replace (⌘F, ⌥⌘F), go to line (⌘L), bracket matching and auto-closing, folding, Tab indents.
 // Loaded on demand (React.lazy) so the editor code only arrives when someone edits a file.
 
-import { useEffect, useRef } from "react";
-import { Compartment, EditorState, Prec, StateEffect, StateField } from "@codemirror/state";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  GutterMarker,
+  gutter,
   crosshairCursor,
   drawSelection,
   dropCursor,
@@ -23,10 +26,17 @@ import { LanguageDescription, bracketMatching, foldGutter, foldKeymap, indentOnI
 import { gotoLine, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { languages } from "@codemirror/language-data";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { classHighlighter } from "@lezer/highlight";
-import { lang } from "../i18n";
-import { matches } from "../keymap";
+import { lang, t } from "../i18n";
+import type { EditorFormatAction } from "../preview";
+import { comboFromEvent, matches, showCombo } from "../keymap";
+import type { MarkdownMode } from "../settings";
 import { navigateAt } from "../nav";
+import { Menu, type MenuState } from "./Menu";
+import { markdownHeadings, markdownInline } from "./markdownEditor";
+import { markdownImagePaste } from "./markdownImagePaste";
+import { ROLLBACK_ICON, rollbackLabel, type RollbackControls, type RollbackLine } from "./lineRollback";
 import { rainbowBrackets } from "./rainbow";
 import { isMac } from "./format";
 
@@ -48,6 +58,13 @@ export interface CodeEditorProps {
   /** Esc when no panel of the editor is open; return true when handled */
   onEscape?: () => boolean;
   label: string;
+  actions?: readonly EditorFormatAction[];
+  wrap?: boolean;
+  markdownMode?: MarkdownMode;
+  onImageImporting?: (change: number) => void;
+  rollback?: RollbackControls;
+  onRollback?: (row: RollbackLine) => Promise<string | null>;
+  diskEdit?: { from: string; to: string } | null;
 }
 
 /** The editor's own words (search panel, go to line, folding) in Chinese; English is CodeMirror's default */
@@ -129,20 +146,92 @@ function updateLink(view: EditorView, x: number, y: number, on: boolean) {
   view.dispatch({ effects: setLink.of(next) });
 }
 
-export default function CodeEditor({ path, value, line, indent, onChange, onSave, onBlur, onEscape, label, goto }: CodeEditorProps) {
+function applyFormat(view: EditorView, action: EditorFormatAction) {
+  if (view.state.readOnly) return;
+  const { state } = view;
+  // Block actions use one contiguous set of lines, so cursors on the same line never create overlapping edits.
+  const scope = action.wholeLines ? state.update({ selection: EditorSelection.single(state.selection.main.anchor, state.selection.main.head) }).state : state;
+  const change = scope.changeByRange((range) => {
+    let from = action.wholeLines ? state.doc.lineAt(range.from).from : range.from;
+    let to = action.wholeLines ? state.doc.lineAt(Math.max(range.from, range.to - 1)).to : range.to;
+    const selected = state.sliceDoc(from, to);
+    let result: ReturnType<EditorFormatAction["apply"]>;
+    const [left, right] = action.delimiters ?? ["", ""];
+    if (selected && left && right && scope.selection.ranges.length === 1 && from >= left.length && to + right.length <= state.doc.length &&
+      state.sliceDoc(from - left.length, from) === left && state.sliceDoc(to, to + right.length) === right) {
+      from -= left.length;
+      to += right.length;
+      result = { text: selected };
+    } else result = action.apply(selected, range.empty);
+    return {
+      changes: { from, to, insert: result.text },
+      range: EditorSelection.range(from + (result.from ?? 0), from + (result.to ?? result.text.length)),
+    };
+  });
+  view.dispatch({ ...change, userEvent: "input.format", scrollIntoView: true });
+  view.focus();
+}
+
+/** Update just the changed range, keeping the current selection and local editing history. */
+function adoptDiskEdit(view: EditorView, from: string, to: string) {
+  if (from === to || view.state.doc.toString() !== from) return;
+  let start = 0;
+  let end = 0;
+  while (start < Math.min(from.length, to.length) && from[start] === to[start]) start++;
+  while (end < Math.min(from.length, to.length) - start && from[from.length - 1 - end] === to[to.length - 1 - end]) end++;
+  view.dispatch({ changes: { from: start, to: from.length - end, insert: to.slice(start, to.length - end) }, annotations: Transaction.addToHistory.of(false) });
+}
+
+class GitRollbackMarker extends GutterMarker {
+  constructor(readonly row: RollbackLine, readonly run: () => void, readonly busy: boolean) { super(); }
+  toDOM() {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "line-rollback-button";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    svg.setAttribute("viewBox", "0 0 14 14");
+    svg.setAttribute("aria-hidden", "true");
+    path.setAttribute("d", ROLLBACK_ICON);
+    svg.append(path);
+    btn.append(svg);
+    btn.title = rollbackLabel(this.row);
+    btn.setAttribute("aria-label", btn.title);
+    btn.disabled = this.busy;
+    btn.addEventListener("mousedown", (event) => event.preventDefault());
+    btn.addEventListener("click", (event) => { event.stopPropagation(); this.run(); });
+    return btn;
+  }
+}
+
+export default function CodeEditor({ path, value, line, indent, onChange, onSave, onBlur, onEscape, label, goto, actions, wrap, markdownMode, onImageImporting, rollback, onRollback, diskEdit }: CodeEditorProps) {
   const viewRef = useRef<EditorView | null>(null);
   const host = useRef<HTMLDivElement>(null);
+  const [presentation] = useState(() => new Compartment());
+  const [worktreeGutter] = useState(() => new Compartment());
+  const [worktreeWrite] = useState(() => new Compartment());
+  const inline = useMemo(() => markdownInline(path), [path]);
+  const [outline, setOutline] = useState<ReturnType<typeof markdownHeadings> | null>(null);
+  const [outlinePos, setOutlinePos] = useState(0);
+  const [insert, setInsert] = useState<MenuState | null>(null);
+  const outlineOpen = useRef(false);
+  outlineOpen.current = outline !== null;
   // Callbacks change on every render; the editor reads the latest through refs
-  const cb = useRef({ onChange, onSave, onBlur, onEscape });
-  cb.current = { onChange, onSave, onBlur, onEscape };
+  const cb = useRef({ onChange, onSave, onBlur, onEscape, onImageImporting, onRollback });
+  cb.current = { onChange, onSave, onBlur, onEscape, onImageImporting, onRollback };
 
   useEffect(() => {
     const el = host.current;
     if (!el) return;
+    const md = markdownMode != null;
     const language = new Compartment();
+    let outlineTimer: number | undefined;
     const state = EditorState.create({
       doc: value,
       extensions: [
+        ...(wrap ? [EditorView.lineWrapping] : []),
+        worktreeGutter.of([]),
+        worktreeWrite.of([]),
         lineNumbers(),
         highlightActiveLineGutter(),
         highlightSpecialChars(),
@@ -163,7 +252,9 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
         search({ top: true }),
         indentUnit.of(indent),
         EditorState.tabSize.of(indent === "\t" ? 4 : indent.length || 4),
-        language.of([]),
+        language.of(md ? markdown({ base: markdownLanguage, codeLanguages: languages }) : []),
+        ...(md ? [Prec.highest(markdownImagePaste(path, (change) => cb.current.onImageImporting?.(change)))] : []),
+        presentation.of(markdownMode === "inline" ? inline : []),
         linkField,
         lang === "zh" ? EditorState.phrases.of(ZH) : [],
         keymap.of([
@@ -182,9 +273,17 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
           EditorView.domEventHandlers({
             keydown: (e, view) => {
               view.dom.classList.toggle("nav-mod", (isMac ? e.metaKey : e.ctrlKey) && e.key !== "Shift");
+              if (e.isComposing) return false;
               if (matches(e, "save")) {
                 e.preventDefault();
                 cb.current.onSave();
+                return true;
+              }
+              const shortcut = md && comboFromEvent(e);
+              const action = shortcut ? actions?.find((item) => item.shortcut === shortcut) : undefined;
+              if (action) {
+                e.preventDefault();
+                applyFormat(view, action);
                 return true;
               }
               // ⌘B / ⌥F7 at the cursor: definition, usages, or the file an import names
@@ -228,7 +327,18 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
           }),
         ),
         EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
-        EditorView.updateListener.of((u) => u.docChanged && cb.current.onChange(u.state.doc.toString())),
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) cb.current.onChange(u.state.doc.toString());
+          if (md && outlineOpen.current) {
+            if (u.selectionSet || u.docChanged) setOutlinePos(u.state.selection.main.head);
+            if (u.docChanged) {
+              window.clearTimeout(outlineTimer);
+              outlineTimer = window.setTimeout(() => {
+                if (outlineOpen.current) setOutline(markdownHeadings(u.view));
+              }, 160);
+            }
+          }
+        }),
         theme,
       ],
     });
@@ -244,19 +354,62 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
     // Syntax colors: the language for this file name is loaded on demand
     const name = path.slice(path.lastIndexOf("/") + 1);
     let live = true;
-    const desc = LanguageDescription.matchFilename(languages, name);
+    const desc = md ? null : LanguageDescription.matchFilename(languages, name);
     desc?.load().then(
       (support) => live && view.dispatch({ effects: language.reconfigure(support) }),
       () => {},
     );
     return () => {
       live = false;
+      window.clearTimeout(outlineTimer);
       viewRef.current = null;
       view.destroy();
     };
     // Created once per file; the content is not driven from outside afterwards
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: presentation.reconfigure(markdownMode === "inline" ? inline : []) });
+  }, [markdownMode, inline, presentation]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const run = async (row: RollbackLine) => {
+      if (view.state.readOnly || !cb.current.onRollback) return;
+      const before = view.state.doc.toString();
+      view.dispatch({ effects: worktreeWrite.reconfigure(EditorState.readOnly.of(true)) });
+      try {
+        const after = await cb.current.onRollback(row);
+        if (after !== null && viewRef.current === view) adoptDiskEdit(view, before, after);
+      } finally {
+        if (viewRef.current === view) view.dispatch({ effects: worktreeWrite.reconfigure([]) });
+      }
+    };
+    view.dispatch({ effects: worktreeGutter.reconfigure(rollback ? [
+      EditorView.editorAttributes.of({ class: "cm-has-line-rollback" }),
+      gutter({ class: "cm-line-rollback", lineMarker: (_, block) => {
+        const line = view.state.doc.lineAt(block.from);
+        const changed = rollback.current.get(line.number);
+        const row = changed?.new_text === line.text ? changed : rollback.deleted.get(line.number)?.[0] ?? (line.number === view.state.doc.lines ? rollback.deleted.get(line.number + 1)?.[0] : undefined);
+        return row ? new GitRollbackMarker(row, () => void run(row), rollback.busy) : null;
+      } }),
+    ] : []) });
+    // CodeMirror's stock gutters are visual only. Expose our button gutter while keeping line numbers decorative.
+    const gutters = view.scrollDOM.querySelector(".cm-gutters");
+    if (gutters && rollback) {
+      gutters.removeAttribute("aria-hidden");
+      for (const child of Array.from(gutters.children)) {
+        if (!child.classList.contains("cm-line-rollback")) child.setAttribute("aria-hidden", "true");
+      }
+    } else gutters?.setAttribute("aria-hidden", "true");
+  }, [path, rollback, worktreeGutter, worktreeWrite]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view && diskEdit) adoptDiskEdit(view, diskEdit.from, diskEdit.to);
+  }, [diskEdit]);
 
   // A jump to a line of this file while editing it
   useEffect(() => {
@@ -268,5 +421,45 @@ export default function CodeEditor({ path, value, line, indent, onChange, onSave
     view.focus();
   }, [goto?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div className="code-editor" ref={host} />;
+  const format = (action: EditorFormatAction) => {
+    const view = viewRef.current;
+    if (view) applyFormat(view, action);
+  };
+
+  const openOutline = () => {
+    const view = viewRef.current;
+    if (!view) return;
+    setOutline(outline ? null : markdownHeadings(view));
+    setOutlinePos(view.state.selection.main.head);
+  };
+  const menuActions = actions?.filter((action) => action.insertMenu) ?? [];
+  let activeHeading: number | undefined;
+  for (const heading of outline ?? []) if (heading.from <= outlinePos) activeHeading = heading.from;
+
+  return (
+    <div className="code-editor-wrap">
+      {!!actions?.length && <div className="md-format" role="group" aria-label={t("Markdown 格式")}>
+        {actions.filter((action) => !action.insertMenu).map((action) => <button key={action.id} type="button" className={`ib sm md-format-${action.id}`} title={action.shortcut ? `${action.label()} (${showCombo(action.shortcut)})` : action.label()} aria-label={action.label()} onMouseDown={(e) => e.preventDefault()} onClick={() => format(action)}>{action.icon}</button>)}
+        {!!menuActions.length && <button type="button" className="btn sm md-insert" aria-haspopup="menu" aria-expanded={insert !== null} onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setInsert({ x: rect.left, y: rect.bottom + 4, items: menuActions.map((action) => ({ label: action.label(), run: () => format(action) })) });
+        }}>{t("插入")}</button>}
+        {markdownMode && <button type="button" className="btn sm md-outline-toggle" aria-pressed={outline !== null} onClick={openOutline}>{t("文档大纲")}</button>}
+      </div>}
+      <div className="code-editor-main">
+        {outline && <nav className="md-outline" aria-label={t("文档大纲")}>
+          {!outline.length && <span className="dim small">{t("没有标题")}</span>}
+          {outline.map((heading) => <button key={heading.from} type="button" aria-current={activeHeading === heading.from ? "location" : undefined} title={heading.label} style={{ paddingInlineStart: `${Math.min(4, heading.level - 1) * 10 + 8}px` }} onClick={() => {
+            const view = viewRef.current;
+            if (!view) return;
+            const pos = Math.min(heading.from, view.state.doc.length);
+            view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "start" }) });
+            view.focus();
+          }}>{heading.label}</button>)}
+        </nav>}
+        <div className="code-editor" ref={host} />
+      </div>
+      {insert && createPortal(<Menu menu={insert} onClose={() => setInsert(null)} />, document.body)}
+    </div>
+  );
 }

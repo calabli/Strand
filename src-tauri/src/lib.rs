@@ -1361,6 +1361,27 @@ async fn save_worktree_file(state: State<'_, AppState>, path: String, text: Stri
     with_repo(&state, move |s| s.save_worktree_file(&path, &text, &expected)).await
 }
 
+/// Save clipboard image bytes beside a worktree Markdown file.
+#[tauri::command]
+async fn paste_markdown_image(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) -> CmdResult<String> {
+    let header = |name: &str| {
+        request.headers().get(name).and_then(|value| value.to_str().ok()).map(percent_decode)
+            .ok_or_else(|| CoreError::new(ErrorCode::InvalidName, "缺少图片对应的文档路径"))
+    };
+    let repo = header("x-strand-repo")?;
+    let document = header("x-strand-document")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(CoreError::new(ErrorCode::InvalidName, "不支持此图片格式"));
+    };
+    let bytes = bytes.clone();
+    with_repo(&state, move |s| {
+        if s.path().to_string_lossy() != repo {
+            return Err(CoreError::new(ErrorCode::StateDiverged, "仓库已切换，未保存粘贴的图片"));
+        }
+        s.paste_markdown_image(&document, &bytes)
+    }).await
+}
+
 /// File change chain: git log --follow runs in the background (seconds on long histories), refs are filled in afterwards
 #[tauri::command]
 async fn file_history(state: State<'_, AppState>, path: String) -> CmdResult<strand_core::file_history::FileHistory> {
@@ -1509,13 +1530,35 @@ async fn changes_discard(state: State<'_, AppState>, paths: Vec<String>) -> CmdR
 }
 
 #[tauri::command]
-async fn untracked_add(state: State<'_, AppState>, path: String) -> CmdResult<Written<()>> {
-    // Snapshots only cover tracked files, so record this file too; otherwise undo would delete it as an added file
-    let scope = OpScope { files: vec![path.clone()], ..Default::default() };
-    logged_op_scoped(&state, format!("把 {path} 加入版本控制"), OpKind::Other, scope, move |s| s.untracked_add(&path)).await
+async fn line_rollbacks(state: State<'_, AppState>, path: String) -> CmdResult<Option<strand_core::line_rollback::LineRollbackPlan>> {
+    with_repo(&state, move |s| s.line_rollbacks(&path)).await
 }
 
-/// Add to ignore rules (writes .gitignore, not recorded in the op log: .gitignore itself shows up in changes and can be discarded)
+#[tauri::command]
+async fn rollback_line(state: State<'_, AppState>, repo: String, path: String, stamp: String, index: usize) -> CmdResult<Written<String>> {
+    with_repo(&state, move |s| {
+        if s.path().to_string_lossy() != repo {
+            return Err(CoreError::new(ErrorCode::StateDiverged, "仓库已切换，请重新查看这一行"));
+        }
+        let label = format!("回退 {path} 的一行改动");
+        let (result, op) = s.run_op(&label, OpKind::Other, |s| s.rollback_line(&path, &stamp, index))?;
+        Ok(Written { result, state: s.state()?, op, note: None })
+    }).await
+}
+
+#[tauri::command]
+async fn untracked_add(state: State<'_, AppState>, path: String) -> CmdResult<Written<()>> {
+    with_repo(&state, move |s| {
+        // Record each untracked file so undo unstages it without deleting it.
+        let scope = OpScope { files: s.untracked_paths(&path)?, ..Default::default() };
+        let result = s.run_op_scoped(&format!("把 {path} 加入版本控制"), OpKind::Other, &scope, |s| s.add_untracked_paths(&scope.files));
+        s.reload()?;
+        let (result, op) = result?;
+        Ok(Written { result, state: s.state()?, op, note: None })
+    }).await
+}
+
+/// Add a file or folder to the repository's `.gitignore` and record the change for undo.
 #[tauri::command]
 async fn untracked_ignore(state: State<'_, AppState>, path: String) -> CmdResult<Written<()>> {
     let scope = OpScope { files: vec![".gitignore".into()], ..Default::default() };
@@ -1928,6 +1971,7 @@ pub fn run(adopted: Option<u128>) {
             reflog,
             patch_apply,
             save_worktree_file,
+            paste_markdown_image,
             file_bytes,
             text_diff,
             clipboard_text,
@@ -1937,6 +1981,8 @@ pub fn run(adopted: Option<u128>) {
             project_search,
             file_save,
             changes_discard,
+            line_rollbacks,
+            rollback_line,
             commit_files_apply,
             file_restore,
             untracked_add,

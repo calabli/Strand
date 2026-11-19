@@ -12,10 +12,10 @@
 // Author options: commit as another author, add co-authors (written as Co-authored-by lines).
 // Changelists (like JetBrains changelists): group changes; new changes go into the "active" list; with only one list it looks as before with just "Changes".
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { ApiError, api, errOf } from "../api/commands";
 import type { Changelists, CheckRun, ChecksInfo, CommitCreated, ComposeInfo, OpInfo, RangeCommit, RepoState, Selection, WorktreeStatus } from "../api/types";
-import { Menu, type MenuState } from "./Menu";
+import { Menu, type MenuEntry, type MenuState } from "./Menu";
 import { AuthorOptions, coAuthorsOf, identOk } from "./compose";
 import { FileRow, FileTree, StatusBadge, treeOrder } from "./FileRow";
 import { setSettings, settings, useSettings } from "../settings";
@@ -24,7 +24,12 @@ import { hintOf, matches, useKeymap } from "../keymap";
 import { ChecksOptions, ChecksReport } from "./checks";
 import { notify, showOutput } from "../notify";
 
+export interface CommitPanelActions {
+  moveItems: (paths: string[], onNew?: () => void) => MenuEntry[] | undefined;
+}
+
 interface Props {
+  ref?: Ref<CommitPanelActions>;
   /** Current repository path (message history is kept per repository) */
   repoPath: string;
   /** After amending an earlier commit (Fixup / Squash Into): refresh and notify */
@@ -92,7 +97,7 @@ const DIFF_ICON = "M3.5 1.5h7v11h-7zM5.5 5h3M7 3.5v3M5.5 9.5h3";
 const GROUP_ICON = "M1.5 3h4l1 1.5h6V12h-11zM4 7.5h6M4 9.5h4";
 const QUICK_SHELF_ICON = "M1.5 7h11M1.5 10.5h11M3 7v3.5M11 7v3.5M7 1v4M5 3l2 2 2-2";
 
-export function CommitPanel({ repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onUntrackedAll, onRefresh, configKey, onOpenGitSettings }: Props) {
+export function CommitPanel({ ref, repoPath, onWritten, status, disabled, activePath, onOpenDiff, onCommitted, onShelve, onStash, onPatch, onApplyPatch, onPickedChange, lineSel, onClearLines, onDiscard, onUntracked, onBlame, onFileMenu, onUntrackedAll, onRefresh, configKey, onOpenGitSettings }: Props) {
   const groupDir = useSettings().groupByDir;
   // Whether the "Changes" node is expanded or collapsed (spec §4.1)
   const [changesOpen, setChangesOpen] = useState(true);
@@ -330,18 +335,30 @@ export function CommitPanel({ repoPath, onWritten, status, disabled, activePath,
     for (const c of changes) if ((files[c.path] ?? cl.active) === id) files[c.path] = "default";
     saveCl({ ...cl, files, lists: cl.lists.filter((l) => l.id !== id), active: cl.active === id ? "default" : cl.active });
   };
+  const moveItems = (paths: string[], onNew?: () => void): MenuEntry[] | undefined => {
+    if (!cl || !paths.length) return;
+    const firstList = listOf(paths[0]);
+    const here = paths.every((p) => listOf(p) === firstList) ? firstList : null;
+    return [
+      ...cl.lists.map((l) => ({ label: listName(l.id), checked: here === l.id, disabled: here === l.id, run: () => moveTo(paths, l.id) })),
+      "-",
+      { label: t("新建变更列表…"), icon: ADD_ICON, run: () => {
+        setNaming({ id: null, value: "", moving: paths });
+        onNew?.();
+      } },
+    ];
+  };
+  useImperativeHandle(ref, () => ({ moveItems }));
   const openMove = (paths: string[], el: HTMLElement) => {
-    if (!cl) return;
+    const items = moveItems(paths);
+    if (!items) return;
     const r = el.getBoundingClientRect();
-    const here = paths.length === 1 ? listOf(paths[0]) : null;
     setMoveMenu({
       x: r.left,
       y: r.bottom + 2,
       items: [
         { label: paths.length === 1 ? t("移到变更列表") : t("把 {0} 个勾选的文件移到", paths.length), heading: true },
-        ...cl.lists.map((l) => ({ label: listName(l.id), checked: here === l.id, disabled: here === l.id, run: () => moveTo(paths, l.id) })),
-        "-" as const,
-        { label: t("新建变更列表…"), icon: ADD_ICON, run: () => setNaming({ id: null, value: "", moving: paths }) },
+        ...items,
       ],
     });
   };

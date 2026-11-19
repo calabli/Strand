@@ -10,7 +10,7 @@ import type { ProjectSearch, RefsList, SparseState, WorktreeStatus } from "../ap
 import { Picker, type PickItem } from "./Picker";
 import { findRegExp } from "./format";
 import { Found } from "./inlineDiff";
-import { FileTree, StatusBadge, TypeIcon } from "./FileRow";
+import { dirOf, FileTree, StatusBadge, TypeIcon } from "./FileRow";
 import { t, tr } from "../i18n";
 
 /** Maximum files shown while searching */
@@ -18,6 +18,7 @@ const LIMIT = 3000;
 
 interface Props {
   status: WorktreeStatus | null;
+  directoryChanges: ReadonlyMap<string, string[]>;
   /** The file being viewed in the middle */
   active: string | null;
   /** Re-read the file list when this changes (repository changes, after switching branches) */
@@ -25,14 +26,15 @@ interface Props {
   /** For choosing a revision in content search */
   refs: RefsList | null;
   /** Open a file; from content search results, with the line and revision (empty is the worktree) */
-  onOpen: (path: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }) => void;
+  onOpen: (path: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }, showHistory?: boolean) => void;
   /** File context menu (open, compare with another file or the clipboard) */
   onMenu?: (path: string, x: number, y: number) => void;
+  onDirectoryMenu: (path: string, x: number, y: number) => void;
   /** Choose which folders to check out (sparse checkout) */
   onSparse?: () => void;
 }
 
-export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu, onSparse }: Props) {
+export function ProjectFiles({ status, directoryChanges, active, reloadKey, refs, onOpen, onMenu, onDirectoryMenu, onSparse }: Props) {
   const [sparse, setSparse] = useState<SparseState | null>(null);
   const [mode, setMode] = useState<"name" | "content">("name");
   const [files, setFiles] = useState<string[] | null>(null);
@@ -64,15 +66,32 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu, 
     return m;
   }, [status]);
 
+  // A staged deletion can be absent from the project file list and still needs a tree row for review.
+  const paths = useMemo(() => files && [...new Set([...files, ...marks.keys()])], [files, marks]);
+  const untrackedDirectories = useMemo(() => {
+    const untracked = new Set<string>();
+    for (const file of status?.untracked ?? []) {
+      for (let dir = dirOf(file); dir; dir = dirOf(dir.slice(0, -1))) untracked.add(dir);
+    }
+    // A mixed directory keeps its usual name color, even when a file-name search hides its tracked files.
+    for (const file of paths ?? []) {
+      if (!untracked.size) break;
+      if (marks.get(file) === "?") continue;
+      for (let dir = dirOf(file); dir; dir = dirOf(dir.slice(0, -1))) untracked.delete(dir);
+    }
+    return untracked;
+  }, [paths, marks, status]);
   const query = q.trim().toLowerCase();
   const shown = useMemo(() => {
-    const all = files ?? [];
+    const all = paths ?? [];
     return query ? all.filter((p) => p.toLowerCase().includes(query)).slice(0, LIMIT) : all;
-  }, [files, query]);
+  }, [paths, query]);
 
   const leaf = (p: string, depth: number) => {
     const st = marks.get(p);
     const name = p.slice(p.lastIndexOf("/") + 1);
+    const untracked = st === "?";
+    const trackingLabel = status ? t(untracked ? "Git 未跟踪" : "Git 已跟踪") : undefined;
     return (
       <div
         key={p}
@@ -91,9 +110,9 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu, 
           }
         }}
       >
-        <button type="button" className="frow-main" title={p} onClick={() => onOpen(p)}>
+        <button type="button" className="frow-main" title={trackingLabel ? `${p} · ${trackingLabel}` : p} onClick={() => onOpen(p, undefined, st === "D")}>
           <TypeIcon path={p} />
-          <span className={"fpath mono" + (st ? " changed" : "")}>{name}</span>
+          <span className={"fpath mono" + (untracked ? " git-untracked" : st ? " changed" : "")}>{name}</span>
           {st && <StatusBadge s={st === "R" ? "M" : st} />}
         </button>
       </div>
@@ -145,11 +164,27 @@ export function ProjectFiles({ status, active, reloadKey, refs, onOpen, onMenu, 
         </div>
       )}
       <div className="pf-sub dim small">
-        {files ? (query ? t("{0} 个文件匹配", shown.length) + (shown.length >= LIMIT ? t("（只显示前 {0} 个）", LIMIT) : "") : t("{0} 个文件", files.length)) : error ? "" : t("正在读取…")}
+        {paths ? (query ? t("{0} 个文件匹配", shown.length) + (shown.length >= LIMIT ? t("（只显示前 {0} 个）", LIMIT) : "") : t("{0} 个文件", paths.length)) : error ? "" : t("正在读取…")}
       </div>
       <div className="pf-list">
         {error && <p className="err">{tr(error)}</p>}
-        {files && <FileTree items={shown} pathOf={(p) => p} leaf={leaf} startClosed forceOpen={!!query} />}
+        {files && (
+          <FileTree
+            items={shown}
+            pathOf={(p) => p}
+            leaf={leaf}
+            startClosed
+            forceOpen={!!query}
+            dirInfo={(p) => {
+              const count = directoryChanges.get(p)?.length;
+              return {
+                countLabel: count ? t("{0} 个文件有改动", count) : undefined,
+                untracked: untrackedDirectories.has(p),
+                onMenu: (x, y) => onDirectoryMenu(p, x, y),
+              };
+            }}
+          />
+        )}
         {files && shown.length === 0 && <p className="dim pad">{query ? t("没有匹配的文件") : t("这个仓库里还没有文件")}</p>}
       </div>
       </div>

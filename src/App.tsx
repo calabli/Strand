@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
-import { treeOrder, TypeIcon } from "./components/FileRow";
+import { dirOf, treeOrder, TypeIcon } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
 import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Submodule, Branch, Worktree, WorktreeStatus, Hosting } from "./api/types";
 import { COMMIT_ICONS, commitActions, useCommitOps } from "./components/commitOps";
@@ -27,12 +27,13 @@ import { useBranchOps, useFavorites } from "./components/branchOps";
 import { useDialog } from "./components/Dialog";
 import { Menu, type MenuEntry, type MenuState } from "./components/Menu";
 import { PullPanel, PushDialog, useRemoteOps } from "./components/remoteOps";
-import { CommitPanel } from "./components/CommitPanel";
+import { CommitPanel, type CommitPanelActions } from "./components/CommitPanel";
 import { Detail } from "./components/Detail";
 import { FileView } from "./components/FileView";
 import { ProjectFiles } from "./components/ProjectFiles";
 import { Splitter, paneVars } from "./components/Splitter";
 import { DiffView } from "./components/DiffView";
+import { useRollbackPlan, type RollbackControls } from "./components/lineRollback";
 import { findRegExp, isMac, keys, shortId } from "./components/format";
 import { Palette } from "./components/Palette";
 import { ACTIONS, matches, hintOf, useKeymap } from "./keymap";
@@ -57,7 +58,7 @@ import { setLang, t, tr } from "./i18n";
 
 /** What the diff tab shows: a file in the worktree or a file in a commit */
 type DiffTarget =
-  | { kind: "worktree"; path: string }
+  | { kind: "worktree"; path: string; directory?: string }
   | { kind: "commit"; id: string; path: string }
   | { kind: "compare"; from: string; to: string; path: string }
   /** A file in a shelf entry (spec §4.9) */
@@ -99,18 +100,20 @@ const joinPath = (root: string, rel: string) => {
 
 /** Identifies a diff tab: what is compared and which file */
 const diffKey = (d: DiffTarget) =>
-  d.kind === "worktree" ? `w:${d.path}` : d.kind === "commit" ? `c:${d.id}:${d.path}` : d.kind === "compare" ? `p:${d.from}:${d.to}:${d.path}` : d.kind === "shelf" ? `s:${d.id}:${d.path}` : `x:${d.left.label}:${d.right.label}`;
+  d.kind === "worktree" ? (d.directory ? `wd:${d.directory}` : `w:${d.path}`) : d.kind === "commit" ? `c:${d.id}:${d.path}` : d.kind === "compare" ? `p:${d.from}:${d.to}:${d.path}` : d.kind === "shelf" ? `s:${d.id}:${d.path}` : `x:${d.left.label}:${d.right.label}`;
 /** Open diff tabs at most */
 const MAX_DIFF_TABS = 10;
 
 /** One file open in the middle: where to jump (from search results) and whether the change chain opens with it */
-type FileTab = { path: string; pinned?: boolean; at: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null; chain: boolean };
+type FileTab = { path: string; pinned?: boolean; at: { line: number; rev: string | null; anchor?: string; find?: { text: string; regex: boolean; caseSensitive: boolean } | null; n: number } | null; chain: boolean };
 /** Open file tabs at most; past this the least recently shown closes */
 const MAX_FILE_TABS = 15;
 
 export default function App() {
   const [git, setGit] = useState<GitInfo | null>(null);
   const [repo, setRepo] = useState<RepoState | null>(null);
+  const repoRef = useRef(repo);
+  repoRef.current = repo;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Commit | null>(null);
@@ -152,6 +155,20 @@ export default function App() {
   const panesRef = useRef<HTMLDivElement>(null);
   const logSplitRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<WorktreeStatus | null>(null);
+  const [worktreeRead, setWorktreeRead] = useState(0);
+  const worktreePaths = useMemo(() => [...new Set([...(status?.changes.map((c) => c.path) ?? []), ...(status?.untracked ?? [])])], [status]);
+  const directoryChanges = useMemo(() => {
+    const dirs = new Map<string, string[]>();
+    for (const path of treeOrder(worktreePaths, (p) => p)) {
+      for (let dir = dirOf(path); dir; dir = dirOf(dir.slice(0, -1))) {
+        const paths = dirs.get(dir);
+        if (paths) paths.push(path);
+        else dirs.set(dir, [path]);
+      }
+    }
+    return dirs;
+  }, [worktreePaths]);
+  const commitPanel = useRef<CommitPanelActions>(null);
   const [tab, setTab] = useState<"log" | "console" | "diff" | "file" | "prs">("log");
   /** Files open in the middle, one tab each (like an IDE's editor tabs); each keeps its own state while another is shown */
   const [files, setFiles] = useState<FileTab[]>([]);
@@ -165,7 +182,7 @@ export default function App() {
     setTab("file");
   }, []);
   const openFile = useCallback(
-    (p: string, at?: { line: number; rev: string | null; find?: { text: string; regex: boolean; caseSensitive: boolean } | null }, history = false) => {
+    (p: string, at?: Omit<NonNullable<FileTab["at"]>, "n">, history = false) => {
       const jump = at ? { ...at, n: Date.now() } : null;
       setFiles((fs) => {
         const i = fs.findIndex((f) => f.path === p);
@@ -228,6 +245,9 @@ export default function App() {
   /** Console, file view and diff tab use the middle plus right width without commit details (diffs compare side by side and would wrap if narrow) */
   const wide = tab === "console" || tab === "file" || tab === "diff" || tab === "prs";
   const [target, setTarget] = useState<DiffTarget | null>(null);
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  const diffRequest = useRef(0);
   /** Open diff tabs (like file tabs); target is the one shown */
   const [diffTabs, setDiffTabs] = useState<DiffTarget[]>([]);
   const [diff, setDiff] = useState<{ data: FileDiff | null; loading: boolean; error: string | null; pickKeys?: Map<string, string> }>({
@@ -372,7 +392,10 @@ export default function App() {
   };
 
   const refreshStatus = useCallback(() => {
-    api.statusGet().then(setStatus, (e) => setError(msgOf(e)));
+    api.statusGet().then((value) => {
+      setStatus(value);
+      setWorktreeRead((n) => n + 1);
+    }, (e) => setError(msgOf(e)));
   }, []);
 
   const refreshRefs = useCallback(() => {
@@ -435,7 +458,13 @@ export default function App() {
     });
 
   const loadDiff = useCallback((t: DiffTarget, quiet = false) => {
-    setDiff((d) => ({ data: quiet ? d.data : null, loading: !quiet, error: null, pickKeys: quiet ? d.pickKeys : undefined }));
+    // A quiet reload can be called from an editor that just finished saving after the user changed files.
+    if (quiet && targetRef.current !== t) return;
+    const request = ++diffRequest.current;
+    const update: typeof setDiff = (result) => {
+      if (request === diffRequest.current) setDiff(result);
+    };
+    update((d) => ({ data: quiet ? d.data : null, loading: !quiet, error: null, pickKeys: quiet ? d.pickKeys : undefined }));
     if (t.kind === "worktree") {
       // Worktree: show the whole file; line checks are recorded per block with 3 lines of context (the core layer finds lines the same way when committing),
       // so also fetch a diff with 3 lines of context and map each changed line by line number to its "block:line" there
@@ -448,9 +477,9 @@ export default function App() {
               if (l.kind === "add" && l.new_no) pickKeys.set(`a:${l.new_no}`, `${i}:${j}`);
             }),
           );
-          setDiff({ data: full, loading: false, error: null, pickKeys });
+          update({ data: full, loading: false, error: null, pickKeys });
         },
-        (e) => setDiff({ data: null, loading: false, error: msgOf(e) }),
+        (e) => update({ data: null, loading: false, error: msgOf(e) }),
       );
       return;
     }
@@ -465,8 +494,8 @@ export default function App() {
             ? wholeFile((c) => api.shelfDiff(t.id, t.path, c))
             : wholeFile((c) => api.diffCommit(t.id, t.path, c));
     p.then(
-      (data) => setDiff({ data, loading: false, error: null }),
-      (e) => setDiff({ data: null, loading: false, error: msgOf(e) }),
+      (data) => update({ data, loading: false, error: null }),
+      (e) => update({ data: null, loading: false, error: msgOf(e) }),
     );
   }, []);
 
@@ -475,7 +504,9 @@ export default function App() {
   const openDiff = (t: DiffTarget, replace = false) => {
     const k = diffKey(t);
     setDiffTabs((ts) => {
-      if (ts.some((x) => diffKey(x) === k)) return ts;
+      if (ts.some((x) => diffKey(x) === k)) {
+        return t.kind === "worktree" && t.directory ? ts.map((x) => (diffKey(x) === k ? t : x)) : ts;
+      }
       const at = target ? ts.findIndex((x) => diffKey(x) === diffKey(target)) : -1;
       if (replace && at >= 0) return ts.map((x, i) => (i === at ? t : x));
       const next = [...ts];
@@ -501,6 +532,7 @@ export default function App() {
         setTarget(next);
         loadDiff(next);
       } else {
+        diffRequest.current++;
         setTarget(null);
         setTab((tb) => (tb === "diff" ? "log" : tb));
       }
@@ -527,16 +559,19 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupKey]);
-  const filesInGroup = target?.kind === "texts" ? [] : target?.kind === "worktree" ? [...(status?.changes.map((c) => c.path) ?? []), ...(status?.untracked ?? [])] : siblings?.key === groupKey ? siblings.paths : [];
+  const scopedPaths = target?.kind === "worktree" && target.directory ? directoryChanges.get(target.directory) ?? [] : null;
+  const filesInGroup = target?.kind === "texts" ? [] : target?.kind === "worktree" ? scopedPaths ?? worktreePaths : siblings?.key === groupKey ? siblings.paths : [];
+  const fileIndex = target ? filesInGroup.indexOf(target.path) : -1;
   const fileNav =
-    target && filesInGroup.length > 1 && filesInGroup.includes(target.path)
+    target && ((fileIndex >= 0 && filesInGroup.length > 1) || (fileIndex < 0 && scopedPaths?.length))
       ? {
-          at: filesInGroup.indexOf(target.path),
+          at: fileIndex,
           total: filesInGroup.length,
           go: (d: number) => {
-            const i = filesInGroup.indexOf(target.path);
-            const next = filesInGroup[(i + d + filesInGroup.length) % filesInGroup.length];
-            openDiff({ ...target, path: next } as DiffTarget, true);
+            // The current file may have become clean since this folder tab was opened.
+            const count = filesInGroup.length;
+            const next = fileIndex < 0 ? (d > 0 ? 0 : count - 1) : (fileIndex + d + count) % count;
+            openDiff({ ...target, path: filesInGroup[next] }, true);
           },
         }
       : null;
@@ -551,6 +586,7 @@ export default function App() {
       rememberRepo(st.path, st.name);
       setRepo(st);
       setSelected(null);
+      diffRequest.current++;
       setTarget(null);
       setDiffTabs([]);
       setFiles([]);
@@ -695,6 +731,39 @@ export default function App() {
   oplogRefresh.current = oplog.refresh;
   // Undo is also blocked during a bisect (undo would move HEAD, out of sync with Git's bisect state)
   const undoBlocked = repo?.state !== "normal" || !!repo?.bisecting;
+  const reviewingPath = tab === "file" ? fileOpen : tab === "diff" && target?.kind === "worktree" ? target.path : null;
+  const rollbackPath = !undoBlocked && reviewingPath && status?.changes.some((file) => file.path === reviewingPath && file.status === "M" && !file.old_path) ? reviewingPath : null;
+  const plan = useRollbackPlan(rollbackPath, `${repo?.path ?? ""}:${worktreeRead}`);
+  const [rollbackBusy, setRollbackBusy] = useState(false);
+  const rollingBack = useRef(false);
+  const rollback: RollbackControls | undefined = repo && rollbackPath && plan ? {
+    ...plan,
+    busy: rollbackBusy || dirtyList.includes(rollbackPath),
+    apply: async (line) => {
+      if (rollingBack.current || isDirty(rollbackPath)) return null;
+      rollingBack.current = true;
+      setRollbackBusy(true);
+      try {
+        const result = await api.rollbackLine(repo.path, rollbackPath, plan.stamp, line.index);
+        if (repoRef.current?.path !== repo.path) return null;
+        setLineSel(({ [rollbackPath]: _, ...rest }) => rest);
+        say(t("已回退这一行"), result.op);
+        return result.result;
+      } catch (e) {
+        notify({ kind: "error", title: t("回退这一行失败"), body: tr(msgOf(e)) });
+        return null;
+      } finally {
+        rollingBack.current = false;
+        setRollbackBusy(false);
+        if (repoRef.current?.path === repo.path) {
+          refreshStatus();
+          oplogRefresh.current();
+          const shown = targetRef.current;
+          if (shown?.kind === "worktree" && shown.path === rollbackPath) loadDiff(shown, true);
+        }
+      }
+    },
+  } : undefined;
   const cur = refs?.branches.find((b) => b.is_current);
 
   const repoMode = repo?.state ?? "normal";
@@ -1055,8 +1124,6 @@ export default function App() {
   );
 
   // Changes pushed by file watching: refs changed → refresh the log; worktree changed → refresh the commit panel and the worktree diff being viewed
-  const targetRef = useRef(target);
-  targetRef.current = target;
   useEffect(() => {
     if (!repo) return;
     return onRepoChanged((scopes) => {
@@ -1189,6 +1256,7 @@ export default function App() {
   const recent = useRecentRepos();
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if (matches(e, "settings")) {
         e.preventDefault();
         setSettingsOpen(true);
@@ -1226,7 +1294,7 @@ export default function App() {
   sayRef.current = say;
   useEffect(() => {
     setNavHost({
-      open: (to) => openFileRef.current(to.path, { line: to.line, rev: null }),
+      open: (to) => openFileRef.current(to.path, { line: to.line, rev: to.rev ?? null, anchor: to.anchor }),
       pick: (title, locs, from, note) => {
         setJumpQ("");
         setJumpPick({ title, locs, from, note });
@@ -1605,6 +1673,16 @@ export default function App() {
     },
     { label: t("和剪贴板比较"), icon: COMMIT_ICONS.copy, run: () => compareClipboard(path) },
   ];
+  const gitTrackingItems = (path: string): MenuEntry[] => {
+    const directory = path.endsWith("/");
+    const hasUntracked = status?.untracked.some((file) => directory ? file.startsWith(path) : file === path) ?? false;
+    return [
+      { label: t("加入 Git 跟踪"), icon: COMMIT_ICONS.commit, disabled: !hasUntracked,
+        why: !status ? t("正在读取工作区…") : directory ? t("目录里没有未跟踪文件") : t("Git 已跟踪"), run: () => onUntracked("add", path) },
+      { label: t("加入 Git 忽略规则"), icon: COMMIT_ICONS.cancel, disabled: !directory && !hasUntracked,
+        why: !status ? t("正在读取工作区…") : t("Git 忽略规则作用于未跟踪文件"), run: () => onUntracked("ignore", path) },
+    ];
+  };
   const projectFileMenu = (path: string, x: number, y: number) =>
     setMenu({
       x,
@@ -1613,11 +1691,31 @@ export default function App() {
         { label: t("打开"), icon: COMMIT_ICONS.tree, run: () => openFile(path) },
         { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(path, undefined, true) },
         "-",
+        ...gitTrackingItems(path),
+        "-",
         ...compareItems(path),
         "-",
         ...osItems(path),
       ],
     });
+
+  const projectDirectoryMenu = (directory: string, x: number, y: number) => {
+    const paths = directoryChanges.get(directory);
+    const tracked = status?.changes.map((c) => c.path).filter((p) => p.startsWith(directory)) ?? [];
+    const moveItems = tracked.length ? commitPanel.current?.moveItems(tracked, () => setPanel("commit")) : undefined;
+    setMenu({
+      x,
+      y,
+      items: [
+        ...gitTrackingItems(directory),
+        ...(paths?.length ? [
+          "-" as const,
+          { label: t("查看目录改动"), icon: COMMIT_ICONS.compare, run: () => openDiff({ kind: "worktree", directory, path: paths[0] }) },
+          { label: t("移到变更列表"), sub: moveItems, disabled: !moveItems, why: tracked.length ? t("正在读取工作区…") : t("这个目录只有未跟踪的文件") },
+        ] : []),
+      ],
+    });
+  };
 
   // Context menu for files in the commit panel (spec §12.2)
   const fileMenu = (path: string, x: number, y: number) =>
@@ -1632,8 +1730,7 @@ export default function App() {
             "-",
             ...osItems(path),
             "-",
-            { label: t("加入版本控制"), icon: COMMIT_ICONS.commit, run: () => onUntracked("add", path) },
-            { label: t("加入忽略规则"), icon: COMMIT_ICONS.cancel, run: () => onUntracked("ignore", path) },
+            ...gitTrackingItems(path),
             { label: t("删除（移到废纸篓）…"), icon: COMMIT_ICONS.drop, danger: true, run: () => onUntracked("delete", path) },
           ]
         : [
@@ -1750,11 +1847,13 @@ export default function App() {
           {panel === "files" && (
             <ProjectFiles
               status={status}
+              directoryChanges={directoryChanges}
               active={tab === "file" ? fileOpen : null}
               reloadKey={`${logKey}|${status?.untracked.length ?? 0}|${status?.changes.length ?? 0}`}
               refs={refs}
               onOpen={openFile}
               onMenu={projectFileMenu}
+              onDirectoryMenu={projectDirectoryMenu}
               onSparse={() => setSparseOpen(true)}
             />
           )}
@@ -1777,6 +1876,7 @@ export default function App() {
           <div className="ppane" hidden={panel !== "commit"}>
           <CommitPanel
             key={repo.path}
+            ref={commitPanel}
             configKey={configKey}
             onOpenGitSettings={() => (setSettingsSection("git"), setSettingsOpen(true))}
             repoPath={repo.path}
@@ -1837,14 +1937,15 @@ export default function App() {
               const dup = files.some((g) => g !== f && g.path.slice(g.path.lastIndexOf("/") + 1) === name);
               const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
               const on = tab === "file" && fileOpen === f.path;
+              const untracked = status?.untracked.includes(f.path) ?? false;
               return (
                 <div
                   key={f.path}
                   role="tab"
                   tabIndex={0}
                   aria-selected={on}
-                  className={"ftab" + (on ? " on" : "") + (f.pinned ? " pinned" : "") + (dragTab?.over === f.path ? " drop" : "")}
-                  title={f.path}
+                  className={"ftab" + (on ? " on" : "") + (f.pinned ? " pinned" : "") + (dragTab?.over === f.path ? " drop" : "") + (untracked ? " git-untracked" : "")}
+                  title={status ? `${f.path} · ${t(untracked ? "Git 未跟踪" : "Git 已跟踪")}` : f.path}
                   // Drag to reorder (pinned tabs stay among pinned ones, the rest after them)
                   draggable
                   onDragStart={(e) => {
@@ -1911,6 +2012,8 @@ export default function App() {
                         { label: t("复制路径"), icon: COMMIT_ICONS.copy, run: () => void navigator.clipboard.writeText(f.path) },
                         ...osItems(f.path),
                         { label: t("查看这个文件的历史"), icon: COMMIT_ICONS.history, run: () => openFile(f.path, undefined, true) },
+                        "-",
+                        ...gitTrackingItems(f.path),
                       ],
                     });
                   }}
@@ -1961,7 +2064,8 @@ export default function App() {
             })}
             {diffTabs.map((d) => {
               const on = tab === "diff" && !!target && diffKey(d) === diffKey(target);
-              const name = d.path.split("/").pop();
+              const directory = d.kind === "worktree" ? d.directory?.slice(0, -1) : undefined;
+              const name = (directory ?? d.path).split("/").pop();
               const where = d.kind === "worktree" ? t("工作区") : d.kind === "commit" ? shortId(d.id) : d.kind === "compare" ? `${shortId(d.from)}→${shortId(d.to)}` : d.kind === "shelf" ? d.name : t("对比");
               return (
                 <div
@@ -1970,7 +2074,7 @@ export default function App() {
                   tabIndex={0}
                   aria-selected={on}
                   className={"ftab dtab" + (on ? " on" : "")}
-                  title={`${d.path} · ${where}`}
+                  title={`${directory ?? d.path} · ${where}`}
                   onClick={() => (on ? undefined : openDiff(d))}
                   onMouseDown={(e) => e.button === 1 && (e.preventDefault(), closeDiffs([d]))}
                   onKeyDown={(e) => {
@@ -2123,6 +2227,8 @@ export default function App() {
                 at={f.at}
                 showHistory={f.chain}
                 reloadKey={lfsVer}
+                worktreeRead={tab === "file" && fileOpen === f.path ? worktreeRead : null}
+                rollback={tab === "file" && rollbackPath === f.path ? rollback : undefined}
                 onLfsPull={repo?.lfs ? lfsPull : undefined}
                 changed={!!status && (status.changes.some((c) => c.path === f.path) || status.untracked.includes(f.path))}
                 onLocate={(id) => locate(id)}
@@ -2132,11 +2238,13 @@ export default function App() {
           {tab === "diff" && target && (
             <DiffView
               diff={diff.data}
+              rollback={target.kind === "worktree" ? rollback : undefined}
+              worktreeRead={target.kind === "worktree" ? worktreeRead : undefined}
               loading={diff.loading}
               error={diff.error}
               source={
                 target.kind === "worktree"
-                  ? t("工作区")
+                  ? target.directory ? t("目录改动 · {0}", target.directory.slice(0, -1)) : t("工作区")
                   : target.kind === "compare"
                     ? t("比较 {0} → {1}", shortId(target.from), shortId(target.to))
                     : target.kind === "shelf"
