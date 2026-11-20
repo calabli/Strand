@@ -63,9 +63,11 @@ export interface Settings {
   markdownSyncScroll: boolean;
   /** Color (), [] and {} by nesting depth in code (diffs, file text, the editor) */
   rainbowBrackets: boolean;
+  /** Zoom of the whole window (1 = 100%), see zoom.ts */
+  zoom: number;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {}, markdownMode: "split", markdownSyncScroll: true, rainbowBrackets: true };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {}, markdownMode: "split", markdownSyncScroll: true, rainbowBrackets: true, zoom: 1 };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();

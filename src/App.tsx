@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, errOf, inTauri, onRepoChanged, openUrl, pickFolder, revealPath, wholeFile } from "./api/commands";
+import { setZoom, stepZoom, ZOOMS, zoomKey, zoomLabel, zoomLevel } from "./zoom";
 import { dirOf, treeOrder, TypeIcon } from "./components/FileRow";
 import { CloneDialog, WorktreeDialog } from "./components/worktreeClone";
 import type { Cap, Commit, CommitCaps, CommitCreated, Selection, FileChange, FileDiff, GitInfo, MergeSession, OpInfo, RefsList, RepoState, Submodule, Branch, Worktree, WorktreeStatus, Hosting } from "./api/types";
@@ -1262,6 +1263,7 @@ export default function App() {
         setSettingsOpen(true);
         return;
       }
+      if (zoomKey(e)) return;
       if (!repo) return;
       if (matches(e, "palette")) {
         e.preventDefault();
@@ -1547,6 +1549,9 @@ export default function App() {
       { id: "recent-files", section: m, icon: COMMIT_ICONS.history, label: t("最近的文件…"), hint: hintOf("recentFiles"), run: () => (setRecentQ(""), setRecentFiles(true)) },
       { id: "reopen-file", section: m, icon: COMMIT_ICONS.history, label: t("重新打开关掉的标签页"), hint: hintOf("reopenTab"), disabled: !closedRef.current.length, why: t("还没有关过标签页"), run: reopenFile },
       { id: "settings", section: m, icon: COMMIT_ICONS.gear, label: t("设置…"), hint: hintOf("settings"), run: () => setSettingsOpen(true) },
+      { id: "zoom-in", section: v, icon: COMMIT_ICONS.search, label: t("放大"), hint: hintOf("zoomIn"), disabled: zoomLevel() >= ZOOMS[ZOOMS.length - 1], why: t("已经是最大（{0}）", zoomLabel()), run: () => stepZoom(1) },
+      { id: "zoom-out", section: v, icon: COMMIT_ICONS.search, label: t("缩小"), hint: hintOf("zoomOut"), disabled: zoomLevel() <= ZOOMS[0], why: t("已经是最小（{0}）", zoomLabel()), run: () => stepZoom(-1) },
+      { id: "zoom-reset", section: v, icon: COMMIT_ICONS.search, label: t("实际大小（100%）"), hint: hintOf("zoomReset"), disabled: zoomLevel() === 1, why: t("现在就是 100%"), run: () => setZoom(1) },
       { id: "update-check", section: m, icon: COMMIT_ICONS.gear, label: t("检查更新…"), run: () => updates.check(true) },
       { id: "git-config", section: m, icon: COMMIT_ICONS.gear, label: t("Git 配置（用户名、邮箱、代理）…"), run: () => (setSettingsSection("git"), setSettingsOpen(true)) },
       { id: "lang-zh", section: m, icon: COMMIT_ICONS.web, label: "中文", run: () => setLang("zh") },

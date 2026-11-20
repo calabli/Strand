@@ -31,6 +31,7 @@ import {
 } from "../settings";
 import { formatTime } from "./format";
 import { ACTIONS, type ActionId, comboFromEvent, comboOf, conflictOf, hintOf, labelOf, resetAll, setCombo, showCombo, usable, useKeymap } from "../keymap";
+import { setZoom, ZOOMS, zoomLabel, zoomLevel } from "../zoom";
 
 const isMacOs = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -493,6 +494,11 @@ export function SettingsWindow({
             />,
           )}
           {row(
+            t("缩放"),
+            <Choice<number> value={zoomLevel(s.zoom)} options={ZOOMS.map((z) => [z, zoomLabel(z)])} onChange={setZoom} />,
+            t("整个窗口一起放大或缩小；{0} 放大，{1} 缩小，{2} 回到 100%", hintOf("zoomIn"), hintOf("zoomOut"), hintOf("zoomReset")),
+          )}
+          {row(
             t("显示精确日期"),
             <Toggle
               on={s.exactDates}
@@ -509,7 +515,7 @@ export function SettingsWindow({
           {row(
             t("彩虹括号"),
             <Toggle on={s.rainbowBrackets} label={t("彩虹括号")} onChange={(v) => set({ rainbowBrackets: v })} />,
-            t("代码里成对的 ()、[]、{} 按嵌套层级用不同颜色，配不上的标红；文件、差异和编辑器里都生效"),
+            t("代码里成对的 ()、[]、{} 和 XML、HTML 标签按嵌套层级用不同颜色，配不上的标红；文件、差异和编辑器里都生效"),
           )}
           <div className="set-sec dim">{t("远程")}</div>
           {repoOpen &&

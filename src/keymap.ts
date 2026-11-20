@@ -25,7 +25,10 @@ export type ActionId =
   | "findUsages"
   | "navBack"
   | "navForward"
-  | "goFile";
+  | "goFile"
+  | "zoomIn"
+  | "zoomOut"
+  | "zoomReset";
 
 /** Actions in display order, with their default combo. Labels are translated when read. */
 export const ACTIONS: { id: ActionId; label: string; def: string }[] = [
@@ -49,6 +52,9 @@ export const ACTIONS: { id: ActionId; label: string; def: string }[] = [
   { id: "navBack", label: "后退到跳转之前的位置", def: "Mod+[" },
   { id: "navForward", label: "前进", def: "Mod+]" },
   { id: "goFile", label: "按名字打开文件", def: "Mod+Shift+O" },
+  { id: "zoomIn", label: "放大", def: "Mod+=" },
+  { id: "zoomOut", label: "缩小", def: "Mod+-" },
+  { id: "zoomReset", label: "实际大小（100%）", def: "Mod+0" },
 ];
 
 /** Pairs that may share a combo because they never apply at the same time (the log vs. a diff or file view) */
