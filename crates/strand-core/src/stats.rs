@@ -50,7 +50,10 @@ pub struct Contributions {
 
 const FORMAT: &str = "--format=%x1e%aN%x1f%aE%x1f%at%x1f%ad";
 
-/// Statistics for HEAD's history since `since` (Unix seconds; None = all of it)
+/// Statistics for HEAD's history since `since` (Unix seconds; None = all of it), by author date: the charts place
+/// commits by author date, so the range must too. `git log --since` only knows the committer date, which is normally
+/// the same or later (rebases and cherry-picks move it forward), so it serves as a quick pre-filter that returns a
+/// superset, and [`parse`] drops the commits authored before `since`.
 pub fn contributions(dir: &Path, since: Option<i64>) -> Result<Contributions> {
     let no_lines = crate::log_filter::is_partial_clone(dir);
     let since_arg = since.map(|s| format!("--since=@{s}"));
@@ -66,13 +69,13 @@ pub fn contributions(dir: &Path, since: Option<i64>) -> Result<Contributions> {
         // No commits yet: nothing to count
         if git2::Repository::open(dir).is_ok_and(|r| r.head().is_err()) { Ok(String::new()) } else { Err(e) }
     })?;
-    let mut c = parse(&out);
+    let mut c = parse(&out, since);
     c.no_lines = no_lines;
     Ok(c)
 }
 
-/// Read `git log` output in FORMAT (with --shortstat or without)
-pub fn parse(out: &str) -> Contributions {
+/// Read `git log` output in FORMAT (with --shortstat or without), keeping commits authored at or after `since`
+pub fn parse(out: &str, since: Option<i64>) -> Contributions {
     let mut authors: HashMap<(String, String), AuthorStats> = HashMap::new();
     let mut months: HashMap<String, MonthStats> = HashMap::new();
     let mut heat = vec![[0u32; 24]; 7];
@@ -85,6 +88,9 @@ pub fn parse(out: &str) -> Contributions {
             continue;
         }
         let time: i64 = f[2].parse().unwrap_or(0);
+        if since.is_some_and(|s| time < s) {
+            continue;
+        }
         let (added, deleted) = lines.find(|l| l.contains("changed")).map(shortstat).unwrap_or((0, 0));
         let d: Vec<&str> = f[3].split('|').collect();
         let (month, wd, hour) = (d.first().copied().unwrap_or(""), d.get(1).and_then(|x| x.parse::<usize>().ok()), d.get(2).and_then(|x| x.parse::<usize>().ok()));
@@ -169,7 +175,7 @@ mod tests {
         let out = "\x1eLin Xia\x1flin@example.com\x1f1794645000\x1f2026-11|5|14\n\n 2 files changed, 10 insertions(+), 2 deletions(-)\n\
                    \x1eZhou\x1fzhou@example.com\x1f1789000000\x1f2026-09|1|09\n\n 1 file changed, 3 deletions(-)\n\
                    \x1eLin Xia\x1fLIN@example.com\x1f1789100000\x1f2026-09|7|23\n\n 1 file changed, 1 insertion(+)\n";
-        let c = parse(out);
+        let c = parse(out, None);
         assert_eq!((c.commits, c.added, c.deleted), (3, 11, 5));
         assert_eq!(c.authors.len(), 2);
         assert_eq!((c.authors[0].name.as_str(), c.authors[0].commits, c.authors[0].added), ("Lin Xia", 2, 11));
@@ -199,5 +205,29 @@ mod tests {
         assert_eq!(c.heat.iter().flatten().sum::<u32>(), 2);
         // A range that starts after both commits
         assert_eq!(contributions(p, Some(i64::from(i32::MAX))).unwrap().commits, 0);
+    }
+
+    #[test]
+    fn range_uses_author_date() {
+        // Authored long ago, committed recently (as after a rebase or cherry-pick): outside a recent range
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let git = |args: &[&str], env: &[(&str, &str)]| {
+            let ok = std::process::Command::new("git").args(args).current_dir(p).env("GIT_CONFIG_GLOBAL", "/dev/null").envs(env.iter().copied()).output().unwrap().status.success();
+            assert!(ok, "{args:?}");
+        };
+        git(&["init", "-q", "-b", "main"], &[]);
+        git(&["config", "user.name", "A"], &[]);
+        git(&["config", "user.email", "a@example.com"], &[]);
+        std::fs::write(p.join("f.txt"), "1\n").unwrap();
+        git(&["add", "."], &[]);
+        git(&["commit", "-qm", "old"], &[("GIT_AUTHOR_DATE", "@1000000000 +0000"), ("GIT_COMMITTER_DATE", "@2000000000 +0000")]);
+        std::fs::write(p.join("f.txt"), "1\n2\n").unwrap();
+        git(&["commit", "-qam", "new"], &[("GIT_AUTHOR_DATE", "@2000000000 +0000"), ("GIT_COMMITTER_DATE", "@2000000000 +0000")]);
+        let c = contributions(p, Some(1_900_000_000)).unwrap();
+        assert_eq!(c.commits, 1);
+        assert_eq!(c.months.len(), 1);
+        assert_eq!(c.authors[0].first, 2_000_000_000);
+        assert_eq!(contributions(p, None).unwrap().commits, 2);
     }
 }
