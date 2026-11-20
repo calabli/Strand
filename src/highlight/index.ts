@@ -10,7 +10,7 @@ const EXT: Record<string, string> = {
   js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript", coffee: "coffeescript",
   json: "json", jsonc: "json", json5: "json", jsonl: "json", ndjson: "json", geojson: "json", webmanifest: "json",
   css: "css", scss: "scss", sass: "scss", less: "less", styl: "stylus",
-  html: "xml", htm: "xml", xhtml: "xml", vue: "xml", svelte: "xml", astro: "xml",
+  html: "html", htm: "html", xhtml: "html", vue: "html", svelte: "html", astro: "html",
   hbs: "handlebars", handlebars: "handlebars", mustache: "handlebars", erb: "erb",
   graphql: "graphql", gql: "graphql",
   // Systems and applications

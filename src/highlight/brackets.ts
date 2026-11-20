@@ -6,7 +6,7 @@
  * list, a smiley), shell case patterns ("a)"), unquoted regexes in config files. Brackets are still colored by depth.
  */
 const LENIENT = new Set([
-  "plaintext", "markdown", "asciidoc", "latex", "xml", "handlebars", "erb", "diff",
+  "plaintext", "markdown", "asciidoc", "latex", "xml", "html", "handlebars", "erb", "diff",
   "bash", "dos", "makefile", "dockerfile", "ini", "properties", "yaml", "nginx", "apache",
 ]);
 /** Whether a bracket without its partner counts as an error in this language (null: unknown, plain text) */

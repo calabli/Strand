@@ -91,17 +91,46 @@ const QUIET = new Set(["string", "comment", "regexp", "quote", "char", "doctag",
 
 const ENT: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#x27;": "'", "&#39;": "'" };
 
+/** HTML elements that have no end tag */
+const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+/** HTML start tags that end an open element of these names without its end tag (<li>one <li>two) */
+const ENDS: Record<string, string[]> = {
+  li: ["li"], dt: ["dt", "dd"], dd: ["dt", "dd"], p: ["p"], option: ["option"],
+  tr: ["td", "th", "tr"], td: ["td", "th"], th: ["td", "th"],
+};
+
+interface Opts {
+  /** A bracket without its partner is "br-bad" (a whole file, in a language where every bracket has one) */
+  strict: boolean;
+  /** A tag without its partner is "tag-br-bad" (a whole XML file, where every tag must be closed) */
+  strictTags: boolean;
+  /** HTML: tag names ignore case and void elements (<br>, <img>) have no end tag */
+  html: boolean;
+}
+
+/** A tag being read: its "<", "</", name, ">" and "/>" runs, colored once the tag is complete */
+interface TagRead {
+  toks: Tok[];
+  name: string;
+  closing: boolean;
+  self: boolean;
+}
+
 /**
  * Split highlight.js's HTML output into per-line colored runs. (), [] and {} outside strings and comments get their
- * own runs "br0".."br3" by nesting depth; with `strict` (a whole file, in a language where every bracket has a
- * partner) a bracket without its partner is "br-bad".
+ * own runs "br0".."br3" by nesting depth; so do markup tags (XML, HTML, JSX), as "tag-br0".."tag-br3": an element's
+ * start and end tags take the color of its depth, brackets and tags counted separately.
  */
-function toLines(html: string, strict: boolean): Tok[][] {
+function toLines(html: string, { strict, strictTags, html: isHtml }: Opts): Tok[][] {
   const lines: Tok[][] = [[]];
   const stack: string[] = [];
   let col = 0;
   /** Open brackets: the closer they expect, and their run (relabeled when never closed) */
   const open: { want: string; tok: Tok }[] = [];
+  /** Open elements: their name and the runs of their start tag (relabeled when never closed) */
+  const elements: { name: string; toks: Tok[] }[] = [];
+  let tag: TagRead | null = null;
+  /** Runs whose kind starts with "br" are never merged, so tag and bracket runs can be relabeled later */
   const push = (a: number, b: number, kind: string) => {
     const cur = lines[lines.length - 1];
     const last = cur[cur.length - 1];
@@ -109,8 +138,56 @@ function toLines(html: string, strict: boolean): Tok[][] {
     else cur.push([a, b, kind]);
     return cur[cur.length - 1];
   };
+  const paint = (toks: Tok[], kind: string) => {
+    for (const t of toks) t[2] = kind;
+  };
+  /** The tag is complete: match it against the open elements and color it */
+  const finishTag = (t: TagRead) => {
+    const name = isHtml ? t.name.toLowerCase() : t.name;
+    if (!t.closing) {
+      const ends = isHtml ? ENDS[name] : undefined;
+      while (ends && elements.length && ends.includes(elements[elements.length - 1].name)) elements.pop();
+      paint(t.toks, "tag-br" + (elements.length % LEVELS));
+      if (!t.self && !(isHtml && VOID.has(name))) elements.push({ name, toks: t.toks });
+      return;
+    }
+    let k = elements.length - 1;
+    while (k >= 0 && elements[k].name !== name) k--;
+    if (k < 0) {
+      // No start tag (in a piece of a file it may be outside the piece)
+      paint(t.toks, strictTags ? "tag-br-bad" : "tag-br0");
+      return;
+    }
+    // Elements left open in between: an error in XML, implied end tags in HTML (<li>, <p>)
+    if (strictTags) for (const e of elements.slice(k + 1)) paint(e.toks, "tag-br-bad");
+    elements.length = k;
+    paint(t.toks, "tag-br" + (k % LEVELS));
+  };
+  /** Text inside a tag: "<" or "</" at the start, ">" or "/>" at the end, attribute spacing and "=" between */
+  const emitTag = (t: TagRead, part: string) => {
+    let a = 0;
+    let b = part.length;
+    if (part.startsWith("</")) {
+      t.closing = true;
+      a = 2;
+    } else if (part.startsWith("<")) a = 1;
+    if (a) t.toks.push(push(col, col + a, "br0"));
+    const end = part.endsWith("/>") && b - 2 >= a ? 2 : part.endsWith(">") && b - 1 >= a ? 1 : 0;
+    b -= end;
+    if (b > a) push(col + a, col + b, "tag");
+    if (end) {
+      if (end === 2) t.self = true;
+      t.toks.push(push(col + b, col + b + end, "br0"));
+    }
+  };
   /** One piece of text of a single kind, on one line */
   const emit = (part: string, kind: string | undefined) => {
+    if (tag && kind === "tag") return emitTag(tag, part);
+    if (tag && kind === "name" && stack[stack.length - 2] === "tag") {
+      tag.name += part;
+      tag.toks.push(push(col, col + part.length, "br0"));
+      return;
+    }
     if (kind && QUIET.has(kind)) {
       if (part && kind) push(col, col + part.length, kind);
       return;
@@ -140,9 +217,14 @@ function toLines(html: string, strict: boolean): Tok[][] {
   for (let m = re.exec(html); m; m = re.exec(html)) {
     if (m[1] !== undefined) {
       // "hljs-title function_" takes the first class name
-      stack.push(m[1].split(" ")[0].replace(/^hljs-/, ""));
+      const kind = m[1].split(" ")[0].replace(/^hljs-/, "");
+      stack.push(kind);
+      if (kind === "tag") tag = { toks: [], name: "", closing: false, self: false };
     } else if (m[0] === "</span>") {
-      stack.pop();
+      if (stack.pop() === "tag" && tag) {
+        finishTag(tag);
+        tag = null;
+      }
     } else {
       const text = m[2].replace(/&(amp|lt|gt|quot|#x27|#39);/g, (e) => ENT[e] ?? e);
       const kind = stack[stack.length - 1];
@@ -158,15 +240,20 @@ function toLines(html: string, strict: boolean): Tok[][] {
     }
   }
   if (strict) for (const o of open) o.tok[2] = "br-bad";
+  if (strictTags) for (const e of elements) paint(e.toks, "tag-br-bad");
   return lines;
 }
 
 self.onmessage = (e: MessageEvent<{ id: number; lang: string; texts: string[]; complete?: boolean }>) => {
   const { id, lang, texts, complete = false } = e.data;
-  const strict = complete && strictBrackets(lang);
+  const opts: Opts = {
+    strict: complete && strictBrackets(lang),
+    strictTags: complete && lang === "xml",
+    html: lang === "html" || lang === "erb" || lang === "handlebars",
+  };
   let out: (Tok[][] | null)[];
   try {
-    out = texts.map((t) => (hljs.getLanguage(lang) ? toLines(hljs.highlight(t, { language: lang, ignoreIllegals: true }).value, strict) : null));
+    out = texts.map((t) => (hljs.getLanguage(lang) ? toLines(hljs.highlight(t, { language: lang, ignoreIllegals: true }).value, opts) : null));
   } catch {
     out = texts.map(() => null);
   }

@@ -997,6 +997,12 @@ mark.find { background: #FFD84D; color: #1A1A1A; border-radius: 2px; padding: 0;
 .tk-br0 { color: var(--br0); } .tk-br1 { color: var(--br1); } .tk-br2 { color: var(--br2); } .tk-br3 { color: var(--br3); }
 .tk-br-bad { color: var(--br-bad); text-decoration: wavy underline var(--br-bad); text-underline-offset: 3px; }
 :root[data-rainbow="off"] :is(.tk-br0, .tk-br1, .tk-br2, .tk-br3, .tk-br-bad) { color: inherit; text-decoration: none; }
+/* Markup tags by element depth; with rainbow brackets off they keep the tag color. In the editor the syntax color is a
+   span inside the rainbow mark, so it gives way while rainbow brackets are on */
+.tk-tag-br0 { color: var(--br0); } .tk-tag-br1 { color: var(--br1); } .tk-tag-br2 { color: var(--br2); } .tk-tag-br3 { color: var(--br3); }
+.tk-tag-br-bad { color: var(--br-bad); text-decoration: wavy underline var(--br-bad); text-underline-offset: 3px; }
+:root:not([data-rainbow="off"]) :is(.tk-tag-br0, .tk-tag-br1, .tk-tag-br2, .tk-tag-br3, .tk-tag-br-bad) [class*="tok-"] { color: inherit; }
+:root[data-rainbow="off"] :is(.tk-tag-br0, .tk-tag-br1, .tk-tag-br2, .tk-tag-br3, .tk-tag-br-bad) { color: var(--sx-tag); text-decoration: none; }
 .tk-emphasis { font-style: italic; }
 .tk-strong { font-weight: 700; }
 .tk-addition { color: var(--ok-ink); }
