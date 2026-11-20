@@ -1,6 +1,6 @@
 # Strand 使用说明书
 
-Strand 是一个桌面 Git 客户端，功能和布局照着 JetBrains IDE（IntelliJ IDEA、WebStorm 等）的 Git 集成来做，几乎每一步操作都能用 ⌘Z 撤销。这本说明书对应 **0.1.10 版**，按日常用到的顺序讲：先装好、认识界面，再讲看历史、提交、分支、同步，最后是冲突、撤销和各种工具。
+Strand 是一个桌面 Git 客户端，功能和布局照着 JetBrains IDE（IntelliJ IDEA、WebStorm 等）的 Git 集成来做，几乎每一步操作都能用 ⌘Z 撤销。这本说明书对应 **0.1.11 版**，按日常用到的顺序讲：先装好、认识界面，再讲看历史、提交、分支、同步，最后是冲突、撤销和各种工具。
 
 - 每节开头一句话说这一节能做什么，后面是具体步骤和截图。
 - 快捷键按 macOS 写：Windows 上 ⌘ 换成 Ctrl，⌥ 换成 Alt。
@@ -32,10 +32,10 @@ Strand 是一个桌面 Git 客户端，功能和布局照着 JetBrains IDE（Int
 
 | 系统 | 下载哪个文件 | 说明 |
 | --- | --- | --- |
-| macOS（Apple 芯片） | `Strand_0.1.10_aarch64.dmg` | 打开后把 Strand 拖进“应用程序” |
-| Windows 10 / 11（64 位） | `Strand_0.1.10_x64-setup.exe` | 安装程序，推荐 |
-| Windows | `Strand_0.1.10_x64_en-US.msi` | 给需要 MSI 的公司环境 |
-| Windows | `Strand_0.1.10_x64_portable.exe` | 免安装，双击就能用 |
+| macOS（Apple 芯片） | `Strand_0.1.11_aarch64.dmg` | 打开后把 Strand 拖进“应用程序” |
+| Windows 10 / 11（64 位） | `Strand_0.1.11_x64-setup.exe` | 安装程序，推荐 |
+| Windows | `Strand_0.1.11_x64_en-US.msi` | 给需要 MSI 的公司环境 |
+| Windows | `Strand_0.1.11_x64_portable.exe` | 免安装，双击就能用 |
 
 文件在 [GitHub Releases](https://github.com/calabli/Strand/releases/latest) 上。装好之后不用再手动下载：有新版本时 Strand 会在右下角提示，点“下载并安装”即可（见第 13 节）。
 

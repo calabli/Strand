@@ -2,7 +2,7 @@
 
 A cross-platform desktop Git client for macOS and Windows, built with Tauri 2 and a Rust core. Its features and layout follow the Git integration in JetBrains IDEs, so you can commit, browse history and resolve conflicts the same way without opening an IDE. The UI is available in English and Chinese.
 
-Strand is a working name. The current version is 0.1.10.
+Strand is a working name. The current version is 0.1.11.
 
 Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHub Pages by `.github/workflows/pages.yml`).
 
