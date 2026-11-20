@@ -9,7 +9,7 @@ import { api, errOf } from "../api/commands";
 import type { Change, ChangeMark, ConflictFile, MergeSession, OpInfo, RepoState, Side, SideChange } from "../api/types";
 import { formatTime, shortId } from "./format";
 import { Found, Hi } from "./inlineDiff";
-import { highlight, langOf, type Tok } from "../highlight";
+import { highlight, textLangOf, type Tok } from "../highlight";
 import { useSettings } from "../settings";
 import { ImageDiff, isImage } from "./ImageDiff";
 import { t, tr, withNote, lazy } from "../i18n";
@@ -492,7 +492,7 @@ function MergeWindow(p: WinProps) {
   useEffect(() => {
     if (!syntax) return;
     let live = true;
-    highlight(langOf(file.path), cols).then(([a, c, b]) => live && a && b && c && setTk({ cols, a, c, b }));
+    highlight(textLangOf(file.path), cols).then(([a, c, b]) => live && a && b && c && setTk({ cols, a, c, b }));
     return () => {
       live = false;
     };

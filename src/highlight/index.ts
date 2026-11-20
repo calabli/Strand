@@ -5,24 +5,60 @@ import type { Tok } from "./hl.worker";
 export type { Tok };
 
 const EXT: Record<string, string> = {
+  // Web
   ts: "typescript", tsx: "typescript", mts: "typescript", cts: "typescript",
-  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  json: "json", jsonc: "json",
-  rs: "rust", go: "go", py: "python", rb: "ruby", php: "php", swift: "swift", dart: "dart", lua: "lua",
-  java: "java", kt: "kotlin", kts: "kotlin", scala: "scala",
-  c: "c", h: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", hpp: "cpp", hh: "cpp", cs: "csharp",
-  css: "css", scss: "scss", html: "xml", htm: "xml", xml: "xml", svg: "xml", vue: "xml",
-  md: "markdown", markdown: "markdown", yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", conf: "ini",
-  sql: "sql", sh: "bash", bash: "bash", zsh: "bash",
+  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript", coffee: "coffeescript",
+  json: "json", jsonc: "json", json5: "json", jsonl: "json", ndjson: "json", geojson: "json", webmanifest: "json",
+  css: "css", scss: "scss", sass: "scss", less: "less", styl: "stylus",
+  html: "xml", htm: "xml", xhtml: "xml", vue: "xml", svelte: "xml", astro: "xml",
+  hbs: "handlebars", handlebars: "handlebars", mustache: "handlebars", erb: "erb",
+  graphql: "graphql", gql: "graphql",
+  // Systems and applications
+  rs: "rust", go: "go", swift: "swift", dart: "dart", v: "verilog", sv: "verilog", svh: "verilog", vhd: "vhdl", vhdl: "vhdl",
+  c: "c", h: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", "c++": "cpp", hpp: "cpp", hh: "cpp", hxx: "cpp", ipp: "cpp", inl: "cpp",
+  m: "objectivec", mm: "objectivec", ino: "arduino", cu: "cpp", cuh: "cpp", glsl: "glsl", vert: "glsl", frag: "glsl", hlsl: "cpp",
+  cs: "csharp", csx: "csharp", fs: "fsharp", fsi: "fsharp", fsx: "fsharp", vb: "vbnet",
+  java: "java", kt: "kotlin", kts: "kotlin", scala: "scala", sc: "scala", sbt: "scala", groovy: "groovy", gradle: "gradle",
+  asm: "x86asm", s: "x86asm", wat: "wasm", wast: "wasm", pas: "delphi", f: "fortran", f90: "fortran", f95: "fortran",
+  // Scripting
+  py: "python", pyi: "python", pyw: "python", rb: "ruby", rake: "ruby", gemspec: "ruby", php: "php", phtml: "php",
+  lua: "lua", pl: "perl", pm: "perl", r: "r", jl: "julia", tcl: "tcl", vim: "vim", nim: "nim", cr: "crystal",
+  ex: "elixir", exs: "elixir", erl: "erlang", hrl: "erlang", hs: "haskell", elm: "elm", ml: "ocaml", mli: "ocaml",
+  clj: "clojure", cljs: "clojure", cljc: "clojure", edn: "clojure", scm: "scheme", rkt: "scheme", lisp: "lisp", el: "lisp",
+  sh: "bash", bash: "bash", zsh: "bash", fish: "bash", ksh: "bash", ps1: "powershell", psm1: "powershell", psd1: "powershell",
+  bat: "dos", cmd: "dos", nix: "nix",
+  // Data and config
+  sql: "sql", psql: "sql", proto: "protobuf", thrift: "thrift",
+  xml: "xml", svg: "xml", xsd: "xml", xsl: "xml", xslt: "xml", plist: "xml", xaml: "xml", csproj: "xml", fsproj: "xml",
+  vbproj: "xml", props: "xml", targets: "xml", resx: "xml", storyboard: "xml", rss: "xml", atom: "xml", wsdl: "xml", kml: "xml",
+  yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", conf: "ini", editorconfig: "ini", properties: "properties",
+  env: "properties", cmake: "cmake", mk: "makefile", dockerfile: "dockerfile",
+  // Documents
+  md: "markdown", markdown: "markdown", mdx: "markdown", adoc: "asciidoc", tex: "latex", sty: "latex", cls: "latex",
+  diff: "diff", patch: "diff", txt: "plaintext", text: "plaintext", log: "plaintext",
 };
-const NAMES: Record<string, string> = { dockerfile: "dockerfile", makefile: "makefile", gnumakefile: "makefile", ".bashrc": "bash", ".zshrc": "bash" };
+const NAMES: Record<string, string> = {
+  dockerfile: "dockerfile", containerfile: "dockerfile", makefile: "makefile", gnumakefile: "makefile",
+  "cmakelists.txt": "cmake", jenkinsfile: "groovy", "nginx.conf": "nginx", ".htaccess": "apache",
+  gemfile: "ruby", rakefile: "ruby", podfile: "ruby", vagrantfile: "ruby", brewfile: "ruby", fastfile: "ruby",
+  ".bashrc": "bash", ".zshrc": "bash", ".profile": "bash", ".bash_profile": "bash", ".zprofile": "bash",
+  ".env": "properties", ".gitconfig": "ini", ".npmrc": "ini", ".babelrc": "json", ".prettierrc": "json", ".eslintrc": "json",
+};
 
 /** The file's language; null when unknown */
 export function langOf(path: string): string | null {
   const base = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
   if (NAMES[base]) return NAMES[base];
+  // Dockerfile.dev, .env.local
+  if (base.startsWith("dockerfile.")) return "dockerfile";
+  if (base.startsWith(".env.")) return "properties";
   const ext = base.includes(".") ? base.slice(base.lastIndexOf(".") + 1) : "";
   return EXT[ext] ?? null;
+}
+
+/** The language to color a file's text with: unknown files are plain text, which still gets rainbow brackets */
+export function textLangOf(path: string): string {
+  return langOf(path) ?? "plaintext";
 }
 
 const MAX_CHARS = 1 << 20;

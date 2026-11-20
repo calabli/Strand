@@ -9,7 +9,7 @@ import type { BlamePage } from "../api/types";
 import { t, tr } from "../i18n";
 import { formatTime, shortId } from "./format";
 import { Found } from "./inlineDiff";
-import { highlight, langOf, type Tok } from "../highlight";
+import { highlight, textLangOf, type Tok } from "../highlight";
 import { useSettings } from "../settings";
 
 const FIRST = 300;
@@ -67,7 +67,7 @@ export function BlameWindow({ path, rev, onClose, onJump }: { path: string; rev:
   useEffect(() => {
     if (!loaded || !syntax) return;
     let live = true;
-    highlight(langOf(path), [lines.map((l) => l.text).join("\n")], true).then(([x]) => live && setToks(x));
+    highlight(textLangOf(path), [lines.map((l) => l.text).join("\n")], true).then(([x]) => live && setToks(x));
     return () => {
       live = false;
     };

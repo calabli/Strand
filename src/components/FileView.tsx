@@ -25,7 +25,7 @@ import { StatusBadge } from "./FileRow";
 import { Splitter, sizeVars } from "./Splitter";
 import { findRegExp, formatTime, relTime, shortId } from "./format";
 import { Found, indentStyle, indentUnit } from "./inlineDiff";
-import { highlight, langOf, type Tok } from "../highlight";
+import { highlight, textLangOf, type Tok } from "../highlight";
 import { settings, useSettings } from "../settings";
 import { PreviewPane, previewProviders } from "./Preview";
 import { choicesFor, defaultChoice, openPluginsWindow, rememberChoice, usePlugins } from "../preview";
@@ -587,7 +587,7 @@ function TextView({
   useEffect(() => {
     if (!f?.text || !syntax) return;
     let live = true;
-    highlight(langOf(f.path), [f.text], !f.truncated).then(([t]) => live && t && setToks({ f, lines: t }));
+    highlight(textLangOf(f.path), [f.text], !f.truncated).then(([t]) => live && t && setToks({ f, lines: t }));
     return () => {
       live = false;
     };

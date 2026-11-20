@@ -20,7 +20,7 @@ import { Menu, type MenuState } from "./Menu";
 import { FindBar, goToLine, useFind } from "./FindBar";
 import { useNavClicks } from "./navClicks";
 import { formatTime, shortId } from "./format";
-import { highlight, langOf, type Tok } from "../highlight";
+import { highlight, textLangOf, type Tok } from "../highlight";
 import { t, tr } from "../i18n";
 import { setSettings, useSettings } from "../settings";
 import { Hi, indentStyle, indentUnit } from "./inlineDiff";
@@ -192,8 +192,7 @@ export function DiffView({ diff, loading, error, source, onClose, rollback, work
   const [hl, setHl] = useState<{ diff: FileDiff; old: Map<number, Tok[]>; neu: Map<number, Tok[]> } | null>(null);
   useEffect(() => {
     if (!diff || diff.binary || !syntax) return;
-    const lang = langOf(diff.path);
-    if (!lang) return;
+    const lang = textLangOf(diff.path);
     const old: { no: number; text: string }[] = [];
     const neu: { no: number; text: string }[] = [];
     for (const h of diff.hunks)
