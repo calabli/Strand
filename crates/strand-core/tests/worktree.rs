@@ -198,6 +198,55 @@ fn watcher_reports_scopes() {
     assert!(collect(&rx).contains(&ChangeScope::Shelf));
 }
 
+/// In a linked worktree the git data lives outside the folder: commits, checkouts and stashes made there in a terminal
+/// are still reported, while the main worktree's own HEAD and index changing isn't
+#[test]
+fn watcher_follows_linked_worktree() {
+    let d = repo();
+    let main = d.path().canonicalize().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let wt = parent.path().canonicalize().unwrap().join("wt");
+    git(&main, &["worktree", "add", "-q", "-b", "side", wt.to_str().unwrap()]);
+    let (tx, rx) = mpsc::channel();
+    let _w = strand_core::watch::watch(&wt, move |s| {
+        let _ = tx.send(s);
+    })
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    let collect = |rx: &mpsc::Receiver<Vec<ChangeScope>>| {
+        let mut all = Vec::new();
+        while let Ok(s) = rx.recv_timeout(Duration::from_millis(1500)) {
+            all.extend(s);
+        }
+        all
+    };
+
+    // A checkout touches no files here, only this worktree's HEAD in its own git dir
+    git(&wt, &["checkout", "-q", "-b", "other"]);
+    assert!(collect(&rx).contains(&ChangeScope::Refs), "checkout in the linked worktree wasn't reported");
+
+    // A branch created from the main worktree is in the shared refs
+    git(&main, &["branch", "from-main"]);
+    assert!(collect(&rx).contains(&ChangeScope::Refs), "a new shared branch wasn't reported");
+
+    // Staging in the main worktree changes only its own index: nothing to refresh here
+    write(&main, "README.md", "主工作目录里改的\n");
+    git(&main, &["add", "README.md"]);
+    let s = collect(&rx);
+    assert!(s.is_empty(), "the main worktree's index triggered a refresh: {s:?}");
+
+    write(&wt, "README.md", "这里改的\n");
+    git(&wt, &["stash", "push", "-q"]);
+    let s = collect(&rx);
+    assert!(s.contains(&ChangeScope::Stash), "{s:?}");
+
+    // A commit in this worktree: its index and the shared branch ref
+    write(&wt, "new.txt", "新\n");
+    git(&wt, &["add", "new.txt"]);
+    git(&wt, &["commit", "-q", "-m", "在链接的工作目录里提交"]);
+    assert!(collect(&rx).contains(&ChangeScope::Refs));
+}
+
 /// Worktree status first finds changed files with git status (spec §15): paths with spaces or Chinese, untracked files in subdirectories,
 /// half-staged files and type changes are all listed as before; both lists are empty when nothing changed
 #[test]
