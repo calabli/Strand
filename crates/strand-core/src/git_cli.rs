@@ -52,21 +52,6 @@ pub(crate) fn hide_console(cmd: &mut Command) {
 #[cfg(not(windows))]
 pub(crate) fn hide_console(_cmd: &mut Command) {}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_versions() {
-        assert_eq!(parse_version("git version 2.55.0\n").as_deref(), Some("2.55.0"));
-        assert_eq!(parse_version("git version 2.39.3 (Apple Git-146)").as_deref(), Some("2.39.3"));
-        assert_eq!(parse_version("git version 2.45.1.windows.1").as_deref(), Some("2.45.1.windows.1"));
-        assert_eq!(major_minor("2.45.1.windows.1"), Some((2, 45)));
-        assert!(major_minor("2.29.0").unwrap() < MIN_GIT_VERSION);
-        assert!(major_minor("3.0").unwrap() >= MIN_GIT_VERSION);
-    }
-}
-
 /// Run system git in the repository directory and return stdout. On failure returns `GIT_FAILED` with stderr in `detail.stderr`.
 pub fn run(dir: &std::path::Path, args: &[&str], stdin: Option<&str>) -> crate::Result<String> {
     run_env(dir, args, stdin, &[])
@@ -95,10 +80,10 @@ pub fn run_env(dir: &std::path::Path, args: &[&str], stdin: Option<&str>, envs: 
         crate::CoreError::new(crate::ErrorCode::GitMissing, "没有找到 Git，请先安装")
             .with_detail(serde_json::json!({ "source": e.to_string() }))
     })?;
-    if let Some(input) = stdin {
-        if let Some(mut s) = child.stdin.take() {
-            s.write_all(input.as_bytes()).map_err(|e| crate::CoreError::git("向 git 传递输入失败", e))?;
-        }
+    if let Some(input) = stdin
+        && let Some(mut s) = child.stdin.take()
+    {
+        s.write_all(input.as_bytes()).map_err(|e| crate::CoreError::git("向 git 传递输入失败", e))?;
     }
     let out = child.wait_with_output().map_err(|e| crate::CoreError::git("等待 git 结束失败", e))?;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -113,5 +98,20 @@ pub fn run_env(dir: &std::path::Path, args: &[&str], stdin: Option<&str>, envs: 
             "stderr": stderr,
             "stdout": stdout,
         })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_versions() {
+        assert_eq!(parse_version("git version 2.55.0\n").as_deref(), Some("2.55.0"));
+        assert_eq!(parse_version("git version 2.39.3 (Apple Git-146)").as_deref(), Some("2.39.3"));
+        assert_eq!(parse_version("git version 2.45.1.windows.1").as_deref(), Some("2.45.1.windows.1"));
+        assert_eq!(major_minor("2.45.1.windows.1"), Some((2, 45)));
+        assert!(major_minor("2.29.0").unwrap() < MIN_GIT_VERSION);
+        assert!(major_minor("3.0").unwrap() >= MIN_GIT_VERSION);
     }
 }

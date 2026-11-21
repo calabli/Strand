@@ -69,7 +69,7 @@ fn lists_refs() {
     assert_eq!(r.tags.len(), 1);
     assert_eq!(r.head.branch.as_deref(), Some("main"));
     assert_eq!(s.log_locate("v1"), Some(0));
-    assert_eq!(s.log_locate("feature").is_some(), true);
+    assert!(s.log_locate("feature").is_some());
 }
 
 #[test]

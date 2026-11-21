@@ -160,9 +160,7 @@ impl Session {
     /// When the original file uses CRLF, the saved content is converted to CRLF too (the editor normalizes line endings to LF).
     /// Only existing regular files in the repository can be written; the path can't escape the repository or point into .git.
     pub fn save_worktree_file(&self, path: &str, text: &str, expected: &str) -> Result<()> {
-        check_rel_path(path)?;
-        let rel = std::path::Path::new(path);
-        let full = self.path().join(rel);
+        let full = inside_worktree(self.path(), path)?;
         let meta = std::fs::symlink_metadata(&full).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
         if !meta.is_file() {
             return Err(CoreError::new(ErrorCode::InvalidName, format!("不能保存这个路径：{path}")));
@@ -284,26 +282,6 @@ pub fn parse_history(out: &str) -> Vec<FileVersion> {
     list
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_rename_modify_and_add() {
-        let out = "\x1eaaa\x1fbbb\x1f林夏\x1fl@x.cn\x1f100\x1f改名 b\0\n:100644 100644 a7 a7 R100\0src/a.txt\0src/b.txt\0\
-                   0\t0\t\0src/a.txt\0src/b.txt\0\
-                   \x1ebbb\x1fccc\x1f林夏\x1fl@x.cn\x1f90\x1f改 a\0\n:100644 100644 de a7 M\0src/a.txt\0\
-                   2\t1\tsrc/a.txt\0\
-                   \x1eccc\x1f\x1f周\x1fz@x.cn\x1f80\x1f加 a\0\n:000000 100644 00 de A\0src/a.txt\0-\t-\tsrc/a.txt\0";
-        let v = parse_history(out);
-        assert_eq!(v.len(), 3);
-        assert_eq!((v[0].status, v[0].path.as_str(), v[0].old_path.as_deref()), (FileStatus::R, "src/b.txt", Some("src/a.txt")));
-        assert_eq!((v[1].status, v[1].added, v[1].deleted), (FileStatus::M, 2, 1));
-        assert_eq!((v[2].status, v[2].binary, v[2].commit.parents.len()), (FileStatus::A, true, 0));
-        assert_eq!(v[2].commit.author.name, "周");
-    }
-}
-
 /// A relative path in the worktree: not empty, not absolute, no `..`, and not inside .git
 pub(crate) fn check_rel_path(path: &str) -> Result<()> {
     let rel = std::path::Path::new(path);
@@ -314,6 +292,23 @@ pub(crate) fn check_rel_path(path: &str) -> Result<()> {
         return Err(CoreError::new(ErrorCode::InvalidName, format!("不能保存这个路径：{path}")));
     }
     Ok(())
+}
+
+/// The full path for writing or deleting a worktree file: `path` passes [`check_rel_path`], and its folder, with
+/// symlinks resolved, is still inside the worktree and not in .git. A committed symlink to a folder elsewhere
+/// (`notes -> ~/.config`) would otherwise let a save or delete reach outside the repository.
+pub(crate) fn inside_worktree(root: &std::path::Path, path: &str) -> Result<std::path::PathBuf> {
+    check_rel_path(path)?;
+    let outside = || CoreError::new(ErrorCode::InvalidName, format!("这个路径经过符号链接指到了仓库外面：{path}"));
+    let rel = std::path::Path::new(path);
+    let root = root.canonicalize().map_err(|e| CoreError::git("找不到仓库文件夹", e))?;
+    let parent = root.join(rel.parent().unwrap_or(std::path::Path::new("")));
+    let parent = parent.canonicalize().map_err(|_| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
+    let inside = parent.strip_prefix(&root).map_err(|_| outside())?;
+    if inside.components().next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case(".git")) {
+        return Err(outside());
+    }
+    Ok(parent.join(rel.file_name().ok_or_else(outside)?))
 }
 
 impl Session {
@@ -382,4 +377,24 @@ pub fn runs_when_opened(path: &str) -> bool {
     ];
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
     name.rsplit_once('.').is_some_and(|(_, ext)| EXT.iter().any(|e| ext.eq_ignore_ascii_case(e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_rename_modify_and_add() {
+        let out = "\x1eaaa\x1fbbb\x1f林夏\x1fl@x.cn\x1f100\x1f改名 b\0\n:100644 100644 a7 a7 R100\0src/a.txt\0src/b.txt\0\
+                   0\t0\t\0src/a.txt\0src/b.txt\0\
+                   \x1ebbb\x1fccc\x1f林夏\x1fl@x.cn\x1f90\x1f改 a\0\n:100644 100644 de a7 M\0src/a.txt\0\
+                   2\t1\tsrc/a.txt\0\
+                   \x1eccc\x1f\x1f周\x1fz@x.cn\x1f80\x1f加 a\0\n:000000 100644 00 de A\0src/a.txt\0-\t-\tsrc/a.txt\0";
+        let v = parse_history(out);
+        assert_eq!(v.len(), 3);
+        assert_eq!((v[0].status, v[0].path.as_str(), v[0].old_path.as_deref()), (FileStatus::R, "src/b.txt", Some("src/a.txt")));
+        assert_eq!((v[1].status, v[1].added, v[1].deleted), (FileStatus::M, 2, 1));
+        assert_eq!((v[2].status, v[2].binary, v[2].commit.parents.len()), (FileStatus::A, true, 0));
+        assert_eq!(v[2].commit.author.name, "周");
+    }
 }

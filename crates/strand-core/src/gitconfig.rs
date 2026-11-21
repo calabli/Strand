@@ -164,10 +164,10 @@ fn validate(dir: &Path, key: &str, v: &str) -> Result<()> {
             if host.is_empty() || (!authority.starts_with('[') && host.contains(':')) || v.contains(char::is_whitespace) {
                 return bad("代理地址里没有主机名，应该像 http://127.0.0.1:7890");
             }
-            if let Some(p) = port {
-                if !matches!(p.parse::<u32>(), Ok(1..=65535)) {
-                    return bad("代理的端口不对，应该是 1 到 65535 之间的数字");
-                }
+            if let Some(p) = port
+                && !matches!(p.parse::<u32>(), Ok(1..=65535))
+            {
+                return bad("代理的端口不对，应该是 1 到 65535 之间的数字");
             }
         }
         "core.autocrlf" => {
@@ -175,10 +175,8 @@ fn validate(dir: &Path, key: &str, v: &str) -> Result<()> {
                 return bad("core.autocrlf 只能是 true、false 或 input");
             }
         }
-        "init.defaultBranch" => {
-            if git_cli::run(dir, &["check-ref-format", "--branch", v], None).is_err() {
-                return bad("这不是一个合法的分支名");
-            }
+        "init.defaultBranch" if git_cli::run(dir, &["check-ref-format", "--branch", v], None).is_err() => {
+            return bad("这不是一个合法的分支名");
         }
         _ => {}
     }

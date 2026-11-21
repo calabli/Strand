@@ -185,3 +185,17 @@ fn reload_if_changed_skips_when_nothing_moved() {
     assert!(s.reload_if_changed().unwrap(), "切换分支：HEAD 在同一个提交，但分支标签的“当前”变了");
     assert!(!s.reload_if_changed().unwrap());
 }
+
+/// A repository using the reftable ref backend gets a clear message instead of "can't read HEAD"
+#[test]
+fn reftable_repository_is_reported() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    let ok = Command::new("git").args(["init", "-q", "--ref-format=reftable", "-b", "main"]).current_dir(p).env("GIT_CONFIG_GLOBAL", "/dev/null").status().unwrap().success();
+    if !ok {
+        return; // Git older than 2.45 has no reftable
+    }
+    let err = Session::open(p).err().expect("reftable repository opened");
+    assert_eq!(err.code, ErrorCode::NotARepo);
+    assert!(err.message.contains("reftable"), "{}", err.message);
+}

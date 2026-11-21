@@ -1,11 +1,11 @@
 // Zoom: the whole window larger or smaller, like a browser's ⌘+ / ⌘− / ⌘0. In the app it's the webview's own zoom,
 // so every size scales together and the fixed row heights of the log, diffs and the merge window still line up. The
-// level is a setting, so it's remembered and shared by every window.
+// level is a setting: remembered, and followed by the other windows when they see the settings change.
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { inTauri } from "./api/commands";
 import { comboFromEvent, comboOf, matches } from "./keymap";
-import { setSettings, settings } from "./settings";
+import { onSettings, setSettings, settings } from "./settings";
 
 /** The levels ⌘+ and ⌘− step through */
 export const ZOOMS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
@@ -16,7 +16,7 @@ export function zoomLevel(z = settings().zoom): number {
 }
 
 /** Apply the zoom setting to this window */
-export function applyZoom() {
+function applyZoom() {
   const z = zoomLevel();
   if (inTauri) {
     getCurrentWebview()
@@ -32,7 +32,6 @@ export function applyZoom() {
 
 export function setZoom(z: number) {
   setSettings({ zoom: zoomLevel(z) });
-  applyZoom();
 }
 
 /** One level larger (+1) or smaller (−1) */
@@ -50,13 +49,21 @@ export const zoomLabel = (z = zoomLevel()) => `${Math.round(z * 100)}%`;
 export function zoomKey(e: KeyboardEvent): boolean {
   const c = comboFromEvent(e) ?? "";
   const inDefault = comboOf("zoomIn") === "Mod+=" && /^Mod\+(Shift\+)?[+=]$/.test(c);
-  const outDefault = comboOf("zoomOut") === "Mod+-" && c === "Mod+-";
   if (matches(e, "zoomIn") || inDefault) stepZoom(1);
-  else if (matches(e, "zoomOut") || outDefault) stepZoom(-1);
+  else if (matches(e, "zoomOut")) stepZoom(-1);
   else if (matches(e, "zoomReset")) setZoom(1);
   else return false;
   e.preventDefault();
   return true;
 }
 
-applyZoom();
+// Apply the level now and whenever the settings change, from this window or another one
+let applied = 0;
+const follow = () => {
+  const z = zoomLevel();
+  if (z === applied) return;
+  applied = z;
+  applyZoom();
+};
+follow();
+onSettings(follow);

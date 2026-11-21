@@ -33,11 +33,11 @@ impl Session {
         let repo = self.git2()?;
         let d = commit_diff_ctx(&repo, id, Some(path), context)?;
         // A stash made with -u keeps untracked files in its third parent: show them as added
-        if d.deltas().len() == 0 {
-            if let Some(untracked) = stash_untracked(&repo, id) {
-                let d = commit_diff_ctx(&repo, &untracked, Some(path), context)?;
-                return diff::first_file_lfs(&repo, &d, path, context);
-            }
+        if d.deltas().len() == 0
+            && let Some(untracked) = stash_untracked(&repo, id)
+        {
+            let d = commit_diff_ctx(&repo, &untracked, Some(path), context)?;
+            return diff::first_file_lfs(&repo, &d, path, context);
         }
         diff::prefetch(&repo, &d, usize::MAX);
         diff::first_file_lfs(&repo, &d, path, context)

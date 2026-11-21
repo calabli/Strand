@@ -633,13 +633,13 @@ impl Session {
 
     /// All restore conflicts are resolved: delete the entry (for restore-and-delete) and return to normal
     pub(crate) fn unstash_finish(&self) -> Result<()> {
-        if let Some(u) = self.unstash() {
-            if u.drop {
-                match u.source {
-                    UnstashSource::Stash => self.drop_stash_id(&u.id)?,
-                    UnstashSource::Shelf => self.shelf_mark_deleted(u.id.parse().unwrap_or(0))?,
-                    UnstashSource::Patch => {}
-                }
+        if let Some(u) = self.unstash()
+            && u.drop
+        {
+            match u.source {
+                UnstashSource::Stash => self.drop_stash_id(&u.id)?,
+                UnstashSource::Shelf => self.shelf_mark_deleted(u.id.parse().unwrap_or(0))?,
+                UnstashSource::Patch => {}
             }
         }
         let _ = std::fs::remove_file(self.unstash_file()?);

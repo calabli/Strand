@@ -69,6 +69,12 @@ impl Session {
             CoreError::new(ErrorCode::NotARepo, "这个文件夹不是 Git 仓库")
                 .with_detail(serde_json::json!({ "path": path.display().to_string(), "source": e.to_string() }))
         })?;
+        // The reftable ref backend (git init --ref-format=reftable) can't be read by gix or libgit2; say so instead
+        // of failing later with "can't read HEAD"
+        if repo.common_dir().join("reftable").is_dir() {
+            return Err(CoreError::new(ErrorCode::NotARepo, "这个仓库用 reftable 格式存放引用，Strand 还不支持")
+                .with_detail(serde_json::json!({ "path": path.display().to_string() })));
+        }
         let root = repo.workdir().unwrap_or_else(|| repo.git_dir()).to_path_buf();
         let mut s = Session {
             repo: repo.into_sync(),

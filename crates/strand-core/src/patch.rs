@@ -175,7 +175,7 @@ impl Session {
             git_cli::run(dir, &["restore", &format!("--source={id}"), "--worktree", "--", path], None)?;
         } else {
             git_cli::run(dir, &["rev-parse", "--verify", "-q", &format!("{id}^{{commit}}")], None).map_err(|_| CoreError::new(ErrorCode::NotFound, "提交不存在，日志可能已经变化"))?;
-            let full = dir.join(path);
+            let full = crate::file_history::inside_worktree(dir, path)?;
             if full.exists() {
                 std::fs::remove_file(&full).map_err(|e| CoreError::git("删除文件失败", e))?;
             }
@@ -277,10 +277,10 @@ pub fn mail_commits(text: &str) -> Vec<PatchCommit> {
         c.title = decode_words(&c.title);
         c.author = decode_words(&c.author).trim_matches('"').to_string();
         // The [PATCH n/m] prefix is only recognizable after decoding
-        if c.title.starts_with("[PATCH") {
-            if let Some((_, t)) = c.title.split_once("] ") {
-                c.title = t.to_string();
-            }
+        if c.title.starts_with("[PATCH")
+            && let Some((_, t)) = c.title.split_once("] ")
+        {
+            c.title = t.to_string();
         }
     }
     out

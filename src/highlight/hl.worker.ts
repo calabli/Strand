@@ -95,9 +95,14 @@ const ENT: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
 /** HTML start tags that end an open element of these names without its end tag (<li>one <li>two) */
 const ENDS: Record<string, string[]> = {
-  li: ["li"], dt: ["dt", "dd"], dd: ["dt", "dd"], p: ["p"], option: ["option"],
+  li: ["li"], dt: ["dt", "dd"], dd: ["dt", "dd"], option: ["option"],
   tr: ["td", "th", "tr"], td: ["td", "th"], th: ["td", "th"],
 };
+/** Block elements whose start tag ends an open <p>, as in the HTML parsing rules (the editor's HTML parser does the same) */
+const ENDS_P = new Set([
+  "address", "article", "aside", "blockquote", "details", "div", "dl", "fieldset", "figcaption", "figure", "footer", "form",
+  "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "main", "menu", "nav", "ol", "p", "pre", "section", "table", "ul",
+]);
 
 interface Opts {
   /** A bracket without its partner is "br-bad" (a whole file, in a language where every bracket has one) */
@@ -145,7 +150,7 @@ function toLines(html: string, { strict, strictTags, html: isHtml }: Opts): Tok[
   const finishTag = (t: TagRead) => {
     const name = isHtml ? t.name.toLowerCase() : t.name;
     if (!t.closing) {
-      const ends = isHtml ? ENDS[name] : undefined;
+      const ends = !isHtml ? undefined : ENDS_P.has(name) ? ["p", ...(ENDS[name] ?? [])] : ENDS[name];
       while (ends && elements.length && ends.includes(elements[elements.length - 1].name)) elements.pop();
       paint(t.toks, "tag-br" + (elements.length % LEVELS));
       if (!t.self && !(isHtml && VOID.has(name))) elements.push({ name, toks: t.toks });

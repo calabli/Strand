@@ -180,7 +180,7 @@ fn path_filter_streams_and_matches_full_result() {
     let done = query_all(&mut s, &f, LogSort::Topo);
     let full = strand_core::log_filter::path_commits(dir.path(), "ui/button", false).unwrap();
     assert_eq!(done.total, full.len());
-    assert!(done.rows.iter().all(|c| full.iter().any(|id| id.to_string() == c.id)));
+    assert!(done.rows.iter().all(|c| full.iter().any(|id| *id == c.id)));
 
     // Switch to another path: results come only from the new query
     let g = LogFilter { path: Some("README".into()), ..Default::default() };

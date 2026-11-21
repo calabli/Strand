@@ -343,7 +343,7 @@ pub fn parse_issues(dir: &Path, output: &str) -> Vec<CheckIssue> {
         let l = m.trim_start().to_lowercase();
         for lv in ["error", "warning", "warn"] {
             if l.starts_with(lv) {
-                let rest = m.trim_start()[lv.len()..].trim_start_matches(|c: char| c == ':' || c == ' ').to_string();
+                let rest = m.trim_start()[lv.len()..].trim_start_matches([':', ' ']).to_string();
                 let lv = if lv == "warn" { "warning" } else { lv };
                 return (lv.to_string(), if rest.is_empty() { m.trim().to_string() } else { rest });
             }
@@ -371,19 +371,19 @@ pub fn parse_issues(dir: &Path, output: &str) -> Vec<CheckIssue> {
         if t.starts_with("error") || t.starts_with("warning") {
             last_head = Some(t.to_string());
         }
-        if let Some(m) = stylish.captures(line) {
-            if let Some(f) = &cur_file {
-                let lv = if &m[3] == "warn" { "warning" } else { &m[3] };
-                out.push(CheckIssue { path: f.clone(), line: m[1].parse().ok(), col: m[2].parse().ok(), level: lv.to_string(), message: m[4].to_string() });
-                continue;
-            }
+        if let Some(m) = stylish.captures(line)
+            && let Some(f) = &cur_file
+        {
+            let lv = if &m[3] == "warn" { "warning" } else { &m[3] };
+            out.push(CheckIssue { path: f.clone(), line: m[1].parse().ok(), col: m[2].parse().ok(), level: lv.to_string(), message: m[4].to_string() });
+            continue;
         }
-        if let Some(m) = paren.captures(line).or_else(|| colon.captures(line)) {
-            if let Some(path) = rel(&m[1]) {
-                let (level, message) = level_of(&m[4]);
-                out.push(CheckIssue { path, line: m[2].parse().ok(), col: m.get(3).and_then(|c| c.as_str().parse().ok()), level, message });
-                continue;
-            }
+        if let Some(m) = paren.captures(line).or_else(|| colon.captures(line))
+            && let Some(path) = rel(&m[1])
+        {
+            let (level, message) = level_of(&m[4]);
+            out.push(CheckIssue { path, line: m[2].parse().ok(), col: m.get(3).and_then(|c| c.as_str().parse().ok()), level, message });
+            continue;
         }
         // A path on its own line: a file heading in eslint's default format
         if !line.starts_with(char::is_whitespace) {

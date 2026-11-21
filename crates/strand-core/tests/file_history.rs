@@ -155,3 +155,23 @@ fn save_worktree_file_checks_path_and_concurrent_change() {
     s.save_worktree_file("w.txt", "a\nc\n", "a\r\nb\r\n").unwrap();
     assert_eq!(std::fs::read_to_string(p.join("w.txt")).unwrap(), "a\r\nc\r\n");
 }
+
+/// A symlinked folder in the worktree that points outside the repository can't be used to write there
+#[cfg(unix)]
+#[test]
+fn save_worktree_file_stays_inside_through_symlinks() {
+    let d = repo();
+    let p = d.path();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret.txt"), "原样\n").unwrap();
+    std::os::unix::fs::symlink(outside.path(), p.join("link")).unwrap();
+    // A symlink into the repository itself is fine
+    std::os::unix::fs::symlink(p.join("src"), p.join("inner")).unwrap();
+    let s = Session::open(p).unwrap();
+    let err = s.save_worktree_file("link/secret.txt", "改了\n", "原样\n").unwrap_err();
+    assert!(matches!(err.code, strand_core::error::ErrorCode::InvalidName), "{err:?}");
+    assert_eq!(std::fs::read_to_string(outside.path().join("secret.txt")).unwrap(), "原样\n");
+    let before = std::fs::read_to_string(p.join("src/b.txt")).unwrap();
+    s.save_worktree_file("inner/b.txt", "经过仓库里的链接\n", &before).unwrap();
+    assert_eq!(std::fs::read_to_string(p.join("src/b.txt")).unwrap(), "经过仓库里的链接\n");
+}

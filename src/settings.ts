@@ -95,6 +95,22 @@ export function setSettings(patch: Partial<Settings>) {
   listeners.forEach((f) => f());
 }
 
+/** Run `f` after every settings change (here or in another window); returns the unsubscribe function */
+export function onSettings(f: () => void): () => void {
+  listeners.add(f);
+  return () => listeners.delete(f);
+}
+
+// Another window changed the settings: take them over, so theme, zoom and the rest stay the same in every window
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key !== KEY) return;
+    current = load();
+    applyTheme();
+    listeners.forEach((f) => f());
+  });
+}
+
 export function useSettings(): Settings {
   const [s, set] = useState(current);
   useEffect(() => {
@@ -158,7 +174,6 @@ function saveRepos(next: RecentRepo[]) {
   repoListeners.forEach((f) => f());
 }
 
-export const recentRepos = (): RecentRepo[] => repos;
 
 /** Record it after opening successfully */
 export function rememberRepo(path: string, name: string) {

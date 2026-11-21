@@ -804,6 +804,7 @@ export const en: Record<string, string> = {
   "这个仓库没有名为 origin 的远程": "This repository has no remote named origin",
   "合并还没完成，先解决冲突或中止": "The merge is not finished; resolve the conflicts or abort first",
   "这个文件夹不是 Git 仓库": "This folder is not a Git repository",
+  "这个仓库用 reftable 格式存放引用，Strand 还不支持": "This repository stores its refs in the reftable format, which Strand doesn't support yet",
   "打开仓库失败": "Failed to open the repository",
   "读取提交历史失败": "Failed to read the commit history",
   "读取提交失败": "Failed to read the commit",

@@ -79,10 +79,10 @@ impl Session {
     /// Mark a commit (the currently checked-out one if not given). Starts the bisect first if it hasn't started.
     pub fn bisect_mark(&self, mark: BisectMark, rev: Option<&str>) -> Result<BisectStatus> {
         let repo = self.git2()?;
-        if let Some(r) = rev {
-            if repo.revparse_single(r).and_then(|o| o.peel_to_commit()).is_err() {
-                return Err(CoreError::new(ErrorCode::NotFound, format!("找不到提交 {r}")));
-            }
+        if let Some(r) = rev
+            && repo.revparse_single(r).and_then(|o| o.peel_to_commit()).is_err()
+        {
+            return Err(CoreError::new(ErrorCode::NotFound, format!("找不到提交 {r}")));
         }
         let active = repo.path().join("BISECT_START").exists();
         if !active {
