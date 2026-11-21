@@ -24,6 +24,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Contribution statistics for the current branch: commits and changed lines per author and per month, and a weekday × hour activity map.
 - Repository maintenance: see what takes space in .git, clean up with `git gc` (stoppable), and turn on rerere so repeated conflicts are resolved the way you resolved them before. Edited files are auto-saved (can be turned off); the save shortcut is configurable.
 - Quitting asks about unsaved edits first, and the next launch reopens every repository window that was open.
+- Zoom the whole window from 80% to 150% with ⌘= / ⌘− / ⌘0 or in Settings; the level is remembered.
 - Notification balloons in the bottom-right like an IDE's: what an operation did (a pull says which branch, how many commits and files), with links to undo, view the pulled commits or pull after a fetch; errors stay until closed, with the console one click away; a notification log in the palette.
 - Git hooks: list the repository's hooks with what each is for, edit them in the code editor, switch them off and on, and try one without committing; when a hook stops a commit, its full output is shown with a way to commit without hooks. Running hooks can be turned off in the commit options.
 - Sparse checkout for huge repositories: tick the folders to have on disk (with file counts), change or undo it any time, and clone large repositories sparsely (`--filter=blob:none --sparse`) to choose folders afterwards.
@@ -58,7 +59,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Aborting a merge, rebase or pull can itself be undone.
 
 **Diffs and files**
-- Unified or side-by-side diffs of whole files with unchanged parts folded, connecting ribbons, a change position strip, syntax highlighting, rainbow brackets (pairs colored by nesting depth, a bracket without its partner marked in red; also in file views and the editor), indent guides, breadcrumbs and blame.
+- Unified or side-by-side diffs of whole files with unchanged parts folded, connecting ribbons, a change position strip, syntax highlighting, rainbow brackets in every text file (pairs colored by nesting depth, XML, HTML and JSX tags by element depth, a bracket or XML tag without its partner marked in red; also in file views and the editor), indent guides, breadcrumbs and blame.
 - Edit worktree files directly in the diff.
 - Image diffs, comparing any two files, comparing with the clipboard.
 - Cherry-pick or revert only some files of a commit; get a file from any revision.
@@ -140,7 +141,7 @@ Installer artifacts are uploaded for tag builds and manually triggered builds. P
 
 ### Releasing a new version
 
-1. Bump `version` in `src-tauri/tauri.conf.json`, `package.json` and `Cargo.toml` (they should match).
+1. Bump `version` in `src-tauri/tauri.conf.json`, `package.json` and `Cargo.toml` (they should match), run `cargo update -p strand -p strand-core` for `Cargo.lock`, and update the version and file names in this README and the user manual.
 2. Commit, then tag and push: `git tag -a v0.2.0 -m "Strand 0.2.0" && git push origin main v0.2.0`.
 
 The release job then also uploads the in-app update packages and `latest.json`, which installed copies read from `https://github.com/calabli/Strand/releases/latest/download/latest.json`.
@@ -170,9 +171,7 @@ cargo run --release -p strand-core --example perf -- /tmp/perf
 | `src/components/` | UI components: toolbar, commit panel, branch tree, command palette, log view, commit details, diffs, conflict view and merge window, dialogs, menus |
 | `src/i18n/` | Translations. UI text is written as `t("<Chinese source>")`; English is in `en.ts`, keyed by the Chinese text |
 | `src/styles/` | Theme tokens and app styles |
-| `docs/` | The user manual with screenshots and the product spec (both in Chinese; the spec has 17 sections: interaction rules, availability conditions, backend commands, data model, error codes, performance targets, acceptance criteria) |
-| `prototype/` | The interactive HTML prototype (open `prototype/index.html` directly), with a smoke test: `node prototype/tests/smoke.js` |
-| `design/` | Source files of the early design canvas |
+| `docs/` | Documentation in Chinese, indexed in `docs/README.md`: the product overview, the technical document (architecture, mechanisms, conventions, release process), the product spec (interaction rules, backend commands, data model, error codes, performance targets), the user manual with screenshots, and the preview plugin format |
 
 Division of work: the log is read with gix; worktree status, diffs and branch lists use git2; commits, branch writes and all network operations call system git, so hooks, config and behavior match the command line. The frontend doesn't infer Git state; everything is computed by the core and returned.
 
@@ -193,6 +192,7 @@ Everything can be done with the keyboard: icon buttons have accessible names mat
 - Undo snapshots don't include untracked files, except for the operations on untracked files themselves. Changes inside a worktree that was force-removed can't be brought back.
 - Rebasing in the rebase window stops at merge commits.
 - Cloning uses system Git only; authentication relies on SSH keys and credential helpers.
+- Repositories using the reftable ref format (`git init --ref-format=reftable`) can't be opened yet; Strand says so when you try.
 - Pull and merge requests can be listed and created, but not reviewed, commented on or merged inside Strand. Hosts are recognized by having "github" or "gitlab" in their name.
 - Pre-commit check settings live in each repository's Git config and can't be shared through the repository.
 - Code navigation finds definitions by text search plus imports, not by a language server: when several definitions share a name they are all listed, and it needs a Git built with PCRE (`git grep -P`). Definitions in dependencies outside the repository aren't found.
