@@ -318,7 +318,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none 
 .push-list li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .small { font-size: 12px; margin: 0; }
 
-/* ---------- Conflict resolution (styles taken from the prototype) ---------- */
+/* ---------- Conflict resolution ---------- */
 .mine-ink { color: var(--mine-ink); }
 .theirs-ink { color: var(--theirs-ink); }
 .pill { display: inline-flex; gap: 4px; align-items: center; padding: 3px 10px; border-radius: 12px; background: var(--pend-bg); color: var(--pend-ink); font-size: 12px; }

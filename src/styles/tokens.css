@@ -1,5 +1,5 @@
 /*
- * Theme variables, taken from the interactive prototype (prototype/css/app.css). Light and dark follow the system and can be forced with data-theme.
+ * Theme variables. Light and dark follow the system and can be forced with data-theme.
  * Text/background contrast is at least 4.5:1 as spec §16 requires: --danger is red text; red buttons use --danger-btn as background (white text)
  */
 :root {
