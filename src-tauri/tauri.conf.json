@@ -20,7 +20,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src blob:; frame-src blob: strand-plugin: http://strand-plugin.localhost; object-src blob:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost ws://localhost:1420"
+      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src blob:; frame-src blob: strand-plugin: http://strand-plugin.localhost; object-src blob:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; img-src 'self' data: blob:; media-src blob:; frame-src blob: strand-plugin: http://strand-plugin.localhost; object-src blob:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost ws://localhost:1420"
     }
   },
   "bundle": {

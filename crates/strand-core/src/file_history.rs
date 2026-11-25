@@ -62,19 +62,25 @@ pub struct FileHistory {
     pub truncated: bool,
 }
 
+/// Project files sorted by path: tracked, plus untracked files not ignored by .gitignore.
+/// Doesn't need a `Session`, so callers can run it on a background thread without reopening the log.
+pub fn project_files_at(dir: &std::path::Path) -> Result<Vec<String>> {
+    // -t tags each entry; "S " marks files a sparse checkout leaves out (not on disk), which aren't listed
+    let out = git_cli::run(dir, &["ls-files", "-z", "-t", "--cached", "--others", "--exclude-standard"], None)?;
+    let mut list: Vec<String> = out
+        .split('\0')
+        .filter(|e| e.len() > 2 && !e.starts_with("S "))
+        .map(|e| e[2..].to_string())
+        .collect();
+    list.sort();
+    list.dedup();
+    Ok(list)
+}
+
 impl Session {
     /// Project files sorted by path: tracked, plus untracked files not ignored by .gitignore
     pub fn project_files(&self) -> Result<Vec<String>> {
-        // -t tags each entry; "S " marks files a sparse checkout leaves out (not on disk), which aren't listed
-        let out = git_cli::run(self.path(), &["ls-files", "-z", "-t", "--cached", "--others", "--exclude-standard"], None)?;
-        let mut list: Vec<String> = out
-            .split('\0')
-            .filter(|e| e.len() > 2 && !e.starts_with("S "))
-            .map(|e| e[2..].to_string())
-            .collect();
-        list.sort();
-        list.dedup();
-        Ok(list)
+        project_files_at(self.path())
     }
 
     /// File content: from the worktree when `rev` is empty, otherwise from that revision (hash or branch name)
@@ -176,7 +182,7 @@ impl Session {
     /// A file's content at a revision (or in the worktree); None when the file doesn't exist
     fn content(&self, repo: &git2::Repository, path: &str, rev: Option<&str>) -> Result<Option<Vec<u8>>> {
         let Some(rev) = rev else {
-            let full = self.path().join(path);
+            let Some(full) = inside_worktree_existing(self.path(), path)? else { return Ok(None) };
             return Ok(if full.is_file() { Some(std::fs::read(&full).map_err(|e| CoreError::git("读取文件失败", e))?) } else { None });
         };
         let commit = repo
@@ -311,16 +317,32 @@ pub(crate) fn inside_worktree(root: &std::path::Path, path: &str) -> Result<std:
     Ok(parent.join(rel.file_name().ok_or_else(outside)?))
 }
 
+/// The full path for reading or opening an existing worktree file: `path` passes [`check_rel_path`],
+/// and with symlinks resolved it stays inside the worktree and not in `.git`.
+/// Returns `Ok(None)` when the file doesn't exist; rejects escapes via `..`, `.git`, or symlinks.
+pub(crate) fn inside_worktree_existing(root: &std::path::Path, path: &str) -> Result<Option<std::path::PathBuf>> {
+    check_rel_path(path)?;
+    let raw = root.join(path);
+    let full = match raw.canonicalize() {
+        Ok(p) => p,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(CoreError::git("读取文件失败", e)),
+    };
+    let outside = || CoreError::new(ErrorCode::InvalidName, format!("这个路径经过符号链接指到了仓库外面：{path}"));
+    let root = root.canonicalize().map_err(|e| CoreError::git("找不到仓库文件夹", e))?;
+    let inside = full.strip_prefix(&root).map_err(|_| outside())?;
+    if inside.components().next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case(".git")) {
+        return Err(outside());
+    }
+    Ok(Some(full))
+}
+
 impl Session {
     /// The full path of a file in the worktree, for revealing it in the file manager or opening it with the default
-    /// application. `path` must stay inside the worktree (not absolute, no `..`, not in .git) and exist.
+    /// application. `path` must stay inside the worktree (not absolute, no `..`, not in .git, not symlinked outside) and exist.
     pub fn worktree_file(&self, path: &str) -> Result<std::path::PathBuf> {
-        check_rel_path(path)?;
-        let full = self.path().join(path);
-        if !full.exists() {
-            return Err(CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")));
-        }
-        Ok(full)
+        inside_worktree_existing(self.path(), path)?
+            .ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))
     }
 
     /// A file's raw bytes at a revision (for image diffs); `rev` empty means the worktree. Fails when over 30 MB or the file doesn't exist at this revision
@@ -335,7 +357,8 @@ impl Session {
         let too_big = || CoreError::new(ErrorCode::InvalidRange, "文件太大（超过 30 MB），不显示");
         match rev {
             None => {
-                let full = self.path().join(path);
+                let full = inside_worktree_existing(self.path(), path)?
+                    .ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
                 let meta = std::fs::metadata(&full).map_err(|_| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
                 if meta.len() as usize > MAX_PREVIEW_BYTES {
                     return Err(too_big());
@@ -396,5 +419,29 @@ mod tests {
         assert_eq!((v[1].status, v[1].added, v[1].deleted), (FileStatus::M, 2, 1));
         assert_eq!((v[2].status, v[2].binary, v[2].commit.parents.len()), (FileStatus::A, true, 0));
         assert_eq!(v[2].commit.author.name, "周");
+    }
+
+    #[test]
+    fn inside_worktree_existing_blocks_escapes_and_allows_internal_files() {
+        let outer = tempfile::tempdir().unwrap();
+        let repo = outer.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(repo.join(".git/config"), "[core]\n").unwrap();
+        std::fs::write(repo.join("a.txt"), "ok").unwrap();
+        let secret = outer.path().join("secret.txt");
+        std::fs::write(&secret, "top-secret").unwrap();
+
+        assert!(inside_worktree_existing(&repo, "a.txt").unwrap().is_some());
+        assert!(inside_worktree_existing(&repo, "missing.txt").unwrap().is_none());
+        assert!(inside_worktree_existing(&repo, "../secret.txt").is_err());
+        assert!(inside_worktree_existing(&repo, ".git/config").is_err());
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&secret, repo.join("escape.txt")).unwrap();
+            assert!(inside_worktree_existing(&repo, "escape.txt").is_err());
+            std::os::unix::fs::symlink(repo.join("a.txt"), repo.join("internal.txt")).unwrap();
+            assert!(inside_worktree_existing(&repo, "internal.txt").unwrap().is_some());
+        }
     }
 }

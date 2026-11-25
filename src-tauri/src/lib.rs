@@ -484,19 +484,40 @@ enum NetLog {
     Push(String),
 }
 
+struct NetBusyGuard<'a>(&'a AtomicBool);
+impl Drop for NetBusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+fn acquire_net(state: &AppState) -> CmdResult<NetBusyGuard<'_>> {
+    if state.net_busy.swap(true, Ordering::SeqCst) {
+        return Err(CoreError::new(ErrorCode::RepoBusy, "上一个网络操作还没完成"));
+    }
+    Ok(NetBusyGuard(&state.net_busy))
+}
+
 async fn net_task<T, F>(app: AppHandle, state: &AppState, task_id: String, log: NetLog, f: F) -> CmdResult<Written<T>>
 where
     T: Send + Serialize + 'static,
     F: FnOnce(&std::path::Path, &Cancel, &dyn Fn(remote::Progress)) -> CmdResult<T> + Send + 'static,
 {
-    if state.net_busy.swap(true, Ordering::SeqCst) {
-        return Err(CoreError::new(ErrorCode::RepoBusy, "上一个网络操作还没完成"));
-    }
+    let guard = acquire_net(state)?;
+    net_task_with(app, state, guard, task_id, log, f).await
+}
+
+async fn net_task_with<T, F>(app: AppHandle, state: &AppState, guard: NetBusyGuard<'_>, task_id: String, log: NetLog, f: F) -> CmdResult<Written<T>>
+where
+    T: Send + Serialize + 'static,
+    F: FnOnce(&std::path::Path, &Cancel, &dyn Fn(remote::Progress)) -> CmdResult<T> + Send + 'static,
+{
     let cancel = Cancel::default();
     if let Ok(mut t) = state.tasks.lock() {
         t.insert(task_id.clone(), cancel.clone());
     }
     let path = repo_path(state);
+    let orig_path = path.as_ref().ok().cloned();
     let tid = task_id.clone();
     let result = match path {
         Err(e) => Err(e),
@@ -518,10 +539,14 @@ where
     if let Ok(mut t) = state.tasks.lock() {
         t.remove(&task_id);
     }
-    state.net_busy.store(false, Ordering::SeqCst);
+    drop(guard);
     // Refresh once on success or failure: a pull may stop in a conflict, a fetch updates remote branches
     let ok = result.is_ok();
     let (st, op, note) = with_repo(state, move |s| {
+        if orig_path.as_deref().is_some_and(|p| p != s.path()) {
+            // The user switched repositories while the network task was running; don't apply post-steps to the new repo
+            return Ok((s.state()?, None, None));
+        }
         // When the pull ends (not stopped in a conflict), restore the changes auto-shelved before it, then write the op log (spec §7.2)
         let note = if matches!(log, NetLog::Pull(..)) { s.pull_unshelve()? } else { None };
         let op = match log {
@@ -989,6 +1014,8 @@ async fn remote_fetch(app: AppHandle, state: State<'_, AppState>, task_id: Strin
 
 #[tauri::command]
 async fn remote_pull(app: AppHandle, state: State<'_, AppState>, task_id: String, mode: PullMode, fetched: Option<bool>) -> CmdResult<Written<PullResult>> {
+    // Acquire net_busy before auto-shelving, so a rejected concurrent pull never leaves worktree changes shelved
+    let guard = acquire_net(&state)?;
     // fetched: the UI just fetched and showed the pull summary panel (spec §7.2), so don't fetch again here
     let fetch = !fetched.unwrap_or(false);
     // Snapshot before auto-shelving: undoing this pull returns worktree changes to how they were before the pull
@@ -1000,7 +1027,7 @@ async fn remote_pull(app: AppHandle, state: State<'_, AppState>, task_id: String
     .await?;
     let label = if matches!(mode, PullMode::Rebase) { format!("拉取 {branch}（变基）") } else { format!("拉取 {branch}") };
     let log = NetLog::Pull(label, Box::new(before));
-    net_task(app, &state, task_id, log, move |p, c, pr| remote::pull_with(p, mode, fetch, c, pr)).await
+    net_task_with(app, &state, guard, task_id, log, move |p, c, pr| remote::pull_with(p, mode, fetch, c, pr)).await
 }
 
 /// Pull dry run (spec §7.2): merge once in memory using the last fetch's result, without changing the repository or using the network
@@ -1027,7 +1054,7 @@ async fn remote_push_preview(state: State<'_, AppState>, to: Option<String>, rem
 async fn remote_push(app: AppHandle, state: State<'_, AppState>, task_id: String, force: bool, tags: bool, to: Option<String>, remote: Option<String>) -> CmdResult<Written<()>> {
     let branch = with_repo(&state, |s| Ok(s.state()?.head.branch.unwrap_or_default())).await?;
     let log = NetLog::Push(match &to {
-        Some(id) => format!("推送 {branch} 到 {} 为止", &id[..id.len().min(7)]),
+        Some(id) => format!("推送 {branch} 到 {} 为止", id.chars().take(7).collect::<String>()),
         None if force => format!("强制推送 {branch}"),
         None => format!("推送 {branch}"),
     });
@@ -1231,7 +1258,7 @@ async fn commit_tree(state: State<'_, AppState>, id: String) -> CmdResult<Vec<St
 #[tauri::command]
 async fn project_files(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
     let path = repo_path(&state)?;
-    tauri::async_runtime::spawn_blocking(move || strand_core::Session::open(&path)?.project_files())
+    tauri::async_runtime::spawn_blocking(move || strand_core::file_history::project_files_at(&path))
         .await
         .map_err(|e| CoreError::git("后台任务异常结束", e))?
 }
@@ -1516,7 +1543,7 @@ async fn commit_files_apply(state: State<'_, AppState>, id: String, paths: Vec<S
 /// Replace a worktree file with its content at a revision
 #[tauri::command]
 async fn file_restore(state: State<'_, AppState>, id: String, path: String) -> CmdResult<Written<()>> {
-    let label = format!("把 {path} 取回到 {}", &id[..id.len().min(7)]);
+    let label = format!("把 {path} 取回到 {}", id.chars().take(7).collect::<String>());
     let scope = OpScope { files: vec![path.clone()], ..Default::default() };
     logged_op_scoped(&state, label, OpKind::Other, scope, move |s| s.file_restore(&id, &path)).await
 }

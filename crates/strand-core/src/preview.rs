@@ -46,15 +46,20 @@ pub struct Textconv {
 /// The file as text through its textconv command: at a revision (`git cat-file --textconv`) or in the worktree
 /// (the command run on the file, the way Git runs it)
 pub fn textconv(dir: &Path, path: &str, rev: Option<&str>) -> Result<Textconv> {
+    crate::file_history::check_rel_path(path)?;
     let driver = textconv_driver(dir, path).ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("{path} 没有设置 textconv 转换命令")))?;
     let command = git_cli::run(dir, &["config", "--get", &format!("diff.{driver}.textconv")], None)?.trim().to_string();
     let mut text = match rev {
-        Some(rev) => git_cli::run(dir, &["cat-file", "--textconv", &format!("{rev}:{path}")], None)?,
-        None => {
-            let full = dir.join(path);
-            if !full.is_file() {
-                return Err(CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")));
+        Some(rev) => {
+            if rev.is_empty() || rev.starts_with('-') {
+                return Err(CoreError::new(ErrorCode::InvalidName, format!("版本名不对：{rev}")));
             }
+            git_cli::run(dir, &["cat-file", "--textconv", &format!("{rev}:{path}")], None)?
+        }
+        None => {
+            let full = crate::file_history::inside_worktree_existing(dir, path)?
+                .filter(|p| p.is_file())
+                .ok_or_else(|| CoreError::new(ErrorCode::NotFound, format!("工作区里没有这个文件：{path}")))?;
             run_textconv(dir, &command, &full)?
         }
     };
@@ -397,6 +402,9 @@ mod tests {
         git(p, &["config", "diff.upper.textconv", "false"]);
         assert!(textconv(p, "a.bin", None).is_err());
         assert!(textconv(p, "plain.txt", None).is_err());
+        // Path traversal and flag-like revisions are rejected
+        assert_eq!(textconv(p, "../a.bin", None).unwrap_err().code, ErrorCode::InvalidName);
+        assert_eq!(textconv(p, "a.bin", Some("--batch")).unwrap_err().code, ErrorCode::InvalidName);
     }
 
     #[test]

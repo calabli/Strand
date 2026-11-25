@@ -126,8 +126,8 @@ impl Hosting {
 }
 
 fn credential(dir: &Path, op: &str, input: &str) -> Option<String> {
-    let mut child = Command::new("git")
-        .args(["credential", op])
+    let mut cmd = Command::new("git");
+    cmd.args(["credential", op])
         .current_dir(dir)
         // Never ask: no terminal prompt and no askpass program, only what the credential helper already has
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -135,9 +135,9 @@ fn credential(dir: &Path, op: &str, input: &str) -> Option<String> {
         .env("SSH_ASKPASS", "")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    crate::git_cli::hide_console(&mut cmd);
+    let mut child = cmd.spawn().ok()?;
     child.stdin.take()?.write_all(input.as_bytes()).ok()?;
     let out = child.wait_with_output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
@@ -208,7 +208,7 @@ fn message_of(v: &Value) -> String {
 }
 
 fn unix(s: Option<&str>) -> i64 {
-    // ISO 8601 "2026-11-14T08:30:00Z" (GitLab may add milliseconds and an offset); seconds precision is enough here
+    // ISO 8601 "2026-11-14T08:30:00Z" or "2026-11-14T16:30:00.123+08:00"
     let Some(s) = s else { return 0 };
     let d: Vec<i64> = s.split(|c: char| !c.is_ascii_digit()).filter(|p| !p.is_empty()).take(6).filter_map(|p| p.parse().ok()).collect();
     if d.len() < 6 {
@@ -223,7 +223,23 @@ fn unix(s: Option<&str>) -> i64 {
     let doy = (153 * mp + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146097 + doe - 719468;
-    days * 86400 + d[3] * 3600 + d[4] * 60 + d[5]
+    let mut offset_secs: i64 = 0;
+    if let Some(t_pos) = s.find(['T', 't', ' ']) {
+        let time_part = &s[t_pos + 1..];
+        if let Some(sign_pos) = time_part.rfind(['+', '-']) {
+            let sign: i64 = if time_part.as_bytes()[sign_pos] == b'-' { -1 } else { 1 };
+            let tz = time_part[sign_pos + 1..].trim();
+            let (hh, mm): (i64, i64) = if let Some((h, m)) = tz.split_once(':') {
+                (h.parse().unwrap_or(0), m.parse().unwrap_or(0))
+            } else if tz.len() >= 4 {
+                (tz[..2].parse().unwrap_or(0), tz[2..4].parse().unwrap_or(0))
+            } else {
+                (tz.parse().unwrap_or(0), 0)
+            };
+            offset_secs = sign * (hh * 3600 + mm * 60);
+        }
+    }
+    days * 86400 + d[3] * 3600 + d[4] * 60 + d[5] - offset_secs
 }
 
 fn str_at<'a>(v: &'a Value, path: &[&str]) -> &'a str {
@@ -373,6 +389,9 @@ mod tests {
             "sha": "def", "draft": true, "web_url": "https://gitlab.com/g/p/-/merge_requests/7", "updated_at": "2026-11-14T08:30:00.123+00:00" });
         let m = parse_gitlab(&gl);
         assert_eq!((m.number, m.author.as_str(), m.head.as_str(), m.head_sha.as_str(), m.draft, m.updated), (7, "zhou", "fix", "def", true, 1_794_645_000));
+        assert_eq!(unix(Some("2026-11-14T16:30:00+08:00")), 1_794_645_000);
+        assert_eq!(unix(Some("2026-11-14T03:30:00.500-05:00")), 1_794_645_000);
+        assert_eq!(unix(Some("2026-11-14T16:30:00+0800")), 1_794_645_000);
         let runs = serde_json::json!({ "check_runs": [
             { "status": "completed", "conclusion": "success" }, { "status": "completed", "conclusion": "failure" },
             { "status": "in_progress", "conclusion": null }, { "status": "completed", "conclusion": "skipped" } ] });

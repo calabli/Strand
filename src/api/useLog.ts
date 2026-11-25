@@ -105,7 +105,8 @@ export function useLog(repoKey: string | null, query: LogQuery): LogData {
   useEffect(() => {
     generation.current += 1;
     // Same repository (repoKey is "path#time"): keep old pages until the new first page arrives; clear them for a different repository
-    const repoPath = repoKey?.split("#")[0] ?? null;
+    const hash = repoKey ? repoKey.lastIndexOf("#") : -1;
+    const repoPath = repoKey ? (hash >= 0 ? repoKey.slice(0, hash) : repoKey) : null;
     stale.current = repoPath !== null && repoPath === lastRepo.current ? new Map([...stale.current, ...pages.current]) : new Map();
     lastRepo.current = repoPath;
     pages.current = new Map();

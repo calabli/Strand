@@ -49,10 +49,15 @@ thread_local! {
 
 /// Network operations run inside `f` don't ask the user (e.g. background auto-fetch): they fail when input is needed.
 pub fn without_prompt<T>(f: impl FnOnce() -> T) -> T {
-    QUIET.with(|q| q.set(true));
-    let r = f();
-    QUIET.with(|q| q.set(false));
-    r
+    struct Guard(bool);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            QUIET.with(|q| q.set(self.0));
+        }
+    }
+    let prev = QUIET.with(|q| q.replace(true));
+    let _guard = Guard(prev);
+    f()
 }
 
 /// Set the program to run as askpass (usually the client's own executable, whose main calls `client_main` first).
@@ -179,4 +184,26 @@ fn random_token() -> String {
         h.finish()
     };
     format!("{:016x}{:016x}", part(1), part(2))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn without_prompt_nests_and_recovers_from_panic() {
+        assert!(!QUIET.with(|q| q.get()));
+        without_prompt(|| {
+            assert!(QUIET.with(|q| q.get()));
+            without_prompt(|| assert!(QUIET.with(|q| q.get())));
+            assert!(QUIET.with(|q| q.get()), "nested call must not clear outer quiet");
+        });
+        assert!(!QUIET.with(|q| q.get()));
+
+        let res = std::panic::catch_unwind(|| {
+            without_prompt(|| panic!("boom"));
+        });
+        assert!(res.is_err());
+        assert!(!QUIET.with(|q| q.get()), "panic must restore quiet flag");
+    }
 }

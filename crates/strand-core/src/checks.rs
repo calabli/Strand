@@ -175,7 +175,8 @@ fn suggest(dir: &Path) -> (Vec<String>, Vec<String>) {
 /// Quoting for the shell
 fn quote(p: &str) -> String {
     if cfg!(windows) {
-        format!("\"{}\"", p.replace('"', "\"\""))
+        // cmd.exe expands %VAR% even inside double quotes; break out of quotes to escape % with ^%
+        format!("\"{}\"", p.replace('"', "\"\"").replace('%', "\"^%\""))
     } else {
         format!("'{}'", p.replace('\'', "'\\''"))
     }
