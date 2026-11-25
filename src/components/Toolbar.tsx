@@ -6,13 +6,14 @@ import { shortId } from "./format";
 import { hintOf, useKeymap } from "../keymap";
 import { lang, setLang, t, lazy } from "../i18n";
 
-const Icon = ({ d }: { d: string }) => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+const Icon = ({ d, className }: { d: string; className?: string }) => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <path d={d} />
   </svg>
 );
 
 const ICONS = {
+  branch: "M4 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM4 5.5v6M4 11.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM10 4.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM10 4.5c0 2.5-1.5 3.5-6 4",
   panel: "M1.5 2.5h11v9h-11zM5 2.5v9",
   fetch: "M12.5 7a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0M7 4v5M5 7l2 2 2-2",
   pull: "M7 1.5v8M3.5 6.5 7 10l3.5-3.5M2 12.5h10",
@@ -101,10 +102,12 @@ export function Toolbar({ repo, onRepos, onReload, onBranch, onAbortMerge, onSho
           onRepos(r.left, r.bottom + 4);
         }}
       >
+        <span className="tb-repo-badge" aria-hidden="true">{(repo.name.trim()[0] ?? "S").toUpperCase()}</span>
         {repo.name}
         <span className="chev">▾</span>
       </button>
       <button type="button" className="tb-branch mono" onClick={onBranch} title={t("分支（切换、新建、合并…）")}>
+        <Icon d={ICONS.branch} className="tb-branch-icon" />
         {branch}
         <span className="chev">▾</span>
       </button>

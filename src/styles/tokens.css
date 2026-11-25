@@ -1,45 +1,80 @@
 /*
- * Theme variables. Light and dark follow the system and can be forced with data-theme.
- * Text/background contrast is at least 4.5:1 as spec §16 requires: --danger is red text; red buttons use --danger-btn as background (white text)
+ * Theme variables — JetBrains New UI (IntUI Light & Dark) inspired palette.
+ * Light and dark follow the system and can be forced with data-theme.
+ * Text/background contrast is at least 4.5:1 as spec §16 requires:
+ * --danger is red text; red buttons use --danger-btn as background (white text).
  */
 :root {
-  --desk: #E4E4E9; --win: #FFFFFF; --side: #F5F5F7; --bar: #F5F5F7; --soft: #FAFAFB;
-  --line: #DCDCE0; --line2: #C9C9CF; --fg: #1D1D1F; --fg2: #5F5F65; --chip: #E4E4E8; --hover: #ECECF0;
-  --accent: #0064E0; --accent-ink: #0058C7;
-  --mine-bg: #FFEBD6; --mine-gap: #FFF7EE; --mine-strong: #FFC48A; --mine-ink: #7A3300; --mine-head: #FFDDB8;
-  --theirs-bg: #DCE9FF; --theirs-gap: #F1F6FF; --theirs-strong: #A9C8FF; --theirs-ink: #0B4FB3; --theirs-head: #C9DEFF;
-  --pend-bg: #FFF3CC; --pend-ink: #5C4300; --ok-bg: #E3F3E8; --ok-ink: #1A6B34; --danger: #B3261E; --danger-btn: #B3261E;
-  --add-bg: #E6F4EA; --del-bg: #FDECEA; --add-strong: #B5E0C1; --del-strong: #F7C3BD;
-  --l0: #0064E0; --l1: #C2540A; --l2: #7A3FD0; --l3: #0A7C86;
+  /* Surfaces */
+  --desk: #ECEDF1; --win: #FFFFFF; --side: #F7F8FA; --bar: #F7F8FA; --soft: #F2F4F8;
+  --line: #E5E7EB; --line2: #C9CCD6;
+  /* Text & controls */
+  --fg: #1E1F22; --fg2: #656976; --chip: #EBECF0; --hover: #EBECF0; --hover2: #DFE1E5;
+  /* Accent & selection (JetBrains New UI blue + crisp soft row selection) */
+  --accent: #3574F0; --accent-hover: #2E65D4; --accent-ink: #275CC4;
+  --sel-bg: #D4E2FF; --sel-fg: #1E1F22; --sel-fg2: #434857; --sel-soft: #EDF3FF;
+  /* Ref badges (HEAD gold, local blue, remote violet, tag neutral) */
+  --ref-head-bg: #FFF3C4; --ref-head-ink: #6B4700; --ref-head-bd: #E5C158;
+  --ref-branch-bg: #E8F0FE; --ref-branch-ink: #1E50B5; --ref-branch-bd: #BDD4FC;
+  --ref-remote-bg: #F1EDFD; --ref-remote-ink: #5B3FA8; --ref-remote-bd: #D8CEF8;
+  --ref-tag-bg: #F0F1F4; --ref-tag-ink: #494D5A; --ref-tag-bd: #D3D5DB;
+  /* Conflict & diff */
+  --mine-bg: #FFF1E0; --mine-gap: #FFF8F0; --mine-strong: #F7C794; --mine-ink: #8C4200; --mine-head: #FFE4C4;
+  --theirs-bg: #E3EEFF; --theirs-gap: #F2F7FF; --theirs-strong: #A8C8FF; --theirs-ink: #1D53B8; --theirs-head: #D0E2FF;
+  --pend-bg: #FFF4D2; --pend-ink: #724E00; --ok-bg: #E5F5EA; --ok-ink: #1C723A; --danger: #C93636; --danger-btn: #C93636;
+  --add-bg: #E9F7EC; --del-bg: #FDECEC; --add-strong: #B4E2BE; --del-strong: #F6C1C1;
+  /* Graph lanes */
+  --l0: #3574F0; --l1: #D97706; --l2: #8B5CF6; --l3: #0D9488;
   /* Syntax highlighting: darker colors on light backgrounds, readable on the red and green diff backgrounds too */
   /* Bracket pairs by nesting depth (cycling), and a bracket without its partner */
   --br0: #8A5D00; --br1: #A626A4; --br2: #0969DA; --br3: #1A7F37; --br-bad: #CF222E;
-  --sx-kw: #CF222E; --sx-str: #0A3069; --sx-com: #6E7781; --sx-num: #0550AE; --sx-fn: #8250DF; --sx-type: #953800; --sx-tag: #116329; --sx-attr: #0550AE;
-  --shadow: 0 18px 48px rgba(0,0,0,0.18);
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
-  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sx-kw: #0033B3; --sx-str: #067D17; --sx-com: #6E7781; --sx-num: #1750EB; --sx-fn: #00627A; --sx-type: #7A3E9D; --sx-tag: #0033B3; --sx-attr: #174AD4;
+  /* Elevation & shape */
+  --shadow: 0 12px 32px rgba(20, 22, 30, 0.14), 0 2px 8px rgba(20, 22, 30, 0.08);
+  --shadow-sm: 0 4px 16px rgba(20, 22, 30, 0.10), 0 1px 3px rgba(20, 22, 30, 0.06);
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 10px;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --desk: #0E0E10; --win: #1C1C1E; --side: #242426; --bar: #2A2A2D; --soft: #222224;
-  --line: #3A3A3D; --line2: #55555A; --fg: #F5F5F7; --fg2: #A9A9AF; --chip: #3A3A3D; --hover: #323235;
-  --accent: #0064E0; --accent-ink: #7DB6FF;
+  --desk: #16171A; --win: #1E1F22; --side: #2B2D30; --bar: #2B2D30; --soft: #25272B;
+  --line: #393B40; --line2: #4E5157;
+  --fg: #DFE1E5; --fg2: #9DA0A8; --chip: #393B40; --hover: #35383E; --hover2: #43464E;
+  --accent: #3574F0; --accent-hover: #4682F5; --accent-ink: #6B9EFF;
+  --sel-bg: #2E436E; --sel-fg: #F0F2F5; --sel-fg2: #B8C5DF; --sel-soft: #27344E;
+  --ref-head-bg: #4A3B16; --ref-head-ink: #F2CC60; --ref-head-bd: #7A6021;
+  --ref-branch-bg: #263858; --ref-branch-ink: #88B4FF; --ref-branch-bd: #395585;
+  --ref-remote-bg: #362A4F; --ref-remote-ink: #C5A8FF; --ref-remote-bd: #513F75;
+  --ref-tag-bg: #35373D; --ref-tag-ink: #B5B8C0; --ref-tag-bd: #4E5157;
   --mine-bg: #46301F; --mine-gap: #2B2420; --mine-strong: #8A5220; --mine-ink: #FFB877; --mine-head: #5A3B22;
   --theirs-bg: #1F3352; --theirs-gap: #20262F; --theirs-strong: #2F5FA8; --theirs-ink: #9CC4FF; --theirs-head: #27416B;
-  --pend-bg: #453B14; --pend-ink: #F2D675; --ok-bg: #1C3A27; --ok-ink: #7FD49A; --danger: #FF8A80; --danger-btn: #C62828;
-  --add-bg: #1C3A27; --del-bg: #4A2422; --add-strong: #2D6B41; --del-strong: #7D3530;
-  --l0: #5B9BFF; --l1: #E08A4F; --l2: #B48CF2; --l3: #4FC3CC;
+  --pend-bg: #453B14; --pend-ink: #F2D675; --ok-bg: #1C3A27; --ok-ink: #7FD49A; --danger: #F7768E; --danger-btn: #C93B3B;
+  --add-bg: #1E3826; --del-bg: #442326; --add-strong: #2D6B41; --del-strong: #7D3530;
+  --l0: #548AF7; --l1: #E08A4F; --l2: #B48CF2; --l3: #4FC3CC;
   --br0: #E3B341; --br1: #F778BA; --br2: #79C0FF; --br3: #56D364; --br-bad: #FF7B72;
-  --sx-kw: #FF7B72; --sx-str: #A5D6FF; --sx-com: #8B949E; --sx-num: #79C0FF; --sx-fn: #D2A8FF; --sx-type: #FFA657; --sx-tag: #7EE787; --sx-attr: #79C0FF;
-  --shadow: 0 18px 48px rgba(0,0,0,0.6); color-scheme: dark } }
+  --sx-kw: #CF8E6D; --sx-str: #6AAB73; --sx-com: #7A7E85; --sx-num: #2AACB8; --sx-fn: #56A8F5; --sx-type: #C77DBB; --sx-tag: #D5B778; --sx-attr: #9876AA;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 6px 20px rgba(0, 0, 0, 0.42), 0 1px 4px rgba(0, 0, 0, 0.28);
+  color-scheme: dark;
+} }
 :root[data-theme="dark"] {
-  --desk: #0E0E10; --win: #1C1C1E; --side: #242426; --bar: #2A2A2D; --soft: #222224;
-  --line: #3A3A3D; --line2: #55555A; --fg: #F5F5F7; --fg2: #A9A9AF; --chip: #3A3A3D; --hover: #323235;
-  --accent: #0064E0; --accent-ink: #7DB6FF;
+  --desk: #16171A; --win: #1E1F22; --side: #2B2D30; --bar: #2B2D30; --soft: #25272B;
+  --line: #393B40; --line2: #4E5157;
+  --fg: #DFE1E5; --fg2: #9DA0A8; --chip: #393B40; --hover: #35383E; --hover2: #43464E;
+  --accent: #3574F0; --accent-hover: #4682F5; --accent-ink: #6B9EFF;
+  --sel-bg: #2E436E; --sel-fg: #F0F2F5; --sel-fg2: #B8C5DF; --sel-soft: #27344E;
+  --ref-head-bg: #4A3B16; --ref-head-ink: #F2CC60; --ref-head-bd: #7A6021;
+  --ref-branch-bg: #263858; --ref-branch-ink: #88B4FF; --ref-branch-bd: #395585;
+  --ref-remote-bg: #362A4F; --ref-remote-ink: #C5A8FF; --ref-remote-bd: #513F75;
+  --ref-tag-bg: #35373D; --ref-tag-ink: #B5B8C0; --ref-tag-bd: #4E5157;
   --mine-bg: #46301F; --mine-gap: #2B2420; --mine-strong: #8A5220; --mine-ink: #FFB877; --mine-head: #5A3B22;
   --theirs-bg: #1F3352; --theirs-gap: #20262F; --theirs-strong: #2F5FA8; --theirs-ink: #9CC4FF; --theirs-head: #27416B;
-  --pend-bg: #453B14; --pend-ink: #F2D675; --ok-bg: #1C3A27; --ok-ink: #7FD49A; --danger: #FF8A80; --danger-btn: #C62828;
-  --add-bg: #1C3A27; --del-bg: #4A2422; --add-strong: #2D6B41; --del-strong: #7D3530;
-  --l0: #5B9BFF; --l1: #E08A4F; --l2: #B48CF2; --l3: #4FC3CC;
+  --pend-bg: #453B14; --pend-ink: #F2D675; --ok-bg: #1C3A27; --ok-ink: #7FD49A; --danger: #F7768E; --danger-btn: #C93B3B;
+  --add-bg: #1E3826; --del-bg: #442326; --add-strong: #2D6B41; --del-strong: #7D3530;
+  --l0: #548AF7; --l1: #E08A4F; --l2: #B48CF2; --l3: #4FC3CC;
   --br0: #E3B341; --br1: #F778BA; --br2: #79C0FF; --br3: #56D364; --br-bad: #FF7B72;
-  --sx-kw: #FF7B72; --sx-str: #A5D6FF; --sx-com: #8B949E; --sx-num: #79C0FF; --sx-fn: #D2A8FF; --sx-type: #FFA657; --sx-tag: #7EE787; --sx-attr: #79C0FF;
-  --shadow: 0 18px 48px rgba(0,0,0,0.6); color-scheme: dark }
+  --sx-kw: #CF8E6D; --sx-str: #6AAB73; --sx-com: #7A7E85; --sx-num: #2AACB8; --sx-fn: #56A8F5; --sx-type: #C77DBB; --sx-tag: #D5B778; --sx-attr: #9876AA;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 6px 20px rgba(0, 0, 0, 0.42), 0 1px 4px rgba(0, 0, 0, 0.28);
+  color-scheme: dark;
+}

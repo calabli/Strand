@@ -36,7 +36,7 @@ function GraphCell({ g, width, isHead, onJump }: { g: GraphRow; width: number; i
           const end = y + ROW * 0.55;
           return (
             <g key={i}>
-              <path d={`M${x1} ${y}V${end}M${x1 - 3.5} ${end - 4}L${x1} ${end}L${x1 + 3.5} ${end - 4}`} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <path d={`M${x1} ${y}V${end}M${x1 - 3.2} ${end - 3.8}L${x1} ${end}L${x1 + 3.2} ${end - 3.8}`} stroke={color} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
               {e.target != null && onJump && <JumpHit x={x1} y={end - 3} title={t("跳到父提交")} onClick={() => onJump(e.target!)} />}
             </g>
           );
@@ -46,7 +46,7 @@ function GraphCell({ g, width, isHead, onJump }: { g: GraphRow; width: number; i
           const top = 3;
           return (
             <g key={i}>
-              <path d={`M${x1 - 3.5} ${top}L${x1} ${top + 4}L${x1 + 3.5} ${top}M${x1} ${top + 4}V${y + ROW}`} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <path d={`M${x1 - 3.2} ${top}L${x1} ${top + 3.8}L${x1 + 3.2} ${top}M${x1} ${top + 3.8}V${y + ROW}`} stroke={color} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
               {e.target != null && onJump && <JumpHit x={x1} y={top + 2} title={t("跳到子提交")} onClick={() => onJump(e.target!)} />}
             </g>
           );
@@ -55,15 +55,15 @@ function GraphCell({ g, width, isHead, onJump }: { g: GraphRow; width: number; i
           x1 === x2
             ? `M${x1} ${y}V${y + ROW}`
             : `M${x1} ${y}C${x1} ${y + ROW * 0.6},${x2} ${y + ROW * 0.4},${x2} ${y + ROW}`;
-        return <path key={i} d={d} stroke={color} strokeWidth={2} fill="none" />;
+        return <path key={i} d={d} stroke={color} strokeWidth={1.8} fill="none" />;
       })}
       <circle
         cx={laneX(g.lane)}
         cy={y}
-        r={isHead ? 4 : 4.5}
+        r={isHead ? 3.8 : 4.2}
         fill={isHead ? "var(--win)" : laneColor(g.lane)}
         stroke={laneColor(g.lane)}
-        strokeWidth={2}
+        strokeWidth={1.8}
       />
     </svg>
   );
