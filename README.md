@@ -23,7 +23,7 @@ Website: https://calabli.github.io/Strand/ (source in `site/`, deployed to GitHu
 - Edit files right in their tab with a code editor: syntax colors, find and replace, go to line, undo; unsaved changes are marked and kept from being lost. Open repositories in new windows; change keyboard shortcuts in Settings.
 - Contribution statistics for the current branch: commits and changed lines per author and per month, and a weekday × hour activity map.
 - Repository maintenance: see what takes space in .git, clean up with `git gc` (stoppable), and turn on rerere so repeated conflicts are resolved the way you resolved them before. Edited files are auto-saved (can be turned off); the save shortcut is configurable.
-- Quitting asks about unsaved edits first, and the next launch reopens every repository window that was open.
+- Quitting asks about unsaved edits first. On startup Strand reopens every repository window that was open, only the last repository, or the welcome page, as chosen in Settings › Startup.
 - Zoom the whole window from 80% to 150% with ⌘= / ⌘− / ⌘0 or in Settings; the level is remembered.
 - Notification balloons in the bottom-right like an IDE's: what an operation did (a pull says which branch, how many commits and files), with links to undo, view the pulled commits or pull after a fetch; errors stay until closed, with the console one click away; a notification log in the palette.
 - Git hooks: list the repository's hooks with what each is for, edit them in the code editor, switch them off and on, and try one without committing; when a hook stops a commit, its full output is shown with a way to commit without hooks. Running hooks can be turned off in the commit options.

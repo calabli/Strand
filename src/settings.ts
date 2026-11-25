@@ -5,6 +5,12 @@ import { useEffect, useState } from "react";
 
 export type MarkdownMode = "inline" | "split" | "source";
 
+/**
+ * What a launch opens: every repository window that was open when Strand last quit, only the repository opened
+ * last, or the welcome page ("Open a repository" with the recent list)
+ */
+export type Startup = "windows" | "last" | "welcome";
+
 export interface Settings {
   /** Theme: follow system, light, dark (spec §3.5) */
   theme: "auto" | "light" | "dark";
@@ -20,8 +26,8 @@ export interface Settings {
   mergeRefs: boolean;
   /** Show merge commit titles in grey (display options in spec §5.1) */
   dimMerges: boolean;
-  /** Open the last repository on startup */
-  reopenLast: boolean;
+  /** What a launch opens (when no repository is given on the command line) */
+  startup: Startup;
   /** Check for a new version on startup */
   autoUpdate: boolean;
   /** Diff view: unified (top and bottom) or side by side (spec §10.1) */
@@ -67,14 +73,20 @@ export interface Settings {
   zoom: number;
 }
 
-export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, reopenLast: true, autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {}, markdownMode: "split", markdownSyncScroll: true, rainbowBrackets: true, zoom: 1 };
+export const DEFAULTS: Settings = { theme: "auto", autoFetch: true, fetchMinutes: 5, signOff: false, exactDates: true, mergeRefs: true, dimMerges: true, startup: "windows", autoUpdate: true, diffView: "unified", ignoreWs: false, diffFold: true, diffBlame: false, diffWs: false, diffLineNo: true, diffWrap: true, diffSyntax: true, diffIndent: true, groupByDir: false, paneLeft: 280, paneRight: 340, paneTree: 220, detailFiles: null, detailInfo: null, paneHistory: 320, autoSave: true, runHooks: true, previewChoice: {}, markdownMode: "split", markdownSyncScroll: true, rainbowBrackets: true, zoom: 1 };
 
 const KEY = "strand.settings";
 const listeners = new Set<() => void>();
 
 function load(): Settings {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    // Before 0.1.12 startup was one switch, reopenLast: on reopened every window, off showed the welcome page
+    if (saved && typeof saved === "object" && "reopenLast" in saved) {
+      if (!("startup" in saved)) saved.startup = saved.reopenLast === false ? "welcome" : "windows";
+      delete saved.reopenLast;
+    }
+    return { ...DEFAULTS, ...saved };
   } catch {
     return { ...DEFAULTS };
   }

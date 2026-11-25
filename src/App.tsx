@@ -117,6 +117,8 @@ export default function App() {
   repoRef.current = repo;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Launching: the repository chosen by the startup setting is still opening, so the welcome page isn't shown yet */
+  const [booting, setBooting] = useState(true);
   const [selected, setSelected] = useState<Commit | null>(null);
   // Each open or refresh gets a new key, which clears the log cache
   const [logKey, setLogKey] = useState<string | null>(null);
@@ -611,13 +613,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const reopen = settings().reopenLast;
-    Promise.all([api.gitCheck(), api.launchPath(), api.sessionRestore(reopen).catch(() => null)]).then(([g, launch, restored]) => {
+    const startup = settings().startup;
+    // Restoring is asked for even when it's off: it also clears the records of windows that are gone
+    Promise.all([api.gitCheck(), api.launchPath(), api.sessionRestore(startup === "windows").catch(() => null)]).then(([g, launch, restored]) => {
       setGit(g);
-      // The repository from the launch arguments first, then the windows the last session left open (the others
-      // reopen in their own windows), then the last opened one
-      const target = launch ?? restored ?? (reopen ? readLast() : null) ?? (inTauri ? null : "/示例/strand-app");
-      if (g.ok && target) open(target);
+      // The repository from the launch arguments first; then, by the startup setting, the windows the last session
+      // left open (the others reopen in their own windows) or the last opened repository; else the welcome page
+      const last = startup === "welcome" ? null : (restored ?? readLast() ?? (inTauri ? null : "/示例/strand-app"));
+      const target = launch ?? last;
+      if (g.ok && target) void open(target).finally(() => setBooting(false));
+      else setBooting(false);
     });
   }, [open]);
 
@@ -1398,7 +1403,15 @@ export default function App() {
   // App updates: checked on startup when enabled; the card shows the new version and download progress
   const updates = useUpdates({ say });
 
-  if (!git) return <div className="center dim">{t("正在检测 Git…")}</div>;
+  // Until Git is checked and the startup repository has opened (or failed to), a quiet screen: showing the welcome page
+  // meanwhile would flash it before the repository appears. The text only fades in when it takes a while.
+  if (!git || (booting && git.ok && !repo)) {
+    return (
+      <div className="center">
+        <span className="dim boot-msg">{git ? t("正在打开仓库…") : t("正在检测 Git…")}</span>
+      </div>
+    );
+  }
 
   if (!git.ok) {
     return (

@@ -28,6 +28,7 @@ import {
   useSettings,
   type RecentRepo,
   type Settings,
+  type Startup,
 } from "../settings";
 import { formatTime } from "./format";
 import { ACTIONS, type ActionId, comboFromEvent, comboOf, conflictOf, hintOf, labelOf, resetAll, setCombo, showCombo, usable, useKeymap } from "../keymap";
@@ -586,12 +587,21 @@ export function SettingsWindow({
             )}
           <div className="set-sec dim">{t("启动")}</div>
           {row(
-            t("启动时打开上次的仓库"),
-            <Toggle
-              on={s.reopenLast}
-              label={t("启动时打开上次的仓库")}
-              onChange={(v) => set({ reopenLast: v })}
+            t("启动时打开"),
+            <Choice<Startup>
+              value={s.startup}
+              options={[
+                ["windows", t("上次的所有窗口")],
+                ["last", t("上次的仓库")],
+                ["welcome", t("欢迎页")],
+              ]}
+              onChange={(v) => set({ startup: v })}
             />,
+            s.startup === "windows"
+              ? t("上次退出时开着几个仓库窗口，就恢复几个")
+              : s.startup === "last"
+                ? t("只开一个窗口，打开最后用过的仓库")
+                : t("每次都从“打开一个仓库”开始，可以在最近打开的列表里选"),
           )}
           <div className="set-sec dim">{t("更新")}</div>
           {row(
